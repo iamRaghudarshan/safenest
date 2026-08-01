@@ -1,0 +1,70 @@
+# Compile the Mac build without owning a Mac.
+#
+# PyInstaller freezes the interpreter it runs under, so a macOS executable can
+# only be produced on macOS. This runs the ordinary build on GitHub's macOS
+# runners and hands back the finished folder as an artifact; you download it,
+# drop it into dist-app/mac/, and issue Mac copies from your own laptop like any
+# other. The source, the licences and the signing key never leave your machine —
+# this job only compiles.
+#
+# WHAT IT DOES NOT NEED
+# No secrets. The licence signing key is not used to build the app; it is used to
+# sign licences and release manifests, which happens on your own installation.
+# Do not add it here.
+#
+# Trigger it from the Actions tab (workflow_dispatch), or push a tag.
+name: Build the Mac app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  mac:
+    runs-on: macos-14        # Apple silicon; use macos-13 for an Intel build
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the web app
+        working-directory: frontend
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Install the backend's dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Build-time only, and deliberately not in requirements.txt: that file
+          # is installed on customers' machines by setup.py.
+          pip install pyinstaller nuitka
+
+      - name: Compile
+        run: python packaging/build_exe.py --native --no-models --clean
+
+      - name: Check it actually produced something
+        run: |
+          test -x "dist-app/mac/FinMate/FinMate" || {
+            echo "No Mac executable was produced"; exit 1; }
+          file "dist-app/mac/FinMate/FinMate"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-build
+          path: dist-app/mac/
+          # A few hundred megabytes; long enough to download, short enough not to
+          # sit in the account for months.
+          retention-days: 14
+          compression-level: 6

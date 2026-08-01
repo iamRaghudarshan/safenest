@@ -1,0 +1,654 @@
+from datetime import date as _date, datetime as _datetime
+
+from sqlalchemy import (
+    DECIMAL, TIMESTAMP, Column, Date, DateTime, Float, ForeignKey, Integer, LargeBinary,
+    String, Text, UniqueConstraint, text,
+)
+from sqlalchemy.types import TypeDecorator
+
+from .database import Base
+
+
+def _parse(value, want_date: bool):
+    """Coerce an ISO string from a JSON body into a real date/datetime."""
+    if not isinstance(value, str):
+        # datetime -> date when the column only wants a day.
+        if want_date and isinstance(value, _datetime):
+            return value.date()
+        return value
+    text_value = value.strip()
+    if not text_value:
+        return None
+    text_value = text_value.replace("T", " ").replace("Z", "").strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            parsed = _datetime.strptime(text_value[:len(fmt) + 2].strip(), fmt)
+        except ValueError:
+            continue
+        return parsed.date() if want_date else parsed
+    raise ValueError(f"{value!r} is not a valid date")
+
+
+class FlexDate(TypeDecorator):
+    """A Date column that also accepts 'YYYY-MM-DD' strings.
+
+    MySQL parses date strings itself, so the routers have always been able to pass a
+    value straight from a JSON body into the model. SQLite's driver refuses anything
+    but a datetime.date, so the coercion lives here — one place, rather than every
+    endpoint having to remember. Keeps the two backends behaving identically.
+    """
+    impl = Date
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return _parse(value, want_date=True)
+
+
+class FlexDateTime(TypeDecorator):
+    """As FlexDate, for columns that keep a time as well."""
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, _date) and not isinstance(value, _datetime):
+            return _datetime(value.year, value.month, value.day)
+        return _parse(value, want_date=False)
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120))
+    email = Column(String(190), unique=True)
+    password_hash = Column(String(255))
+    role = Column(String(10), default="user")
+    status = Column(String(12), default="active")
+    phone = Column(String(20))
+    avatar = Column(String(255))
+    two_factor_enabled = Column(Integer, default=0)
+    vault_recovery_hash = Column(String(255))
+    # Bumped whenever every existing session must die (password change, admin reset).
+    # Tokens carry the value they were minted with and are rejected once it moves on.
+    token_version = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    failed_logins = Column(Integer, default=0)
+    locked_until = Column(FlexDateTime)
+    last_login_at = Column(FlexDateTime)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class UserModule(Base):
+    __tablename__ = "user_modules"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    module_key = Column(String(40))
+    can_view = Column(Integer, default=1)
+    can_create = Column(Integer, default=1)
+    can_edit = Column(Integer, default=1)
+    can_delete = Column(Integer, default=1)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class Loan(Base):
+    __tablename__ = "loans"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    lender = Column(String(120))
+    loan_type = Column(String(60))
+    principal = Column(DECIMAL(14, 2), default=0)
+    interest_rate = Column(DECIMAL(5, 2), default=0)
+    emi = Column(DECIMAL(14, 2), default=0)
+    tenure_months = Column(Integer, default=0)
+    outstanding = Column(DECIMAL(14, 2), default=0)
+    start_date = Column(FlexDate)
+    next_due_date = Column(FlexDate)
+    status = Column(String(10), default="active")
+    notes = Column(String(255))
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class LoanPayment(Base):
+    """One row = a loan EMI marked paid for a given month (period 'YYYY-MM')."""
+    __tablename__ = "loan_payments"
+    id = Column(Integer, primary_key=True)
+    loan_id = Column(Integer, index=True)
+    user_id = Column(Integer, index=True)
+    period = Column(String(7))  # 'YYYY-MM'
+    amount = Column(DECIMAL(14, 2))
+    paid_date = Column(FlexDate)
+    created_at = Column(FlexDateTime)
+
+
+class CreditCard(Base):
+    __tablename__ = "credit_cards"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    bank = Column(String(120))
+    last4 = Column(String(4))
+    credit_limit = Column(DECIMAL(14, 2), default=0)
+    billing_day = Column(Integer)
+    due_date = Column(FlexDate)
+    statement_amount = Column(DECIMAL(14, 2), default=0)
+    status = Column(String(10), default="unpaid")
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class CardPayment(Base):
+    """One row = a credit-card bill marked paid for a given month (period 'YYYY-MM')."""
+    __tablename__ = "card_payments"
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, index=True)
+    user_id = Column(Integer, index=True)
+    period = Column(String(7))  # 'YYYY-MM'
+    amount = Column(DECIMAL(14, 2))
+    paid_date = Column(FlexDate)
+    created_at = Column(FlexDateTime)
+
+
+class Insurance(Base):
+    __tablename__ = "insurance"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    policy_type = Column(String(60))
+    provider = Column(String(120))
+    policy_no = Column(String(80))
+    premium = Column(DECIMAL(14, 2), default=0)
+    sum_assured = Column(DECIMAL(14, 2), default=0)
+    frequency = Column(String(20), default="yearly")
+    renewal_date = Column(FlexDate)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class Investment(Base):
+    __tablename__ = "investments"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    broker = Column(String(120))
+    invest_type = Column(String(40))
+    name = Column(String(160))
+    invested_amount = Column(DECIMAL(14, 2), default=0)
+    current_value = Column(DECIMAL(14, 2), default=0)
+    units = Column(DECIMAL(16, 4))
+    maturity_date = Column(FlexDate)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class Expense(Base):
+    __tablename__ = "expenses"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    kind = Column(String(10), default="expense")
+    category = Column(String(60))
+    amount = Column(DECIMAL(14, 2), default=0)
+    method = Column(String(40))
+    txn_date = Column(FlexDate)
+    note = Column(String(255))
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    title = Column(String(160))
+    module_ref = Column(String(40))
+    due_date = Column(FlexDate)
+    recurrence = Column(String(10), default="none")
+    is_done = Column(Integer, default=0)
+    notify_push = Column(Integer, default=1)
+    notify_email = Column(Integer, default=0)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class Todo(Base):
+    __tablename__ = "todos"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    title = Column(String(200))
+    priority = Column(String(10), default="medium")
+    due_date = Column(FlexDate)
+    status = Column(String(10), default="pending")
+    recurrence = Column(String(10), default="none")
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class GalleryPhoto(Base):
+    __tablename__ = "gallery_photos"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    filename = Column(String(255))
+    caption = Column(String(255))
+    taken_at = Column(FlexDate)
+    is_favorite = Column(Integer, default=0)
+    is_trashed = Column(Integer, default=0)
+    size_bytes = Column(Integer, default=0)
+    content_hash = Column(String(64), index=True)  # sha256 of normalised JPEG — exact-dup key
+    phash = Column(String(16), index=True)          # 64-bit dHash (hex) — perceptual/near-dup key
+    # Text found in the picture: whiteboards, receipts, parcel labels, screenshots.
+    # NULL = never read; "" = read and genuinely had no text.
+    ocr_text = Column(Text)
+    ocr_at = Column(FlexDateTime)
+    # --- capture metadata, read from EXIF at upload (all optional) ---
+    orig_name = Column(String(255))   # filename as it left the user's device
+    width = Column(Integer)
+    height = Column(Integer)
+    camera = Column(String(120))      # "Apple iPhone 15 Pro"
+    lens = Column(String(120))        # exposure summary: "26mm · f/1.8 · 1/120s · ISO 64"
+    lat = Column(Float)               # decimal degrees, north positive
+    lon = Column(Float)               # decimal degrees, east positive
+    shot_at = Column(FlexDateTime)        # full capture timestamp when EXIF carries one
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class Master(Base):
+    """User-managed lookup lists ('masters') — e.g. document categories, banks,
+    expense categories. One row per value, keyed by (user_id, type, key)."""
+    __tablename__ = "masters"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    type = Column(String(40), index=True)   # document_category / bank / expense_category / vault_category
+    key = Column(String(60))                # stable slug stored on records
+    label = Column(String(80))
+    emoji = Column(String(16))
+    color = Column(String(20))
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Integer, default=1)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class Document(Base):
+    """Secure document locker (ID cards, policies, certificates…). Files live in a
+    PRIVATE dir (not the public /uploads mount) and are streamed only via an
+    authenticated, ownership-checked endpoint."""
+    __tablename__ = "documents"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    title = Column(String(160))
+    category = Column(String(40))       # id / financial / medical / property / vehicle / education / insurance / other
+    doc_number = Column(String(120))    # e.g. Aadhaar/PAN/passport no. — shown masked in UI
+    issue_date = Column(FlexDate)
+    expiry_date = Column(FlexDate)
+    notes = Column(Text)
+    filename = Column(String(255))      # stored (opaque) file name in the private dir
+    orig_name = Column(String(255))     # original upload name
+    mime = Column(String(90))
+    ext = Column(String(10))            # pdf / jpg / png / …
+    size_bytes = Column(Integer, default=0)
+    # Text read out of the file by app/ocr.py. NULL means "not looked at yet";
+    # empty string means "looked at, found nothing" — the two must stay distinct
+    # or every blank page is re-read on every pass, forever.
+    ocr_text = Column(Text)
+    ocr_at = Column(FlexDateTime)
+    has_thumb = Column(Integer, default=0)
+    is_favorite = Column(Integer, default=0)
+    pages = Column(Integer, default=1)       # >1 for multi-page scans
+    is_trashed = Column(Integer, default=0)  # recycle bin — restorable until purged
+    trashed_at = Column(FlexDateTime)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class VaultItem(Base):
+    __tablename__ = "vault_items"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    title = Column(String(160))
+    username = Column(String(190))
+    url = Column(String(255))
+    password_enc = Column(Text)
+    notes_enc = Column(Text)
+    category = Column(String(40))
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class PushSubscription(Base):
+    """One row per device that opted in. A user can have several (phone, tablet,
+    desktop); each has its own endpoint and encryption keys."""
+    __tablename__ = "push_subscriptions"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    endpoint = Column(String(500), unique=True)
+    p256dh = Column(String(255))
+    auth = Column(String(255))
+    user_agent = Column(String(255))
+    created_at = Column(FlexDateTime)
+    last_sent_at = Column(FlexDateTime)
+
+
+class NotificationPref(Base):
+    """Per-user delivery settings. Absent row = notifications off."""
+    __tablename__ = "notification_prefs"
+    user_id = Column(Integer, primary_key=True)
+    enabled = Column(Integer, default=0)
+    send_hour = Column(Integer, default=9)      # local hour, 0-23
+    send_minute = Column(Integer, default=0)
+    # Which sections go into the digest.
+    include_bills = Column(Integer, default=1)      # card bills + loan EMIs
+    include_reminders = Column(Integer, default=1)  # reminders + todos
+    include_expiry = Column(Integer, default=1)     # policies + documents expiring
+    last_sent_on = Column(FlexDate)                     # guards against double sends
+    updated_at = Column(FlexDateTime)
+
+
+class Notification(Base):
+    """One entry in a user's in-app notification list.
+
+    Written for everything FinMate would push. A web push is best-effort — the OS
+    may hold it, the permission may have been revoked, the device may be off — and
+    the server is never told. This table is the reliable copy: whatever happened to
+    the push, the notification is still in the app when the user opens it.
+    """
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    kind = Column(String(30), index=True)   # digest / export / system
+    title = Column(String(160))
+    body = Column(Text)
+    url = Column(String(255))               # in-app route to open on tap
+    is_read = Column(Integer, default=0, index=True)
+    pushed = Column(Integer, default=0)     # whether a push was accepted for delivery
+    created_at = Column(FlexDateTime)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    action = Column(String(80))
+    entity = Column(String(60))
+    entity_id = Column(Integer)
+    ip = Column(String(45))
+    user_agent = Column(String(255))
+    meta = Column(Text)
+    created_at = Column(FlexDateTime)
+
+
+class Person(Base):
+    __tablename__ = "people"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    name = Column(String(120))
+    cover_id = Column(Integer)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class PhotoPerson(Base):
+    __tablename__ = "photo_people"
+    id = Column(Integer, primary_key=True)
+    photo_id = Column(Integer)
+    person_id = Column(Integer)
+    created_at = Column(FlexDateTime)
+
+
+class PhotoFace(Base):
+    """One detected face. A row with person_id and embedding NULL is a marker
+    meaning "this photo was scanned and had no face in it" — without it every
+    face-less photo would be re-scanned on every pass, forever."""
+    __tablename__ = "photo_faces"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    photo_id = Column(Integer, index=True)
+    person_id = Column(Integer, index=True)
+    # float16 vector, not JSON: 128 floats as text is ~2 KB per face and has to be
+    # parsed for every comparison; packed it is 256 bytes and loads straight into numpy.
+    embedding = Column(LargeBinary)
+    bbox = Column(String(60))
+    score = Column(DECIMAL(4, 3))
+    created_at = Column(FlexDateTime)
+
+
+class PhotoVector(Base):
+    """CLIP embedding for one photo, enabling search by what is IN the picture.
+
+    Its own table rather than a column on gallery_photos: the grid query selects
+    whole rows 150 at a time and has no use for a 1 KB blob, and re-indexing under
+    a different model is then a truncate rather than a schema change.
+    """
+    __tablename__ = "photo_vectors"
+    photo_id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)          # search is always owner-scoped
+    model = Column(String(40))                     # which encoder produced it
+    vec = Column(LargeBinary)                      # float16, 512 dims
+    created_at = Column(FlexDateTime)
+
+
+class Album(Base):
+    """A user-made collection of photos. A photo can sit in any number of albums;
+    deleting an album never touches the photos themselves."""
+    __tablename__ = "albums"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    name = Column(String(120))
+    cover_id = Column(Integer)  # gallery_photos.id used as the album tile
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class AlbumPhoto(Base):
+    __tablename__ = "album_photos"
+    id = Column(Integer, primary_key=True)
+    album_id = Column(Integer, index=True)
+    photo_id = Column(Integer, index=True)
+    created_at = Column(FlexDateTime)
+
+
+class AppHost(Base):
+    """A computer FinMate has run on.
+
+    The app is expected to move — a laptop is replaced, a bundle is carried to a
+    Mac, a copy is started from an external drive. When something looks wrong the
+    first question is always "which machine is actually serving this?", and from a
+    phone there is no way to tell. One row per machine, so the table doubles as
+    the history of where FinMate has lived.
+    """
+    __tablename__ = "app_hosts"
+    id = Column(Integer, primary_key=True)
+    fingerprint = Column(String(64), unique=True, index=True)
+    hostname = Column(String(120))
+    platform = Column(String(20))        # windows / mac / linux
+    os_name = Column(String(160))        # human-readable, e.g. "macOS 15.2"
+    local_ip = Column(String(45))        # IPv6-sized
+    public_url = Column(String(255))
+    app_version = Column(String(20))
+    data_dir = Column(String(500))       # where this machine kept the database
+    first_seen = Column(FlexDateTime)
+    last_seen = Column(FlexDateTime, index=True)
+
+
+class License(Base):
+    """A licence this installation has issued to somebody else.
+
+    Publisher-side only: the customer's copy never has this table, only the
+    signed token itself. Kept so a licence can be looked up, extended, re-sent
+    or withdrawn after it has left the building — the signature alone is not
+    revocable, which is the whole reason the revocation check exists.
+    """
+    __tablename__ = "licenses"
+    id = Column(Integer, primary_key=True)
+    key_id = Column(String(16), unique=True, index=True)   # "L-3F2A9C1B"
+    name = Column(String(120))
+    email = Column(String(160), index=True)
+    role = Column(String(20), default="user")
+    issued_on = Column(FlexDate)
+    # NULL means it never expires — sold outright rather than rented. Every read
+    # of this column has to allow for that; licensing.evaluate() short-circuits on
+    # the signed `perpetual` flag before any date arithmetic happens.
+    expires_on = Column(FlexDate, index=True)
+    # How many sign-ins the household may have: the licence holder plus family.
+    # 0 is unlimited. NULL means a licence issued before this existed, which
+    # licensing.seats_allowed() reads as 1 — what those copies can do today.
+    seats = Column(Integer, default=1)
+    revoked_at = Column(FlexDateTime)                      # null while live
+    revoke_reason = Column(String(200))
+    note = Column(String(200))
+    token = Column(Text)                                   # re-issuable without re-signing
+    bundle_at = Column(FlexDateTime)                       # when an app was last built for it
+    # Hosting provisioned for this customer, when the publisher offers it. The
+    # tunnel token is a live credential for one subdomain of the publisher's
+    # domain, which is why withdrawal deletes the DNS record rather than trusting
+    # the customer's copy to stop using it.
+    hostname = Column(String(255), index=True)             # "meera.example.com"
+    tunnel_id = Column(String(64))
+    tunnel_token = Column(Text)
+
+    # What the customer's copy reports when it checks in. Operational facts only —
+    # which machine, which build, when it was last alive — so the publisher can
+    # answer "are they on the new version?" and "is this copy still in use?".
+    # Deliberately NOT what they do with it: the product's promise is that their
+    # records never leave their computer, and telemetry that broke that promise
+    # would be worse than useless, it would be a betrayal of the thing sold.
+    last_seen_at = Column(FlexDateTime, index=True)
+    last_ip = Column(String(45))
+    last_platform = Column(String(20))      # windows / mac / linux
+    last_os = Column(String(120))
+    last_version = Column(String(20))
+    last_hostname = Column(String(120))     # the computer's own name
+    checkins = Column(Integer, default=0)
+    # Suspension is reversible and separate from revocation: a customer who has
+    # not paid this month is not the same as one whose licence is withdrawn.
+    suspended_at = Column(FlexDateTime)
+    suspend_reason = Column(String(200))
+    created_by = Column(Integer, index=True)               # users.id of the issuing admin
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class Release(Base):
+    """A version of the app the publisher has built and can offer to customers.
+
+    Publisher-side only, like License. The customer's copy never writes this — it
+    fetches the signed manifest for the current release and decides for itself
+    whether to take it.
+
+    The zip is kept on disk rather than in the database: it is several hundred
+    megabytes, and a blob that size in SQLite would be read into memory to serve
+    it. `manifest` is the Ed25519-signed statement of version, size and checksum,
+    which is the only part a customer trusts.
+    """
+    __tablename__ = "releases"
+    id = Column(Integer, primary_key=True)
+    version = Column(String(32), index=True)
+    notes = Column(Text)                      # what changed, shown to the customer
+    filename = Column(String(255))
+    path = Column(Text)                       # where the zip actually sits
+    size_bytes = Column(Integer, default=0)
+    sha256 = Column(String(64))
+    manifest = Column(Text)                   # signed; re-servable without re-signing
+    platform = Column(String(16), default="windows")
+    # Only one release is offered at a time. Kept as a flag rather than "newest
+    # row wins" so a bad build can be withdrawn by promoting the previous one,
+    # without deleting the record of it having existed.
+    is_current = Column(Integer, default=0, index=True)
+    published_at = Column(FlexDateTime)
+    published_by = Column(Integer)
+    created_at = Column(FlexDateTime)
+
+
+class Broadcast(Base):
+    """A message the publisher sends to everyone running a copy of FinMate.
+
+    Publisher-side only. Customer copies never write this table; they fetch the
+    entries addressed to them and turn each one into a local notification, so a
+    message survives the phone being off exactly like every other notification.
+
+    The point is being able to say "there is a new version" to people whose
+    machines you do not administer and cannot reach any other way.
+    """
+    __tablename__ = "broadcasts"
+    id = Column(Integer, primary_key=True)
+    title = Column(String(160))
+    body = Column(Text)
+    url = Column(String(255))                # where to get the update, if anywhere
+    kind = Column(String(20), default="news")   # news / update / urgent
+    app_version = Column(String(20))         # the build this announces, if any
+    # all = local users AND licensed copies; local = just this installation;
+    # licensed = only the copies out in the world.
+    audience = Column(String(20), default="all", index=True)
+    delivered_local = Column(Integer, default=0)
+    created_by = Column(Integer, index=True)
+    created_at = Column(FlexDateTime, index=True)
+    # Set when this message is a resend of an earlier one, so the admin list can
+    # show "sent again" rather than looking like the same thing was typed twice.
+    resend_of = Column(Integer, index=True)
+
+
+class Branding(Base):
+    """What this copy of the app calls itself, and the icon it wears.
+
+    One row, always id 1. Kept in the database rather than in a config file so an
+    administrator can change it from inside the app, and so a licensed copy
+    carries its own name through a rebuild without anyone editing source.
+
+    The icon files live beside the other media rather than in here; only the
+    version counter is stored, and it is bumped on every upload so browsers,
+    home-screen shortcuts and the CDN all fetch the new image instead of showing
+    the old one from cache.
+    """
+    __tablename__ = "branding"
+    id = Column(Integer, primary_key=True)
+    app_name = Column(String(60), default="FinMate")
+    short_name = Column(String(20), default="FinMate")     # home-screen label
+    tagline = Column(String(120), default="")
+    theme_color = Column(String(20), default="#5b3df5")
+    icon_version = Column(Integer, default=0)              # 0 = still the shipped icon
+    updated_at = Column(FlexDateTime)
+    updated_by = Column(Integer)
+
+
+class Hosting(Base):
+    """The web address this installation answers on.
+
+    One row, always id 1. In the database rather than in .env so it can be changed
+    from inside the app: buying a domain and pointing it here should not mean
+    editing a config file and restarting a server.
+
+    Read through `weburl.public_url(db)`, never directly — that helper falls back
+    to the .env value so an installation that has never touched this screen keeps
+    working exactly as before.
+    """
+    __tablename__ = "hosting"
+    id = Column(Integer, primary_key=True)
+    # "" means "not published" — the app is reachable on the local network only.
+    public_url = Column(String(255), default="")
+    # The Cloudflare tunnel that carries it, when there is one. The token is a
+    # credential: it is never returned to the browser in full.
+    tunnel_hostname = Column(String(255), default="")
+    tunnel_id = Column(String(64), default="")
+    tunnel_token = Column(Text)
+    updated_at = Column(FlexDateTime)
+    updated_by = Column(Integer)
+
+
+class BroadcastReceipt(Base):
+    """Proof that one licensed copy actually collected one message.
+
+    Written when a copy pulls /api/licence/announcements — the only moment the
+    publisher ever learns a message arrived, because delivery is pull-only. Without
+    this row there is no way to tell "waiting for a machine that has never been
+    switched on" apart from "delivered days ago", and those look identical in the
+    admin list while meaning opposite things.
+
+    Keyed by licence key_id rather than a foreign key to licenses.id so a receipt
+    survives the licence row being rewritten, and because key_id is what the
+    public endpoint is given.
+    """
+    __tablename__ = "broadcast_receipts"
+    id = Column(Integer, primary_key=True)
+    broadcast_id = Column(Integer, index=True)
+    key_id = Column(String(16), index=True)
+    collected_at = Column(FlexDateTime)
+    __table_args__ = (
+        UniqueConstraint("broadcast_id", "key_id", name="uq_receipt_broadcast_key"),
+    )

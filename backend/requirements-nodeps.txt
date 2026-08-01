@@ -1,0 +1,14 @@
+# Installed with --no-deps by the launcher, deliberately.
+#
+# rapidocr declares opencv_python, but this project pins opencv-python-headless.
+# Installing it normally puts a SECOND OpenCV (~60 MB) beside the first, with two
+# packages both providing `cv2` — so the dependency is satisfied by hand instead.
+# The three OCR models ship inside the rapidocr wheel, so this still works offline.
+rapidocr==3.9.2
+
+# rapidocr's real dependencies, minus the OpenCV clash. Everything else it needs
+# (numpy, Pillow, PyYAML, requests, six, tqdm) is already installed above.
+pyclipper>=1.2.0
+shapely>=1.7.1
+omegaconf>=2.3.0
+colorlog>=6.0.0

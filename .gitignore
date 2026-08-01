@@ -1,0 +1,63 @@
+# --- Secrets: never commit -------------------------------------------------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.srl
+certs/
+cloudflared/*.json
+
+# --- User data -------------------------------------------------------------
+backend/uploads/
+backend/private/
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
+# --- ML model files --------------------------------------------------------
+# ~190 MB of binaries. Fetched by backend/download_models.py, and copied verbatim
+# into a bundle, so they never need to live in version control.
+backend/models/
+
+# --- Portable bundle output ------------------------------------------------
+# The built bundle carries real data and the vault key — never commit one.
+FinMate-Bundle/
+FinMate-Bundle-*.zip
+finmate-config.json
+.venv/
+
+# --- Python ----------------------------------------------------------------
+venv/
+__pycache__/
+*.py[cod]
+
+# --- Node / build ----------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# --- Editors / OS ----------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+backend/server.log
+backend/server.err.log
+
+# Packaged executable output (rebuildable, ~350 MB)
+dist-app/
+build-app/
+
+# Published release archives. Hundreds of megabytes each, rebuildable from a tag,
+# and GitHub refuses files over 100 MB anyway.
+releases/
+
+# The Mac build imported from CI. Belongs in dist-app/, which is ignored above —
+# named again here because it arrives by hand rather than from a build on this
+# machine, and is easy to add by accident.
+dist-app/mac/

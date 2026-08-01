@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+    <!-- Keep this list to keys Safari understands. Its viewport parser is strict:
+         an unrecognised key (interactive-widget=, which is Chrome-only) can make it
+         discard the rest of the string — taking viewport-fit=cover with it. Losing
+         that collapses the safe-area insets to 0 and shrinks the layout viewport to
+         the "safe" area, which leaves a strip of background below the tab bar.
+         Keyboard handling is done in JS via visualViewport (see ui.tsx), on both
+         platforms, so nothing is lost by leaving it out. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#5b3df5" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- `default`, deliberately not `black-translucent`: the translucent mode draws
+         the page under the status bar but sizes the layout viewport short by the
+         status-bar height, stranding a dead strip at the BOTTOM that iOS colours
+         but never renders content into — the tab bar can then never reach the
+         screen edge. With `default` the web view starts below the status bar and
+         ends exactly at the physical bottom, so `bottom: 0` really is the bottom.
+         (The status bar itself follows the system light/dark appearance.)
+         NOTE: iOS bakes this into the icon at Add-to-Home-Screen time — existing
+         icons keep their old value until removed and re-added. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- Rewritten server-side by main.py::_branded_index() from the branding row.
+         The value here is only what a raw file-serve would show. -->
+    <meta name="apple-mobile-web-app-title" content="SafeNest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>SafeNest</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
