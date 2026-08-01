@@ -204,12 +204,19 @@ def brand_name() -> str:
     Deliberately NOT APP_NAME: that is the template filename the bundler looks
     for and renames per customer. This is the product's current name, so a
     renamed app produces an executable whose Properties agree with it.
+
+    Falls back on BaseException, not Exception. Importing `app` pulls in
+    app.config, which raises **SystemExit** when the secrets are missing — and
+    SystemExit is not an Exception, so `except Exception` lets it straight
+    through. A build machine has a .env and never sees this; a CI runner has none
+    by design, and the whole build died on its last step after every compiled
+    artefact had already been produced.
     """
     try:
         sys.path.insert(0, str(BACKEND))
         from app.bundler import current_app_name
         return current_app_name()
-    except Exception:
+    except BaseException:
         return APP_NAME
 
 
@@ -411,7 +418,9 @@ def build(with_models: bool, native: bool = False) -> Path:
                           brand_name(), time.localtime().tm_year,
                           extra=NATIVE_DEPS)
         print(f"  Third-party notices: {n} packages")
-    except Exception as exc:
+    except BaseException as exc:
+        # BaseException on purpose, as a second guard: everything above this point
+        # is already built, and no notices file is worth throwing that away.
         print(f"  ! could not write third-party notices: {exc}")
 
     size = sum(f.stat().st_size for f in app_dir.rglob("*") if f.is_file())
