@@ -41,7 +41,11 @@ export default function Profile() {
         <div className="set-hero-main">
           <div className="set-hero-name">{user?.name}</div>
           <div className="set-hero-mail">{user?.email}</div>
-          <span className="set-hero-role">{user?.role}</span>
+          {/* What the account may do, not what its row happens to say. This is
+              the badge the customer read as "admin" on a copy that is meant to
+              have no administrator — and it said so while every admin call was
+              already coming back 403. */}
+          <span className="set-hero-role">{user?.can_admin ? 'admin' : 'user'}</span>
         </div>
         <span className="set-chev" aria-hidden="true">›</span>
       </button>
