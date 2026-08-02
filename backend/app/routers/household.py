@@ -222,7 +222,8 @@ def check_for_update(user: User = Depends(_manager)):
         return out
     try:
         import requests
-        r = requests.get(f"{issuer}/api/licence/update/{kid}", timeout=15)
+        r = requests.get(f"{issuer}/api/licence/update/{kid}",
+                         params={"platform": updates.this_platform()}, timeout=15)
         data = r.json()
     except Exception as exc:
         # Offline is not an error worth a red screen; it is Tuesday.
@@ -293,7 +294,9 @@ def install_update(request: Request, user: User = Depends(_manager),
 
     import requests
     try:
-        info = requests.get(f"{issuer}/api/licence/update/{kid}", timeout=15).json()
+        info = requests.get(f"{issuer}/api/licence/update/{kid}",
+                            params={"platform": updates.this_platform()},
+                            timeout=15).json()
     except Exception as exc:
         raise HTTPException(502, f"Could not reach your supplier: {exc}")
     if not info.get("available"):

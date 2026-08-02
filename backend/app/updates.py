@@ -33,6 +33,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -165,23 +166,63 @@ def staging_dir() -> Path:
     return root.parent / f".{root.name}-update"
 
 
-def unpack(zip_path: Path, into: Path) -> Path:
+def this_platform() -> str:
+    """Which build this copy needs. Sent when asking what is on offer.
+
+    A Windows zip is not an update for a Mac. The publisher used to have one
+    "current release" for everybody, so a Mac customer pressing update downloaded
+    a Windows program and the installer refused it -- correctly, but only after
+    the whole download.
+    """
+    return "mac" if sys.platform == "darwin" else "windows"
+
+
+def unpack(archive: Path, into: Path) -> Path:
     """Extract the release, refusing any entry that points outside the folder.
 
-    A zip is an untrusted archive even when the manifest is signed -- the
-    signature says who built it, not that every path inside is sane. An entry
-    named ../../Windows/System32/... would otherwise be written exactly there.
+    An archive is untrusted even when the manifest is signed -- the signature says
+    who built it, not that every path inside is sane. An entry named
+    ../../Windows/System32/... would otherwise be written exactly there.
+
+    A Mac release arrives as a tar.gz rather than a zip, and has to: a zip cannot
+    carry the symlinks inside Python.framework, and the code signature seals that
+    structure. Flatten them and macOS refuses to load the interpreter at all.
     """
     if into.exists():
         shutil.rmtree(into, ignore_errors=True)
     into.mkdir(parents=True)
-    with zipfile.ZipFile(zip_path) as zf:
-        for member in zf.namelist():
-            target = (into / member).resolve()
-            if not str(target).startswith(str(into.resolve())):
-                raise UpdateError("This update contains an unsafe file path and "
-                                  "has been discarded.")
-        zf.extractall(into)
+
+    if tarfile.is_tarfile(archive):
+        with tarfile.open(archive) as tf:
+            root = into.resolve()
+            for member in tf.getmembers():
+                target = (into / member.name).resolve()
+                if not str(target).startswith(str(root)):
+                    raise UpdateError("This update contains an unsafe file path "
+                                      "and has been discarded.")
+                # A link is a path too, and the one that does not appear in the
+                # member's own name. Left unchecked, an entry could link out of
+                # the folder and the next write through it lands anywhere.
+                if member.issym() or member.islnk():
+                    dest = (Path(member.name).parent / member.linkname)
+                    if not str((into / dest).resolve()).startswith(str(root)):
+                        raise UpdateError("This update contains a link pointing "
+                                          "outside itself and has been discarded.")
+            # `data` is the strict filter: it drops device nodes, setuid bits and
+            # absolute paths. The checks above stay because it is the archive's
+            # own shape being judged here, not just what tarfile will tolerate.
+            try:
+                tf.extractall(into, filter="data")
+            except TypeError:                       # older Pythons: no filters
+                tf.extractall(into)
+    else:
+        with zipfile.ZipFile(archive) as zf:
+            for member in zf.namelist():
+                target = (into / member).resolve()
+                if not str(target).startswith(str(into.resolve())):
+                    raise UpdateError("This update contains an unsafe file path "
+                                      "and has been discarded.")
+            zf.extractall(into)
     # A bundle unzips to a single folder; use it if that is what we got.
     entries = [p for p in into.iterdir() if not p.name.startswith(".")]
     if len(entries) == 1 and entries[0].is_dir():

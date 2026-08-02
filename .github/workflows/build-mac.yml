@@ -116,6 +116,36 @@ jobs:
           fi
           ls -lh mac-app.tar.gz
 
+      # The other half of the same guarantee, and the half that only a Mac can
+      # answer. Packing keeps the symlinks; this checks the customer's copy can
+      # UNPACK them when it installs an update. Windows cannot even create a
+      # symlink without a privilege the build process does not have, so this is
+      # untestable there -- and an update that flattens Python.framework on the
+      # way in is as dead as one that flattened it on the way out.
+      - name: An update of this archive unpacks with its symlinks intact
+        run: |
+          python3 - <<'PY'
+          import sys, tarfile
+          from pathlib import Path
+          sys.path.insert(0, "backend")
+          from app import updates
+
+          out = Path("update-unpack-test")
+          root = updates.unpack(Path("mac-app.tar.gz"), out)
+          links = [p for p in out.rglob("*") if p.is_symlink()]
+          print(f"unpacked {root.name}: {len(links)} symlinks restored")
+          if not links:
+              raise SystemExit("::error::unpack() flattened the symlinks. A Mac "
+                               "customer installing this update would get an app "
+                               "macOS refuses to load.")
+          fw = list(out.rglob("Python.framework/Python"))
+          if not fw or not fw[0].is_symlink():
+              raise SystemExit("::error::Python.framework/Python came back as a "
+                               "real file instead of a link.")
+          print("Python.framework/Python ->", fw[0].readlink())
+          PY
+          rm -rf update-unpack-test
+
       - uses: actions/upload-artifact@v4
         with:
           name: mac-build

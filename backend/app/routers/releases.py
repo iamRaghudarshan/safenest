@@ -83,43 +83,74 @@ def publish(request: Request, body: dict = Body(...),
     notes = (body.get("notes") or "").strip()
     if not version:
         raise HTTPException(422, "Give it a version, like 2.1")
-    if db.query(Release).filter(Release.version == version).first():
-        raise HTTPException(409, f"Version {version} has already been published. "
-                                 "Use a new number — copies decide by comparing "
-                                 "it with what they are running.")
-    if not bundler.compiled_available():
+    # Every platform there is a build for, in one go. Publishing one at a time
+    # meant "release 2.4" quietly meant "release 2.4 for Windows", and the Mac
+    # half stayed on whatever was last done — which is how a Mac customer ends up
+    # being offered a Windows program.
+    wanted = body.get("platforms") or bundler.ready_platforms()
+    wanted = [p for p in wanted if p in bundler.TEMPLATES]
+    if not wanted:
         raise HTTPException(409, "There is no compiled build to release. Run:\n"
                                  "  python packaging/build_exe.py --native")
+    existing = {r.platform for r in
+                db.query(Release).filter(Release.version == version).all()}
+    todo = [p for p in wanted if p not in existing]
+    if not todo:
+        raise HTTPException(409, f"Version {version} has already been published "
+                                 f"for {', '.join(sorted(existing))}. Use a new "
+                                 "number — copies decide by comparing it with "
+                                 "what they are running.")
 
     out = _releases_dir()
-    stem = f"{bundler.current_app_name()}-{version}".replace(" ", "-")
-    archive = out / f"{stem}.zip"
-    if archive.exists():
-        archive.unlink()
-
-    # Zipped straight from the compiled folder. The customer's own data folder is
-    # not in there — dist-app has no data/ — so an update cannot carry anyone's
-    # records to anyone else.
-    src = bundler.COMPILED_DIR
-    shutil.make_archive(str(archive.with_suffix("")), "zip",
-                        root_dir=str(src.parent), base_dir=src.name)
-
-    sha = updates.digest(archive)
-    size = archive.stat().st_size
-    token, _payload = updates.sign(settings.license_signing_key_hex,
-                                   version=version, sha256=sha, size=size,
-                                   notes=notes, filename=archive.name)
     now = ist.now()
-    rel = Release(version=version, notes=notes, filename=archive.name,
-                  path=str(archive), size_bytes=size, sha256=sha, manifest=token,
-                  platform="windows", is_current=0, published_at=now,
-                  published_by=admin.id, created_at=now)
-    db.add(rel)
-    db.commit()
-    db.refresh(rel)
-    audit(db, admin.id, "release_publish", "release", rel.id,
-          {"label": version, "size": size}, request=request)
-    return _row(rel)
+    rows = []
+    for plat in todo:
+        stem = f"{bundler.current_app_name()}-{version}-{plat}".replace(" ", "-")
+        if plat == bundler.MAC:
+            # Copied, not repacked. The Mac build arrives from CI as a tar.gz and
+            # must stay one: a zip cannot hold the symlinks inside
+            # Python.framework, and flattening them makes macOS refuse to load
+            # the app at all — on the customer's machine, not here.
+            src = bundler.mac_tarball()
+            if not src.is_file():
+                raise HTTPException(409, "There is no Mac build to release. Run "
+                                         "Get Mac Build.bat first.")
+            archive = out / f"{stem}.tar.gz"
+            archive.unlink(missing_ok=True)
+            shutil.copy2(src, archive)
+        else:
+            if not bundler.compiled_available(plat):
+                raise HTTPException(409, "There is no compiled Windows build to "
+                                         "release. Run:\n"
+                                         "  python packaging/build_exe.py --native")
+            archive = out / f"{stem}.zip"
+            archive.unlink(missing_ok=True)
+            # Zipped straight from the compiled folder. The customer's own data
+            # folder is not in there — dist-app has no data/ — so an update cannot
+            # carry anyone's records to anyone else.
+            src = bundler.compiled_dir(plat)
+            shutil.make_archive(str(archive.with_suffix("")), "zip",
+                                root_dir=str(src.parent), base_dir=src.name)
+
+        sha = updates.digest(archive)
+        size = archive.stat().st_size
+        token, _payload = updates.sign(settings.license_signing_key_hex,
+                                       version=version, sha256=sha, size=size,
+                                       notes=notes, filename=archive.name)
+        rel = Release(version=version, notes=notes, filename=archive.name,
+                      path=str(archive), size_bytes=size, sha256=sha,
+                      manifest=token, platform=plat, is_current=0,
+                      published_at=now, published_by=admin.id, created_at=now)
+        db.add(rel)
+        db.commit()
+        db.refresh(rel)
+        audit(db, admin.id, "release_publish", "release", rel.id,
+              {"label": f"{version} ({plat})", "size": size}, request=request)
+        rows.append(rel)
+
+    first = _row(rows[0])
+    return {**first, "published": [_row(r) for r in rows],
+            "platforms": [r.platform for r in rows]}
 
 
 @router.post("/{release_id}/release-to-all")
@@ -137,13 +168,22 @@ def release_to_all(release_id: int, request: Request, body: dict = Body(default=
     rel = db.query(Release).filter(Release.id == release_id).first()
     if not rel:
         raise HTTPException(404, "No such release")
-    if not (rel.path and Path(rel.path).is_file()):
+
+    # Every platform's copy of this version, so "release 2.4" reaches Mac and
+    # Windows customers together. Releasing one row used to clear `is_current`
+    # across all platforms, so offering the Windows build withdrew the Mac one.
+    group = db.query(Release).filter(Release.version == rel.version).all()
+    group = [r for r in group if r.path and Path(r.path).is_file()]
+    if not group:
         raise HTTPException(409, "That release's file is missing from this "
                                  "computer, so nobody could download it.")
-
-    db.query(Release).filter(Release.is_current == 1).update({"is_current": 0})
-    rel.is_current = 1
+    for r in group:
+        db.query(Release).filter(Release.is_current == 1,
+                                 Release.platform == r.platform,
+                                 Release.id != r.id).update({"is_current": 0})
+        r.is_current = 1
     db.commit()
+    rel = group[0]
 
     told = 0
     if body.get("announce", True):
@@ -190,8 +230,31 @@ def _live_licence(key_id: str, db: Session) -> License:
     return lic
 
 
+def _current_for(platform: str, db: Session) -> Release | None:
+    """The release being offered to copies of this platform.
+
+    A Windows zip is not an update for a Mac and a .app is not one for Windows,
+    so "the current release" is a question that only means anything once you say
+    which kind of machine is asking. Before this there was one current release for
+    everybody, and it was whichever the publisher happened to build last -- a Mac
+    customer pressing update downloaded 317 MB of Windows program, which the
+    installer then refused. Correctly, but after the whole download.
+
+    A copy that does not say (anything older than 2.4) is answered with Windows,
+    which is exactly what it would have been given before. Older Mac copies are no
+    worse off than they already were, and their installer still refuses.
+    """
+    plat = (platform or "").strip().lower()
+    if plat not in bundler.TEMPLATES:
+        plat = bundler.WINDOWS
+    return (db.query(Release)
+            .filter(Release.is_current == 1, Release.platform == plat)
+            .order_by(Release.id.desc()).first())
+
+
 @public.get("/update/{key_id}")
-def offered(key_id: str, request: Request, db: Session = Depends(get_db)):
+def offered(key_id: str, request: Request, platform: str = "",
+            db: Session = Depends(get_db)):
     """The current release, as a signed manifest. Called by customers' copies.
 
     Returns the manifest and a download address, and nothing else. The copy checks
@@ -200,7 +263,7 @@ def offered(key_id: str, request: Request, db: Session = Depends(get_db)):
     """
     rate_limit(request, "update-check", limit=60, window=60)
     _live_licence(key_id, db)
-    rel = db.query(Release).filter(Release.is_current == 1).first()
+    rel = _current_for(platform, db)
     if not rel:
         return {"available": False}
     base = weburl.public_url(db).rstrip("/")
@@ -210,17 +273,22 @@ def offered(key_id: str, request: Request, db: Session = Depends(get_db)):
         "notes": rel.notes or "",
         "size_bytes": rel.size_bytes or 0,
         "manifest": rel.manifest,
-        "url": f"{base}/api/licence/download/{key_id}",
+        "platform": rel.platform,
+        "url": f"{base}/api/licence/download/{key_id}?platform={rel.platform}",
     }
 
 
 @public.get("/download/{key_id}")
-def download(key_id: str, request: Request, db: Session = Depends(get_db)):
+def download(key_id: str, request: Request, platform: str = "",
+             db: Session = Depends(get_db)):
     """The release file itself."""
     rate_limit(request, "update-download", limit=6, window=600)
     _live_licence(key_id, db)
-    rel = db.query(Release).filter(Release.is_current == 1).first()
+    rel = _current_for(platform, db)
     if not rel or not (rel.path and Path(rel.path).is_file()):
         raise HTTPException(404, "No release is available")
-    return FileResponse(rel.path, filename=rel.filename,
-                        media_type="application/zip")
+    # A Mac release is a tar.gz, because a zip cannot carry the symlinks inside
+    # Python.framework and the code signature seals that structure.
+    kind = ("application/gzip" if rel.filename.endswith(".tar.gz")
+            else "application/zip")
+    return FileResponse(rel.path, filename=rel.filename, media_type=kind)
