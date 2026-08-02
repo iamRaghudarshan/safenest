@@ -421,26 +421,18 @@ def build(with_models: bool, native: bool = False) -> Path:
     # bundler renames the executable per customer, and a version that
     # travels beside it survives that untouched.
     (app_dir / "version.txt").write_text(app_version() + "\n", encoding="ascii")
+    # BUNDLE has already been assembled from the collect folder by this point, so
+    # anything written above lands outside the .app. Stamp inside it as well, next
+    # to whichever directory PyInstaller made the runtime root -- Frameworks on
+    # PyInstaller 6, MacOS before that -- which is what runner.py reads.
+    if IS_MAC:
+        inside = OUT / f"{APP_NAME}.app" / "Contents"
+        for sub in ("Frameworks", "MacOS", "Resources"):
+            if (inside / sub).is_dir():
+                (inside / sub / "version.txt").write_text(
+                    app_version() + "\n", encoding="ascii")
     print(f"  Version stamped: {app_version()}")
 
-    # A second home under dist-app/<platform>/, so one machine can hold a Windows
-    # build and a Mac build at once and issue customer copies for either. The
-    # original location stays exactly where it was, so every existing script and
-    # every existing bundle path keeps working.
-    plat = "mac" if IS_MAC else "windows"
-    shared = OUT / plat / APP_NAME
-    try:
-        if shared.exists():
-            shutil.rmtree(shared)
-        shared.parent.mkdir(parents=True, exist_ok=True)
-        # symlinks=True, or this very copy is what breaks the Mac build.
-        # copytree dereferences by default, so Python.framework's links became
-        # duplicate 6.7 MB files right here -- on the Mac, before anything was
-        # even packed -- and macOS then refused to load the library at all.
-        shutil.copytree(app_dir, shared, symlinks=True)
-        print(f"  Also placed at: dist-app/{plat}/{APP_NAME}")
-    except OSError as exc:
-        print(f"  ! could not place the per-platform copy: {exc}")
 
     # Collect the licences of everything that actually shipped. Done here, after
     # PyInstaller has finished, because the dist-info folders in the OUTPUT are
@@ -453,10 +445,41 @@ def build(with_models: bool, native: bool = False) -> Path:
                           brand_name(), time.localtime().tm_year,
                           extra=NATIVE_DEPS)
         print(f"  Third-party notices: {n} packages")
+        # Inside the .app as well: it is the only thing the customer receives on
+        # macOS, and these notices are an obligation that has to travel with it.
+        if IS_MAC:
+            res = OUT / f"{APP_NAME}.app" / "Contents" / "Resources"
+            if res.is_dir():
+                shutil.copy2(app_dir / "THIRD-PARTY-NOTICES.txt",
+                             res / "THIRD-PARTY-NOTICES.txt")
     except BaseException as exc:
         # BaseException on purpose, as a second guard: everything above this point
         # is already built, and no notices file is worth throwing that away.
         print(f"  ! could not write third-party notices: {exc}")
+
+    # A second home under dist-app/<platform>/, so one machine can hold a Windows
+    # build and a Mac build at once and issue customer copies for either. The
+    # original location stays exactly where it was, so every existing script and
+    # every existing bundle path keeps working.
+    plat = "mac" if IS_MAC else "windows"
+    # On macOS the deliverable is the .app that BUNDLE produced, NOT the raw
+    # COLLECT folder beside it. Copying the folder left the .app behind entirely
+    # and the build "succeeded" with nothing shippable in it.
+    bundled = OUT / f"{APP_NAME}.app"
+    origin = bundled if (IS_MAC and bundled.is_dir()) else app_dir
+    shared = OUT / plat / origin.name
+    try:
+        if shared.exists():
+            shutil.rmtree(shared)
+        shared.parent.mkdir(parents=True, exist_ok=True)
+        # symlinks=True, or this very copy is what breaks the Mac build.
+        # copytree dereferences by default, so Python.framework's links became
+        # duplicate 6.7 MB files right here -- on the Mac, before anything was
+        # even packed -- and macOS then refused to load the library at all.
+        shutil.copytree(origin, shared, symlinks=True)
+        print(f"  Also placed at: dist-app/{plat}/{origin.name}")
+    except OSError as exc:
+        print(f"  ! could not place the per-platform copy: {exc}")
 
     size = sum(f.stat().st_size for f in app_dir.rglob("*") if f.is_file())
     mins = (time.time() - started) / 60
