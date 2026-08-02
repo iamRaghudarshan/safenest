@@ -478,8 +478,17 @@ def compiled_available(platform: str | None = None) -> bool:
 
 
 def ready_platforms() -> list:
-    """Which platforms this machine can issue a customer copy for right now."""
-    return [p for p in sorted(TEMPLATES) if compiled_available(p)]
+    """Which platforms this machine can issue a customer copy for right now.
+
+    A Mac build usually arrives here as the CI tarball and is never unpacked --
+    Windows cannot represent the symlinks inside Python.framework, so `build()`
+    copies entries straight out of the tar. Asking only `compiled_available()`
+    therefore reported Mac as missing while `build_licensed()` would have built it
+    perfectly well, and the Licences screen greyed out a button that worked. The
+    screen has to agree with the builder; the builder is the authority.
+    """
+    return [p for p in sorted(TEMPLATES)
+            if compiled_available(p) or (p == MAC and mac_tarball().is_file())]
 
 
 def installed_root() -> Path | None:
