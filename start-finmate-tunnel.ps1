@@ -12,5 +12,5 @@ $ErrorActionPreference = "Stop"
 $cf = "C:\Program Files (x86)\cloudflared\cloudflared.exe"
 if (-not (Test-Path $cf)) { $cf = "cloudflared" }  # fall back to PATH
 
-Write-Host "Starting the FinMate tunnel -> https://finmate.raghudarshan.online" -ForegroundColor Green
+Write-Host "Starting the App tunnel -> https://finmate.raghudarshan.online" -ForegroundColor Green
 & $cf tunnel --url http://127.0.0.1:8080 run finmate

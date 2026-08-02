@@ -1,6 +1,6 @@
 {
-  "name": "FinMate",
-  "short_name": "FinMate",
+  "name": "App",
+  "short_name": "App",
   "description": "Your money, beautifully organised.",
   "start_url": "/",
   "scope": "/",

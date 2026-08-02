@@ -1,7 +1,7 @@
 """Local image understanding: face detection/recognition and CLIP embeddings.
 
 Everything runs in-process on the CPU. Nothing is uploaded anywhere — the whole
-point of FinMate is that the photos stay on the machine that owns them, and an
+point of the app is that the photos stay on the machine that owns them, and an
 image-understanding feature that phoned home would quietly undo that.
 
 Models live in backend/models and are loaded lazily on first use, because most

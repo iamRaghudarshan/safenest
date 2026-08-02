@@ -3,7 +3,7 @@ another computer.
 
 CDN purging exists because a stale edge copy of the service worker can pin every
 phone to an old build, and the fix otherwise means logging into the Cloudflare
-dashboard. The export builds a USB-ready copy of FinMate from the phone, so moving
+dashboard. The export builds a USB-ready copy of the app from the phone, so moving
 to a new machine doesn't require sitting at the old one. Both are admin-only and
 audited.
 """
@@ -80,7 +80,7 @@ def _database_bytes(db: Session) -> int:
 
 @router.get("/storage")
 def storage_usage(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """How much room FinMate is taking on the computer that runs it.
+    """How much room the app is taking on the computer that runs it.
 
     Everyone sees their own total. Admins additionally see the whole server and
     what's left on the drive — the number that decides whether the next batch of
@@ -174,7 +174,7 @@ def _notify_export_done(db: Session, user_id: int, ok: bool, result: dict, error
                    "body": (error or "Something went wrong.")[:180]}
     try:
         # notify() stores it in the app first, then attempts the push — so the
-        # alert is there when they open FinMate even if the push never lands.
+        # alert is there when they open the app even if the push never lands.
         push.notify(db, user_id, payload["title"], payload["body"],
                     url="/", kind="export")
     except Exception as exc:  # a failed notification must not fail the export
@@ -318,7 +318,7 @@ def export_history(limit: int = 15, user: User = Depends(get_current_user),
 @router.post("/export")
 def export_start(request: Request, body: dict = Body(default={}),
                  user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Start building a portable copy of FinMate for another computer.
+    """Start building a portable copy of the app for another computer.
 
     scope 'mine' (the default) copies only the caller's own data and re-encrypts
     their vault under a new key. scope 'all' copies the entire system and is

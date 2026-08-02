@@ -69,7 +69,7 @@ def normalise(value: str) -> str:
     """Accept what a person would actually type and return a canonical URL.
 
     People paste "finmate.example.com", "https://finmate.example.com/",
-    "HTTPS://FinMate.Example.com" and all of them mean the same thing. Raises
+    "HTTPS://the app.Example.com" and all of them mean the same thing. Raises
     ValueError with a message worth showing when it cannot be made sense of.
     """
     raw = (value or "").strip()

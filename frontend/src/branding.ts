@@ -1,6 +1,6 @@
 // The app's own name and icon.
 //
-// Every place that used to say "FinMate" in the interface now reads from here, so
+// Every place that used to say "the app" in the interface now reads from here, so
 // renaming the app is one admin action rather than a rebuild. The values arrive
 // from /api/branding, which is deliberately unauthenticated — the login screen
 // has to know what the app is called before anyone has signed in.

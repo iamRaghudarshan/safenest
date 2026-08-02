@@ -1,4 +1,4 @@
-"""Create the first FinMate administrator, or report how many users exist.
+"""Create the first the app administrator, or report how many users exist.
 
 Used by the bundle's setup.py, but fine to run by hand:
 
@@ -84,7 +84,7 @@ def main() -> int:
     if len(args) >= 3:
         name, email, password = args[0], args[1], " ".join(args[2:])
     else:
-        print("Create a FinMate administrator\n")
+        print("Create a the app administrator\n")
         name = input("  Name: ").strip() or "Admin"
         email = input("  Email: ").strip()
         import getpass

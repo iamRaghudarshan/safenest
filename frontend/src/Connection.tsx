@@ -1,7 +1,7 @@
 // Global connection banner.
 //
 // Two different failures look identical to a user but need different wording:
-// the phone has no internet, or the internet is fine but the FinMate server (a PC
+// the phone has no internet, or the internet is fine but the app server (a PC
 // at home) is off. Both are reported here in one place, rather than every screen
 // inventing its own error text.
 //

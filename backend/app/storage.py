@@ -114,7 +114,7 @@ def _tree_signature(roots: list[str]) -> tuple:
     """A cheap fingerprint of the media tree.
 
     A directory's timestamp moves whenever a file is added to or removed from it,
-    and FinMate only ever writes a file once — nothing is rewritten in place. So
+    and the app only ever writes a file once — nothing is rewritten in place. So
     the directory timestamps alone say whether the totals can still be trusted.
     There are a few dozen directories against tens of thousands of files, which is
     the difference between a few milliseconds and well over a second.

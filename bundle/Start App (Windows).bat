@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM  FinMate launcher for Windows. Double-click this file.
+REM  App launcher for Windows. Double-click this file.
 REM
 REM  The first run installs everything and asks a few questions; later runs
 REM  just start the app. Nothing is installed outside this folder except
@@ -10,7 +10,7 @@ REM  Written flat, with goto rather than nested if-blocks: cmd expands every
 REM  %VAR% in a parenthesised block before running any of it, so a variable set
 REM  inside a block reads as empty later in that same block.
 REM ===========================================================================
-title FinMate
+title App
 cd /d "%~dp0"
 
 REM Prefer the py launcher (handles multiple Python versions), then plain python.
@@ -60,7 +60,7 @@ if defined PY goto :run
 echo.
 echo   Python is not installed, and it could not be installed automatically.
 echo.
-echo   FinMate needs Python 3.10 or newer. To install it by hand:
+echo   App needs Python 3.10 or newer. To install it by hand:
 echo.
 echo     1. Go to  https://www.python.org/downloads/
 echo     2. Download the latest Python for Windows

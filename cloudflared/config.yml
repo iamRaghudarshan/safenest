@@ -1,4 +1,4 @@
-# FinMate — Cloudflare named-tunnel config.
+# the app — Cloudflare named-tunnel config.
 # Fill the two <PLACEHOLDERS> after you run `cloudflared tunnel create finmate`
 # (that command prints the Tunnel ID and writes the credentials JSON).
 #
@@ -9,7 +9,7 @@ tunnel: b6ea7271-4d37-414e-9899-55be7f3903c5
 credentials-file: C:\Users\Lenovo\.cloudflared\b6ea7271-4d37-414e-9899-55be7f3903c5.json
 
 ingress:
-  # All traffic for the hostname goes to the local FinMate app (served by
+  # All traffic for the hostname goes to the local the app app (served by
   # start-finmate-internet.ps1 on port 8080).
   - hostname: finmate.raghudarshan.online
     service: http://127.0.0.1:8080

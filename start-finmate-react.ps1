@@ -1,5 +1,5 @@
 # ============================================================
-#  FinMate 2.0 - start the full local stack
+#  App 2.0 - start the full local stack
 #  MySQL (3307) + Face service (8090) + FastAPI (8001) + Vite (5173)
 #  Usage:  right-click > Run with PowerShell   (or)   ./start-finmate-react.ps1
 # ============================================================
@@ -18,7 +18,7 @@ function Test-Port($port) {
 }
 
 Write-Host ""
-Write-Host "  FinMate 2.0  (React + FastAPI)" -ForegroundColor Magenta
+Write-Host "  App 2.0  (React + FastAPI)" -ForegroundColor Magenta
 Write-Host "  --------------------------------" -ForegroundColor DarkGray
 
 # 1) MySQL

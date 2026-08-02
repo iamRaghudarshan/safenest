@@ -4,7 +4,7 @@ Every create, edit and delete already lands in `audit_logs` in MySQL. This turns
 those rows into something a person can scan: what happened, to what, who did it,
 and for edits, exactly which fields changed and what they went from and to.
 
-Scope is the same rule used everywhere else in FinMate: you see your own activity,
+Scope is the same rule used everywhere else in the app: you see your own activity,
 an administrator sees everyone's. Nobody can see another user's entries otherwise,
 because the labels alone would reveal what they name their accounts and policies.
 """

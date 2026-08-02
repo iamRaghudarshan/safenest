@@ -1,4 +1,4 @@
-"""Build a portable FinMate bundle.
+"""Build a portable App bundle.
 
 Produces a folder that can be copied to a USB drive and run on another computer.
 The same code backs both entry points — the "Move to another computer" button in
@@ -34,14 +34,14 @@ WINDOWS, MAC = "windows", "mac"
 # gets written into a bundle is named after the app instead, so a customer opening
 # the folder sees their software's name and not the one it was first written under.
 TEMPLATES = {
-    WINDOWS: "Start FinMate (Windows).bat",
-    MAC: "Start FinMate (Mac).command",
+    WINDOWS: "Start App (Windows).bat",
+    MAC: "Start App (Mac).command",
 }
 # The literal replaced throughout the bundled text files at build time. Capitalised
 # on purpose: every functional string in setup.py and the launchers — finmate.db,
 # finmate-config.json, the MySQL user — is lower case, so a case-sensitive swap
 # renames all the wording and touches none of the plumbing.
-BRAND_TOKEN = "FinMate"
+BRAND_TOKEN = "App"
 # Files whose text is rebranded on the way into the bundle. Binary files and the
 # application's own source are left alone.
 REBRAND_FILES = {"setup.py", "wizard.py", "README.txt",
@@ -420,9 +420,9 @@ def _copy_media(dest: Path, progress, user_id: int | None = None) -> tuple[int, 
     return files, size
 
 
-# The template folder name inside dist-app. Capitalised FinMate on purpose: it is
+# The template folder name inside dist-app. Capitalised App on purpose: it is
 # a filename the build produces, not a word anybody reads. See §9.
-APP_DIR_NAME = "FinMate"
+APP_DIR_NAME = "App"
 COMPILED_DIR = PROJECT_ROOT / "dist-app" / APP_DIR_NAME
 
 
@@ -445,10 +445,10 @@ def compiled_dir(platform: str | None = None) -> Path:
     Per-platform folders so ONE machine can issue copies for both. Compiling still
     has to happen on the matching system, but that only has to produce the binaries
     once per release — after which `dist-app/mac/` sits here beside
-    `dist-app/FinMate/` and licences for either are issued from this laptop, from
+    `dist-app/App/` and licences for either are issued from this laptop, from
     this one copy of the source.
 
-    `dist-app/FinMate` stays the host platform's build so existing builds, scripts
+    `dist-app/App` stays the host platform's build so existing builds, scripts
     and bundles keep working untouched.
     """
     platform = platform or host_platform()
@@ -473,7 +473,7 @@ def compiled_available(platform: str | None = None) -> bool:
     # A Mac build has no .exe suffix; a Windows one does. The name is checked
     # against the TARGET platform, not this machine, or an imported Mac build
     # would be judged by Windows' rules and always look missing.
-    exe = root / ("FinMate.exe" if platform == WINDOWS else "FinMate")
+    exe = root / ("App.exe" if platform == WINDOWS else "App")
     return exe.is_file() and (root / "_internal").is_dir()
 
 
@@ -666,7 +666,22 @@ def _mac_from_tar(tar_src: Path, folder: str, data_dir: Path,
     Mac's own tar into the customer's tar with its type, mode and link target
     unchanged, and only the data folder is added.
     """
+    import io as _io
+    import plistlib
     import tarfile
+
+    # What the build called its top-level entry -- read from the archive rather
+    # than assumed. It was compared against BRAND_TOKEN, which stopped matching
+    # the moment the build started producing "App.app" instead of "App":
+    # the rename silently did nothing and the customer's app would have arrived
+    # under the name this software was first written under.
+    with tarfile.open(tar_src, "r:gz") as probe:
+        tops = {n.split("/")[0] for n in probe.getnames() if n and "/" in n} or \
+               {n for n in probe.getnames() if n}
+        built_as = sorted(tops)[0] if tops else BRAND_TOKEN
+    is_app = built_as.endswith(".app")
+    renamed_to = f"{exe_name}.app" if is_app else exe_name
+
     copied = links = 0
     # One pass: a gzipped tar cannot be reopened and appended to, so the app and
     # the customer's data are written together.
@@ -675,16 +690,42 @@ def _mac_from_tar(tar_src: Path, folder: str, data_dir: Path,
         progress("Packing the app", 40)
         app_entries = []
         for member in src:
-            # Re-root FinMate/... under the customer's folder name, and rename the
-            # executable to their product's name on the way past.
             parts = member.name.split("/")
-            if parts and parts[0] != folder:
+            if is_app:
+                # <folder>/<Brand>.app/... -- the customer folder is added ABOVE
+                # the bundle, never in place of it. Overwriting parts[0] merged
+                # the .app's own Contents into the folder and there was no
+                # application left, only its insides.
+                if parts and parts[0] == built_as:
+                    parts[0] = renamed_to
+                parts = [folder] + parts
+            elif parts and parts[0] != folder:
+                # A plain folder build: re-rooting is exactly right.
                 parts[0] = folder
-            if len(parts) == 2 and parts[1] == BRAND_TOKEN:
-                parts[1] = exe_name
             member.name = "/".join(parts)
             if len(parts) == 2 and parts[1] not in app_entries:
                 app_entries.append(parts[1])
+
+            # The name Finder shows comes from Info.plist, not the folder, so a
+            # renamed .app whose plist still says otherwise reads as the wrong
+            # product in Get Info and the menu bar. CFBundleExecutable is left
+            # exactly as it is -- it names the binary inside, and changing it
+            # stops the app launching at all.
+            if is_app and member.name.endswith(f"{renamed_to}/Contents/Info.plist"):
+                raw = src.extractfile(member).read()
+                try:
+                    plist = plistlib.loads(raw)
+                    for key in ("CFBundleName", "CFBundleDisplayName"):
+                        if key in plist:
+                            plist[key] = exe_name
+                    raw = plistlib.dumps(plist)
+                except Exception:
+                    pass                      # ship it unchanged rather than not at all
+                member.size = len(raw)
+                dst.addfile(member, _io.BytesIO(raw))
+                copied += 1
+                continue
+
             if member.issym() or member.islnk():
                 dst.addfile(member)          # the link itself, never its target
                 links += 1
@@ -701,7 +742,10 @@ def _mac_from_tar(tar_src: Path, folder: str, data_dir: Path,
         # Applications, and anything left beside it is lost on the first drag.
         # runner.py copies it out to Application Support on first run.
         app_dir = next((n for n in app_entries if n.endswith(".app")), "")
-        prefix = (f"{app_dir}/Contents/Resources/seed-data"
+        # The folder is part of the path too. Without it the seed landed at
+        # SafeNest.app/... beside the bundle rather than inside it, so the copy
+        # arrived with no licence and refused to start.
+        prefix = (f"{folder}/{app_dir}/Contents/Resources/seed-data"
                   if app_dir else f"{folder}/data")
         for path in sorted(data_dir.rglob("*")):
             if path.is_file():
@@ -861,7 +905,7 @@ def build_licensed(platform: str, licence_token: str, out_root: Path | None = No
     # product rather than whatever it was called when it was compiled.
     #
     # Suffixed by the TARGET platform, not by this machine: building a Mac copy
-    # from Windows looked for FinMate.exe and renamed it to SafeNest.exe, inside a
+    # from Windows looked for App.exe and renamed it to SafeNest.exe, inside a
     # bundle whose launcher expects a Unix executable with no extension.
     brand = _display_name(app_name)
     suffix = ".exe" if platform == WINDOWS else ""

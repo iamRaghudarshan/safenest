@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FinMate — one-step setup and launcher.
+"""App — one-step setup and launcher.
 
 Runs on Windows, macOS and Linux using nothing but the Python standard library, so
 it can bootstrap a machine that has never seen this app before.
@@ -163,7 +163,7 @@ def check_python():
             hint = "Install it with:  brew install python   (or from https://www.python.org/downloads/)"
         else:
             hint = "Install it with your package manager, e.g.  sudo apt install python3 python3-venv"
-        die(f"FinMate needs Python {need} or newer — this is Python {have}.", hint)
+        die(f"App needs Python {need} or newer — this is Python {have}.", hint)
     ok(f"Python {platform.python_version()} on {platform.system()}")
 
 
@@ -363,7 +363,7 @@ def _needs_account() -> bool:
 
 
 def interview(cfg: dict) -> dict:
-    title("Setting up FinMate")
+    title("Setting up App")
     print("  Press Enter to accept the suggestion shown in brackets.\n")
 
     data_dir = Path(ask("Where should your photos and data live?",
@@ -373,15 +373,15 @@ def interview(cfg: dict) -> dict:
     db_file = data_dir / "finmate.db"
     if db_file.exists():
         size = db_file.stat().st_size / 1048576
-        ok(f"Found existing FinMate data here ({size:.1f} MB) — it will be used as-is.")
+        ok(f"Found existing App data here ({size:.1f} MB) — it will be used as-is.")
         cfg["db_engine"] = "sqlite"
     else:
         choice = ask_choice(
-            "Which database should FinMate use?",
+            "Which database should App use?",
             [("Built-in (recommended)",
               "Keeps everything in one file inside your data folder. Nothing to install."),
              ("Existing MySQL server",
-              "Only if you already run MySQL and want FinMate to use it.")],
+              "Only if you already run MySQL and want App to use it.")],
             default=1)
         cfg["db_engine"] = "sqlite" if choice == 1 else "mysql"
         if cfg["db_engine"] == "mysql":
@@ -391,9 +391,9 @@ def interview(cfg: dict) -> dict:
             cfg["db_user"] = ask("MySQL username", cfg.get("db_user", "finmate"))
             cfg["db_password"] = ask("MySQL password", cfg.get("db_password", ""))
 
-    cfg["port"] = ask("Which port should FinMate use?", str(cfg.get("port", "8080")))
+    cfg["port"] = ask("Which port should App use?", str(cfg.get("port", "8080")))
     cfg["lan"] = ask_yes_no(
-        "Allow phones and other devices on your Wi-Fi to open FinMate?",
+        "Allow phones and other devices on your Wi-Fi to open App?",
         cfg.get("lan", True))
 
     ask_internet(cfg)
@@ -438,7 +438,7 @@ def install_carried_tunnel(cfg: dict) -> bool:
 
 
 def ask_internet(cfg: dict):
-    """How (and whether) FinMate should be reachable from outside the house.
+    """How (and whether) App should be reachable from outside the house.
 
     A Cloudflare Tunnel is the practical option for a home machine: it dials out, so
     nothing has to be opened on the router and no fixed IP is needed.
@@ -461,7 +461,7 @@ def ask_internet(cfg: dict):
                "from the Cloudflare dashboard.")
 
     choice = ask_choice(
-        "Should FinMate be reachable from outside your home network?",
+        "Should App be reachable from outside your home network?",
         [("No — this computer and my Wi-Fi only",
           "The safest option. Your phone can still use it over Wi-Fi."),
          own,
@@ -477,7 +477,7 @@ def ask_internet(cfg: dict):
         cfg["public_url"] = (carried.get("public_url") or "").rstrip("/")
         if install_carried_tunnel(cfg):
             ok("Tunnel credentials installed")
-        warn("Only one computer may run this tunnel. Stop FinMate on the old one, "
+        warn("Only one computer may run this tunnel. Stop App on the old one, "
              "or both will answer the same address from two different databases.")
     elif cfg["internet"] == "tunnel":
         print(f"\n  {C.DIM}In the Cloudflare dashboard: Zero Trust -> Networks -> Tunnels ->")
@@ -498,7 +498,7 @@ def ask_internet(cfg: dict):
 
 
 def bundled_cloudflared() -> Path:
-    """Where FinMate keeps its own copy — inside the bundle, so it travels too."""
+    """Where App keeps its own copy — inside the bundle, so it travels too."""
     return ROOT / "bin" / ("cloudflared.exe" if IS_WINDOWS else "cloudflared")
 
 
@@ -609,7 +609,7 @@ def ensure_cloudflared() -> str:
         return found
     if not has_internet():
         warn("cloudflared isn't installed and there's no internet to fetch it.")
-        print("  FinMate will still work on this computer and over your Wi-Fi.\n")
+        print("  App will still work on this computer and over your Wi-Fi.\n")
         return ""
     found = install_cloudflared()
     if not found:
@@ -619,7 +619,7 @@ def ensure_cloudflared() -> str:
 
 def cloudflared_help():
     print(f"\n  {C.Y}cloudflared could not be installed automatically.{C.X}")
-    print("  FinMate will still work locally and over your Wi-Fi.\n")
+    print("  App will still work locally and over your Wi-Fi.\n")
     print("  To get the internet address working, install it by hand and run this again:\n")
     if IS_WINDOWS:
         print("    Open PowerShell as Administrator and run:")
@@ -774,7 +774,7 @@ def write_env(cfg: dict):
         ok("Reusing the vault key that came with your data (your saved passwords stay readable)")
 
     lines = [
-        "# FinMate configuration — generated by setup.py.",
+        "# App configuration — generated by setup.py.",
         "# Treat this file like a password: it holds the key your vault is encrypted with.",
         "",
         f"DB_ENGINE={cfg['db_engine']}",
@@ -838,7 +838,7 @@ def ensure_vision_models():
         ok("Photo grouping and search models are present")
         return
     print()
-    print("  FinMate can group photos by face and let you search by what's IN a")
+    print("  App can group photos by face and let you search by what's IN a")
     print("  picture. That needs a one-off ~190 MB download, and works offline after.")
     if not ask_yes_no("Download the photo models now?", True):
         warn("Skipped — the Gallery still works, just without those two features.")
@@ -878,7 +878,7 @@ def ensure_admin(cfg: dict, account: dict | None = None):
     """Create the first account if the database has no users yet.
 
     A licensed copy gets exactly one account, named by the licence and holding no
-    administrator rights: the customer runs the app, they do not run a FinMate
+    administrator rights: the customer runs the app, they do not run a App
     installation. Everything else — an ordinary copy someone is moving between
     their own machines — still gets a full administrator.
 
@@ -985,7 +985,7 @@ def run_app(cfg: dict):
     host = "0.0.0.0" if cfg.get("lan", True) else "127.0.0.1"
     local = f"http://127.0.0.1:{port}"
 
-    title("Starting FinMate")
+    title("Starting App")
     print(f"  On this computer : {C.C_}{local}{C.X}")
     if cfg.get("lan", True):
         print(f"  On your phone    : {C.C_}http://{lan_address()}:{port}{C.X}")
@@ -995,7 +995,7 @@ def run_app(cfg: dict):
     elif cfg.get("internet") == "quick":
         print(f"  From anywhere    : {C.DIM}a temporary link appears below once "
               f"Cloudflare connects{C.X}")
-    print(f"\n  {C.DIM}Leave this window open. Press Ctrl+C to stop FinMate.{C.X}\n")
+    print(f"\n  {C.DIM}Leave this window open. Press Ctrl+C to stop App.{C.X}\n")
 
     tunnel = start_tunnel(cfg)
     threading.Thread(target=lambda: (time.sleep(3), webbrowser.open(local)),
@@ -1011,7 +1011,7 @@ def run_app(cfg: dict):
                         "--host", host, "--port", port, "--no-access-log"],
                        cwd=str(BACKEND))
     except KeyboardInterrupt:
-        print(f"\n  {C.DIM}FinMate stopped.{C.X}")
+        print(f"\n  {C.DIM}App stopped.{C.X}")
     finally:
         if tunnel and tunnel.poll() is None:
             # Leaving cloudflared running would keep publishing a port that no
@@ -1031,7 +1031,7 @@ def _prepare(cfg: dict, account: dict | None) -> None:
     try:
         Path(cfg["data_dir"]).mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        die(f"FinMate cannot write to {cfg['data_dir']}", *_folder_advice(cfg["data_dir"], exc))
+        die(f"App cannot write to {cfg['data_dir']}", *_folder_advice(cfg["data_dir"], exc))
     # Before write_env: it records LICENSE_FILE against this folder, so the
     # licence has to be in it by then.
     carry_bundled_files(Path(cfg["data_dir"]))
@@ -1042,10 +1042,10 @@ def _prepare(cfg: dict, account: dict | None) -> None:
 
 def main() -> int:
     args = set(sys.argv[1:])
-    print(f"\n{C.B}  FinMate{C.X} {C.DIM}— personal finance, documents and photos{C.X}")
+    print(f"\n{C.B}  App{C.X} {C.DIM}— personal finance, documents and photos{C.X}")
 
     if not BACKEND.is_dir() or not (ROOT / "frontend" / "dist" / "index.html").exists():
-        die("This doesn't look like a complete FinMate folder.",
+        die("This doesn't look like a complete App folder.",
             f"Expected 'backend' and 'frontend/dist' next to {Path(__file__).name}.",
             "Copy the whole folder, not just this file.")
 

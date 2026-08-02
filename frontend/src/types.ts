@@ -294,7 +294,7 @@ export interface BriefingData {
   memory: { thumb_url: string; years: number; label: string } | null
 }
 
-/** A computer FinMate has run on. The app is portable, so "which machine is
+/** A computer the app has run on. The app is portable, so "which machine is
  *  serving this?" is a real question — especially when two are running at once. */
 export interface AppHost {
   id: number | null
@@ -404,7 +404,7 @@ export interface LicenceStatus {
   reports_to?: string
 }
 
-/** Text FinMate read out of a document, and the fields it implies. */
+/** Text the app read out of a document, and the fields it implies. */
 export interface DocSuggestions {
   ready: boolean
   has_text: boolean
@@ -453,7 +453,7 @@ export interface SearchResults {
   understood: { modules?: string[]; year?: number; month?: number }
 }
 
-/** A message sent to everyone running a copy of FinMate. */
+/** A message sent to everyone running a copy of the app. */
 /** Who a message reached. `audience` also carries "licence:L-XXXX" for a message
  *  sent to one customer, which is why it is a plain string. */
 export interface BroadcastRecipient {

@@ -156,6 +156,6 @@ if ($problems.Count) {
     foreach ($p in $problems) { Write-Host "    - $p" -ForegroundColor Yellow }
 }
 Write-Host ""
-Write-Host "  Next: run 'Install FinMate Services.bat' as administrator," -ForegroundColor DarkGray
+Write-Host "  Next: run 'Install App Services.bat' as administrator," -ForegroundColor DarkGray
 Write-Host "  or start things by hand in this order: MySQL, backend, tunnel." -ForegroundColor DarkGray
 Write-Host ""

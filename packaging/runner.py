@@ -1,4 +1,4 @@
-"""Entry point for the packaged FinMate executable.
+"""Entry point for the packaged executable.
 
 Inside a PyInstaller build there is no `python setup.py` and no virtual
 environment — the interpreter, the libraries and this file are all one program.

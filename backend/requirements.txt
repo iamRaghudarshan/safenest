@@ -1,4 +1,4 @@
-# FinMate backend dependencies.
+# the app backend dependencies.
 #
 # Only direct dependencies are pinned; pip resolves the rest. Versions are the ones
 # this app was built and tested against — loosen them only if you have a reason to.
@@ -12,7 +12,7 @@ python-multipart==0.0.32
 
 # --- database ---
 SQLAlchemy==2.0.51
-PyMySQL==1.2.0          # only used when FinMate is pointed at MySQL; SQLite is built in
+PyMySQL==1.2.0          # only used when the app is pointed at MySQL; SQLite is built in
 
 # --- config ---
 pydantic-settings==2.14.2

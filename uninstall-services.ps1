@@ -1,5 +1,5 @@
 # ============================================================================
-#  FinMate — remove the auto-start services created by install-services.ps1.
+#  App — remove the auto-start services created by install-services.ps1.
 #  RUN AS ADMINISTRATOR. Leaves the pre-existing "MySQL84" service untouched,
 #  and never touches your data (backend\private, the database files, or .env).
 # ============================================================================
@@ -13,11 +13,11 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $mysqld    = "D:\AI PRO\tools\mysql-8.4.6-winx64\bin\mysqld.exe"
 $cfExe     = "C:\Program Files (x86)\cloudflared\cloudflared.exe"
-$MYSQL_SVC = "FinMateMySQL"
-$API_TASK  = "FinMateAPI"
+$MYSQL_SVC = "AppMySQL"
+$API_TASK  = "AppAPI"
 
 Write-Host ""
-Write-Host "  Removing FinMate auto-start entries..." -ForegroundColor Magenta
+Write-Host "  Removing App auto-start entries..." -ForegroundColor Magenta
 
 # cloudflared
 if (Get-Service -Name "cloudflared" -ErrorAction SilentlyContinue) {
@@ -32,8 +32,8 @@ if (Get-ScheduledTask -TaskName $API_TASK -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $API_TASK -Confirm:$false
     Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue |
         ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-    Write-Host "    FinMateAPI task removed" -ForegroundColor Green
-} else { Write-Host "    FinMateAPI task not present" -ForegroundColor DarkGray }
+    Write-Host "    AppAPI task removed" -ForegroundColor Green
+} else { Write-Host "    AppAPI task not present" -ForegroundColor DarkGray }
 
 # MySQL 3307 (data on disk is left completely intact)
 if (Get-Service -Name $MYSQL_SVC -ErrorAction SilentlyContinue) {
@@ -44,6 +44,6 @@ if (Get-Service -Name $MYSQL_SVC -ErrorAction SilentlyContinue) {
 } else { Write-Host "    $MYSQL_SVC not present" -ForegroundColor DarkGray }
 
 Write-Host ""
-Write-Host "  Done. Start FinMate manually again with 'Start FinMate.bat'." -ForegroundColor Green
+Write-Host "  Done. Start App manually again with 'Start App.bat'." -ForegroundColor Green
 Write-Host ""
 pause

@@ -34,7 +34,7 @@ except Exception:                       # headless Linux, or a Python built with
 # bytecode inside the executable -- so it reads APP_BRAND from the environment,
 # which the packaged launcher sets from the database before opening this window.
 # Without that, a renamed app asked for its password under the old name.
-BRAND_NAME = "FinMate"
+BRAND_NAME = "App"
 
 
 def brand() -> str:

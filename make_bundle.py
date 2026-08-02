@@ -1,4 +1,4 @@
-"""Build a portable FinMate bundle from the command line.
+"""Build a portable the app bundle from the command line.
 
 A thin wrapper over backend/app/bundler.py — the same code the "Move to another
 computer" button in the app uses, so the two can never produce different bundles.
@@ -7,7 +7,7 @@ Run it with the backend's own Python:
 
     backend\\venv\\Scripts\\python.exe make_bundle.py
 
-or just double-click "Create FinMate Bundle.bat".
+or just double-click "Create the app Bundle.bat".
 """
 import os
 import sys
@@ -57,8 +57,8 @@ def ask(q, default=""):
 
 
 def main() -> int:
-    print(f"\n{C.B}  Create a portable FinMate bundle{C.X}")
-    print(f"  {C.DIM}Everything needed to run FinMate on another Windows PC or Mac.{C.X}")
+    print(f"\n{C.B}  Create a portable the app bundle{C.X}")
+    print(f"  {C.DIM}Everything needed to run the app on another Windows PC or Mac.{C.X}")
 
     title("Which computer is it for?")
     print("    1) Windows")

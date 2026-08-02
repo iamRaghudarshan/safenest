@@ -1,6 +1,6 @@
-"""Which computer is FinMate running on, and which ones has it run on before.
+"""Which computer is the app running on, and which ones has it run on before.
 
-FinMate is designed to move: a bundle gets carried to a Mac, a copy runs off an
+The app is designed to move: a bundle gets carried to a Mac, a copy runs off an
 external drive, a laptop is replaced. From a phone every one of those looks
 identical, which makes "why did my data disappear?" impossible to answer — the
 usual cause is two machines serving the same address from two databases.
@@ -94,7 +94,7 @@ def describe(db: Session | None = None) -> dict:
 
 
 def record(db: Session, app_version: str = "2.0") -> AppHost:
-    """Note that FinMate is running here. Called once at startup.
+    """Note that the app is running here. Called once at startup.
 
     An existing machine is updated in place — its address or its OS version may
     have changed since last time, and neither means the app has moved.

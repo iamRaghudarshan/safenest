@@ -1,4 +1,4 @@
-/* ===== FinMate design system — premium mobile-native, colorful, iPhone-safe ===== */
+/* ===== the app design system — premium mobile-native, colorful, iPhone-safe ===== */
 :root {
   --brand: #5b3df5;
   --brand-2: #7c5cff;
@@ -1669,7 +1669,7 @@ button.set-row:active { background: var(--bg); }
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- Where FinMate has run (Profile → This computer) ---------- */
+/* ---------- Where the app has run (Profile → This computer) ---------- */
 .host-list { display: flex; flex-direction: column; gap: 10px; }
 .host-item {
   display: flex; gap: 11px; padding: 12px 13px; border-radius: 14px;

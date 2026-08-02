@@ -1,4 +1,4 @@
-"""Copy the whole FinMate database into a single portable SQLite file.
+"""Copy the whole the app database into a single portable SQLite file.
 
 Used by the bundler so an existing MySQL install can move to another machine — the
 resulting .db file needs no database server at all. Safe to run against a live

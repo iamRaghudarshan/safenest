@@ -23,8 +23,8 @@ backend/models/
 
 # --- Portable bundle output ------------------------------------------------
 # The built bundle carries real data and the vault key — never commit one.
-FinMate-Bundle/
-FinMate-Bundle-*.zip
+App-Bundle/
+App-Bundle-*.zip
 finmate-config.json
 .venv/
 

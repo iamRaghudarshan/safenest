@@ -344,7 +344,7 @@ class NotificationPref(Base):
 class Notification(Base):
     """One entry in a user's in-app notification list.
 
-    Written for everything FinMate would push. A web push is best-effort — the OS
+    Written for everything the app would push. A web push is best-effort — the OS
     may hold it, the permission may have been revoked, the device may be off — and
     the server is never told. This table is the reliable copy: whatever happened to
     the push, the notification is still in the app when the user opens it.
@@ -445,13 +445,13 @@ class AlbumPhoto(Base):
 
 
 class AppHost(Base):
-    """A computer FinMate has run on.
+    """A computer the app has run on.
 
     The app is expected to move — a laptop is replaced, a bundle is carried to a
     Mac, a copy is started from an external drive. When something looks wrong the
     first question is always "which machine is actually serving this?", and from a
     phone there is no way to tell. One row per machine, so the table doubles as
-    the history of where FinMate has lived.
+    the history of where the app has lived.
     """
     __tablename__ = "app_hosts"
     id = Column(Integer, primary_key=True)
@@ -557,7 +557,7 @@ class Release(Base):
 
 
 class Broadcast(Base):
-    """A message the publisher sends to everyone running a copy of FinMate.
+    """A message the publisher sends to everyone running a copy of the app.
 
     Publisher-side only. Customer copies never write this table; they fetch the
     entries addressed to them and turn each one into a local notification, so a
@@ -598,8 +598,8 @@ class Branding(Base):
     """
     __tablename__ = "branding"
     id = Column(Integer, primary_key=True)
-    app_name = Column(String(60), default="FinMate")
-    short_name = Column(String(20), default="FinMate")     # home-screen label
+    app_name = Column(String(60), default="App")
+    short_name = Column(String(20), default="App")     # home-screen label
     tagline = Column(String(120), default="")
     theme_color = Column(String(20), default="#5b3df5")
     icon_version = Column(Integer, default=0)              # 0 = still the shipped icon

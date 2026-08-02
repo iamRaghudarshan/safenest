@@ -1,4 +1,4 @@
-// FinMate service worker — offline app-shell + last-seen data.
+// Service worker — offline app-shell + last-seen data.
 //
 // Strategy (order matters):
 //  • sensitive /api          → never touched, straight to network
@@ -40,7 +40,7 @@ self.addEventListener('message', (e) => { if (e.data === 'skip-waiting') self.sk
 self.addEventListener('push', (event) => {
   let data = {}
   try { data = event.data ? event.data.json() : {} } catch { data = {} }
-  const title = data.title || 'FinMate'
+  const title = data.title || 'App'
   event.waitUntil(self.registration.showNotification(title, {
     body: data.body || 'You have items due.',
     icon: '/icon-192.png',

@@ -1,4 +1,4 @@
-"""Licences for copies of FinMate handed to other people.
+"""Licences for copies of the app handed to other people.
 
 Two halves live in this one file because they must agree exactly:
 

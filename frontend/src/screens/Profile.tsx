@@ -551,7 +551,7 @@ function ExportLog({ refreshKey }: { refreshKey: number }) {
 }
 
 /**
- * Builds a USB-ready copy of FinMate on the machine that runs it. The work happens
+ * Builds a USB-ready copy of the app on the machine that runs it. The work happens
  * on the server (thousands of files, minutes long), so this starts the job and then
  * polls — closing the sheet, or the phone sleeping, doesn't interrupt it.
  */
@@ -845,7 +845,7 @@ function AppStorage() {
   return (
     <>
       {/* Titled for the phone, not the server — "Storage used" above is the
-          FinMate computer, and two sections called storage would read as the
+          the app computer, and two sections called storage would read as the
           same number measured twice. */}
       <SettingsGroup title="App &amp; updates"
         footer="If the app looks out of date or a new feature is missing, clear the cached data — it reloads the latest version without signing you out.">
@@ -950,7 +950,7 @@ function hostLabel(h: AppHost) {
 
 /** Which machine is answering, and every machine that has answered before.
  *
- *  FinMate travels — to a Mac, to an external drive, to a replacement laptop —
+ *  the app travels — to a Mac, to an external drive, to a replacement laptop —
  *  and from a phone all of those look the same. When two copies end up serving
  *  the same address, records seem to appear and vanish at random, and this is
  *  the only place that makes the cause visible. */
@@ -1031,7 +1031,7 @@ const SLICES = [
   { key: 'avatars', label: 'Profile photo', icon: '👤', tint: 'var(--c-loans)' },
 ] as const
 
-/** How much room FinMate is taking on the computer that runs it.
+/** How much room the app is taking on the computer that runs it.
  *
  *  Measured from the disk on every request rather than from stored sizes, so
  *  uploading ten photos today and thirty tomorrow needs nothing to be

@@ -56,11 +56,11 @@ jobs:
 
       - name: Check it actually produced something
         run: |
-          test -d "dist-app/mac/FinMate.app" || {
+          test -d "dist-app/mac/App.app" || {
             echo "::error::No .app bundle was produced"; ls -la dist-app/mac; exit 1; }
-          test -x "dist-app/mac/FinMate.app/Contents/MacOS/FinMate" || {
+          test -x "dist-app/mac/App.app/Contents/MacOS/App" || {
             echo "::error::The .app has no executable inside it"; exit 1; }
-          file "dist-app/mac/FinMate.app/Contents/MacOS/FinMate"
+          file "dist-app/mac/App.app/Contents/MacOS/App"
 
       # Tarred HERE, on the Mac, and never unpacked until it reaches another Mac.
       #
@@ -85,16 +85,16 @@ jobs:
           # --deep signs the nested binaries first and the bundle last. Deprecated
           # by Apple for real signing identities, but it is the correct tool for an
           # ad-hoc pass over a PyInstaller tree of a few hundred dylibs.
-          codesign --force --deep --timestamp=none --sign - FinMate.app
+          codesign --force --deep --timestamp=none --sign - App.app
           echo "signature:"
-          codesign -dv FinMate.app 2>&1 | head -5
-          codesign --verify --deep --strict FinMate.app && echo "verifies" || \
+          codesign -dv App.app 2>&1 | head -5
+          codesign --verify --deep --strict App.app && echo "verifies" || \
             echo "::warning::ad-hoc signature did not verify strictly"
 
       - name: Pack, preserving symlinks
         run: |
           cd dist-app/mac
-          tar -czf ../../mac-app.tar.gz FinMate.app
+          tar -czf ../../mac-app.tar.gz App.app
           cd ../..
           links=$(tar -tvzf mac-app.tar.gz | grep -c '^l' || true)
           echo "symlinks in the archive: $links"

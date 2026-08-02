@@ -1,8 +1,8 @@
 # ============================================================================
-#  FinMate — install as Windows services so the app survives reboots.
+#  App — install as Windows services so the app survives reboots.
 #
 #  HOW TO RUN — this needs administrator rights.
-#    Easiest:  double-click "Install FinMate Services.bat" (next to this file).
+#    Easiest:  double-click "Install App Services.bat" (next to this file).
 #              It re-launches itself elevated; just accept the UAC prompt.
 #
 #    Manually: Start -> type "powershell" -> right-click "Windows PowerShell"
@@ -13,11 +13,11 @@
 #  NOT elevated — this script will stop and tell you so.
 #
 #  Installs three pieces:
-#    1. FinMateMySQL  (service)        - the portable MySQL on port 3307 that holds
-#                                        FinMate's data. NOTE: the pre-existing
+#    1. AppMySQL  (service)        - the portable MySQL on port 3307 that holds
+#                                        App's data. NOTE: the pre-existing
 #                                        "MySQL84" service is a DIFFERENT instance
 #                                        on 3306 and is left completely alone.
-#    2. FinMateAPI    (scheduled task) - the FastAPI app + built SPA on port 8080.
+#    2. AppAPI    (scheduled task) - the FastAPI app + built SPA on port 8080.
 #                                        A boot-triggered task rather than a service
 #                                        because a plain Python process can't answer
 #                                        the Windows service control protocol without
@@ -47,7 +47,7 @@ $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host ""
     Write-Host "  This script must run as Administrator." -ForegroundColor Red
-    Write-Host "  Close this and double-click 'Install FinMate Services.bat' instead -" -ForegroundColor Yellow
+    Write-Host "  Close this and double-click 'Install App Services.bat' instead -" -ForegroundColor Yellow
     Write-Host "  it elevates automatically." -ForegroundColor Yellow
     Write-Host ""
     pause
@@ -70,15 +70,15 @@ $myini      = "D:\AI PRO\tools\my.ini"
 $cfExe      = "C:\Program Files (x86)\cloudflared\cloudflared.exe"
 $cfHome     = Join-Path $env:USERPROFILE ".cloudflared"
 
-$MYSQL_SVC  = "FinMateMySQL"
-$API_TASK   = "FinMateAPI"
+$MYSQL_SVC  = "AppMySQL"
+$API_TASK   = "AppAPI"
 
 function Test-Port($port) {
     [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
 }
 
 Write-Host ""
-Write-Host "  FinMate - install services" -ForegroundColor Magenta
+Write-Host "  App - install services" -ForegroundColor Magenta
 Write-Host "  ==========================" -ForegroundColor DarkGray
 
 # ---- sanity checks ---------------------------------------------------------
@@ -119,8 +119,8 @@ Set-Service -Name $MYSQL_SVC -StartupType Automatic
 Start-Service -Name $MYSQL_SVC -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 5
 
-# ---- 2) FinMate API (port 8080) -------------------------------------------
-Write-Host "[2/3] FinMate API task ($API_TASK, port 8080)... " -ForegroundColor Cyan -NoNewline
+# ---- 2) App API (port 8080) -------------------------------------------
+Write-Host "[2/3] App API task ($API_TASK, port 8080)... " -ForegroundColor Cyan -NoNewline
 if (Get-ScheduledTask -TaskName $API_TASK -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $API_TASK -Confirm:$false
 }
@@ -142,7 +142,7 @@ $trigger.Delay = "PT30S"
 
 Register-ScheduledTask -TaskName $API_TASK -Action $action -Trigger $trigger `
     -Principal $sysPrincipal -Settings $settings `
-    -Description "FinMate FastAPI backend + built SPA on 127.0.0.1:8080" | Out-Null
+    -Description "App FastAPI backend + built SPA on 127.0.0.1:8080" | Out-Null
 Start-ScheduledTask -TaskName $API_TASK
 Write-Host "installed." -ForegroundColor Green
 Start-Sleep -Seconds 6
@@ -178,7 +178,7 @@ function Show($label, $ok) {
     Write-Host ("    [{0}] {1}" -f $mark, $label) -ForegroundColor $col
 }
 Show "MySQL       (3307)" $okMysql
-Show "FinMate API (8080)" $okApi
+Show "App API (8080)" $okApi
 Show "cloudflared tunnel" $okTun
 
 $health = $null
@@ -198,7 +198,7 @@ if ($okMysql -and $okApi -and $okTun) {
     Write-Host "  Logs:  Get-ScheduledTaskInfo $API_TASK   |   Get-Service cloudflared" -ForegroundColor DarkGray
 }
 Write-Host ""
-Write-Host "  To undo:  double-click 'Uninstall FinMate Services.bat'" -ForegroundColor DarkGray
+Write-Host "  To undo:  double-click 'Uninstall App Services.bat'" -ForegroundColor DarkGray
 Write-Host "  Log:      $logPath" -ForegroundColor DarkGray
 Write-Host ""
 try { Stop-Transcript | Out-Null } catch {}

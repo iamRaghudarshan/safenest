@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===========================================================================
-#  FinMate launcher for macOS. Double-click this file in Finder.
+#  App launcher for macOS. Double-click this file in Finder.
 #
 #  If macOS refuses to open it ("cannot be opened because it is from an
 #  unidentified developer"), right-click it and choose Open, then Open again.

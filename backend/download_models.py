@@ -1,6 +1,6 @@
 """Fetch the on-device vision models.
 
-FinMate works without these — the Gallery simply won't group faces or search by
+The app works without these — the Gallery simply won't group faces or search by
 content — so they are downloaded separately rather than being a hard dependency of
 starting the app. About 190 MB in total, needed once:
 
@@ -158,7 +158,7 @@ def main() -> int:
     print(f"\nface grouping     : {'ready' if state['faces'] else 'NOT available'}")
     print(f"search by content : {'ready' if state['clip'] else 'NOT available'}")
     if not ok:
-        print("\nSome downloads failed. FinMate still runs; those features stay off.")
+        print("\nSome downloads failed. The app still runs; those features stay off.")
     return 0 if ok else 1
 
 

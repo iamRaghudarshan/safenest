@@ -1,8 +1,8 @@
 ===============================================================================
-  FinMate — portable bundle
+  App — portable bundle
 ===============================================================================
 
-This folder contains everything needed to run FinMate on another computer:
+This folder contains everything needed to run App on another computer:
 your personal finance records, documents, photo gallery and password vault.
 
 It works on Windows, macOS and Linux.
@@ -12,9 +12,9 @@ It works on Windows, macOS and Linux.
   HOW TO START IT
 -------------------------------------------------------------------------------
 
-  Windows      Double-click:   Start FinMate (Windows).bat
+  Windows      Double-click:   Start App (Windows).bat
 
-  Mac          Double-click:   Start FinMate (Mac).command
+  Mac          Double-click:   Start App (Mac).command
 
                The first time, macOS may say the file "cannot be opened
                because it is from an unidentified developer". If so:
@@ -30,7 +30,7 @@ window cannot open — a computer with no screen, or a Python built without the 
 toolkit — the same questions are asked at the prompt instead, and the answers
 mean exactly the same thing. To force that on purpose, add  --no-gui
 
-When it's running, leave the window open. FinMate opens in your browser at
+When it's running, leave the window open. App opens in your browser at
 http://127.0.0.1:8080 — closing the window stops the app.
 
 If you chose the launcher for the wrong kind of computer, the other one is in the
@@ -41,16 +41,16 @@ If you chose the launcher for the wrong kind of computer, the other one is in th
   MOVING FROM A WINDOWS PC TO A MacBook
 -------------------------------------------------------------------------------
 
-Do this on the Windows PC that runs FinMate:
+Do this on the Windows PC that runs App:
 
-  1. On your phone (or on the PC), open FinMate -> Profile -> "Take my data to
+  1. On your phone (or on the PC), open App -> Profile -> "Take my data to
      another computer" (or, as an admin, "Move everything to another computer").
 
   2. Choose  Mac.  Leave "Include my data" ticked. Tap "Create the copy".
 
   3. When it finishes it shows a file name ending in .zip and the full path,
      with a "Copy full path" button. It is normally on the Desktop, e.g.
-        C:\Users\<you>\Desktop\FinMate-for-Mac-2026-07-29.zip
+        C:\Users\<you>\Desktop\App-for-Mac-2026-07-29.zip
 
      >> Copy the .ZIP, not the folder. <<
      The zip is the only thing that carries the "runnable" flag macOS needs;
@@ -68,9 +68,9 @@ Now on the MacBook:
      home folder or Documents. Do NOT run it from the USB drive.
 
   6. Double-click the .zip. macOS unpacks it into a folder called
-     FinMate-for-Mac.
+     App-for-Mac.
 
-  7. Open that folder and double-click:  Start FinMate (Mac).command
+  7. Open that folder and double-click:  Start App (Mac).command
 
      The first time, macOS will likely say it "cannot be opened because it is
      from an unidentified developer". That is normal for any script that did not
@@ -81,9 +81,9 @@ Now on the MacBook:
          System Settings -> Privacy & Security -> scroll down -> "Open Anyway"
 
   8. A Terminal window opens and asks a few questions (see below). Answer them
-     and FinMate starts, opening in your browser at http://127.0.0.1:8080
+     and App starts, opening in your browser at http://127.0.0.1:8080
 
-  9. Keep that Terminal window open while you use FinMate. Closing it stops the
+  9. Keep that Terminal window open while you use App. Closing it stops the
      app. To start it again later, just double-click the .command file.
 
  10. Once everything works on the Mac, delete the .zip from the USB drive — it
@@ -96,11 +96,11 @@ TWO THINGS THAT CATCH PEOPLE OUT ON A MAC:
 
   * A MacBook sleeps when you close the lid. Always — being plugged in makes no
     difference, and "caffeinate" does not stop it either (that only blocks the
-    idle timer). While it sleeps, FinMate is unreachable from your phone and
+    idle timer). While it sleeps, App is unreachable from your phone and
     from your web address. Leave the lid open, plug in an external display, or
     install something like Amphetamine.
 
-  * If you use your own web address, stop FinMate on the OLD computer first.
+  * If you use your own web address, stop App on the OLD computer first.
     Both machines serving the same tunnel means Cloudflare answers from
     whichever it feels like, out of two different databases.
 
@@ -110,7 +110,7 @@ TWO THINGS THAT CATCH PEOPLE OUT ON A MAC:
 -------------------------------------------------------------------------------
 
 The setup window walks through this in three steps: where your data lives, how
-FinMate is reached, and your sign-in. The same questions in the same order.
+App is reached, and your sign-in. The same questions in the same order.
 
   Where to keep your data      Press Enter for the "data" folder next to this file.
 
@@ -118,7 +118,7 @@ FinMate is reached, and your sign-in. The same questions in the same order.
 
   Which port                   Press Enter for 8080 unless something else uses it.
 
-  Devices on your Wi-Fi        Say yes so your phone can open FinMate over Wi-Fi.
+  Devices on your Wi-Fi        Say yes so your phone can open App over Wi-Fi.
 
   Reachable from outside?      Three choices:
 
@@ -151,7 +151,7 @@ FinMate is reached, and your sign-in. The same questions in the same order.
          A tunnel can only be served by one machine. Run it on two and
          Cloudflare splits traffic between them at random — and as each machine
          has its own separate database, records will appear and vanish
-         depending on which one happened to answer. Stop FinMate on the old
+         depending on which one happened to answer. Stop App on the old
          computer before starting it on the new one.
 
       3. Yes — a temporary free link.
@@ -178,7 +178,7 @@ missing by itself:
                 PATH" on the first installer screen)
       Mac       open Terminal and run:  xcode-select --install
 
-  * The Python libraries FinMate uses — installed automatically on first run.
+  * The Python libraries App uses — installed automatically on first run.
 
   * cloudflared, if you chose a web address — downloaded automatically into
     this folder. No Homebrew, no winget, no administrator rights needed. It is
@@ -190,7 +190,7 @@ missing by itself:
 
   * About 500 MB of free disk space, plus room for your photos.
 
-You do NOT need to install a database. FinMate keeps everything in a single
+You do NOT need to install a database. App keeps everything in a single
 file inside the "data" folder.
 
 
@@ -204,7 +204,7 @@ Everything lives in the "data" folder next to this file:
     data/media/              your photos and documents
     data/carried-secrets.env the key your password vault is encrypted with
 
-To move FinMate to yet another computer later, copy this whole folder again.
+To move App to yet another computer later, copy this whole folder again.
 To back it up, copy the "data" folder somewhere safe.
 
   !! IMPORTANT !!
@@ -230,18 +230,18 @@ laptop's own disk stays free.
 
 Note this is a different thing from the USB step in the "moving to a MacBook"
 instructions above. There the USB drive is only a courier and you copy the files
-off it. Here the external drive is where FinMate actually lives, permanently.
+off it. Here the external drive is where App actually lives, permanently.
 
   Format the drive as exFAT if the Mac will ever touch it.
       Windows and macOS both read AND write exFAT. A drive formatted NTFS is
-      read-only on a Mac, so FinMate can start but cannot save anything.
+      read-only on a Mac, so App can start but cannot save anything.
       Reformatting erases the drive — do it before you copy anything across.
 
-  The drive must be plugged in before you start FinMate.
+  The drive must be plugged in before you start App.
       Your photos and database live on it. Start the app without the drive and
       it will not find them.
 
-  Never unplug the drive while FinMate is running.
+  Never unplug the drive while App is running.
       Stop the app first (close its window), then eject the drive properly. The
       database is being written to; pulling the cable mid-write can damage it.
 
@@ -254,7 +254,7 @@ off it. Here the external drive is where FinMate actually lives, permanently.
 
   The drive letter changing is handled.
       Windows may call the same drive E: today and F: tomorrow, depending on
-      what else is plugged in. FinMate stores its paths relative to its own
+      what else is plugged in. App stores its paths relative to its own
       folder, so it keeps working. If you move the folder somewhere else on the
       drive, run the launcher with --reconfigure.
 
@@ -273,7 +273,7 @@ prints a second address like:
     On your phone : http://192.168.1.7:8080
 
 Open that in your phone's browser while on the same Wi-Fi. In Safari or Chrome
-choose "Add to Home Screen" and FinMate behaves like an installed app.
+choose "Add to Home Screen" and App behaves like an installed app.
 
 The computer must be switched on and awake for the phone to reach it.
 
@@ -287,8 +287,8 @@ The computer must be switched on and awake for the phone to reach it.
       --reconfigure option, or edit the "port" value in finmate-config.json.
 
   "I want to change my answers."
-      Windows:  Start FinMate (Windows).bat --reconfigure
-      Mac:      ./"Start FinMate (Mac).command" --reconfigure
+      Windows:  Start App (Windows).bat --reconfigure
+      Mac:      ./"Start App (Mac).command" --reconfigure
 
   "I forgot my password."
       Open a terminal in the "backend" folder and run:
@@ -300,7 +300,7 @@ The computer must be switched on and awake for the phone to reach it.
       Close the window, or press Ctrl+C in it.
 
   "Is anything sent to the internet?"
-      No. FinMate runs entirely on your own computer. The only network access
+      No. App runs entirely on your own computer. The only network access
       is the one-off dependency download during the first setup.
 
   "Which timezone are the dates in?"
@@ -314,6 +314,6 @@ The computer must be switched on and awake for the phone to reach it.
       loose folder instead of the .zip; go back and copy the .zip.
 
   ---------------------------------------------------------------
-  (c) 2026 FinMate. All rights reserved.
+  (c) 2026 App. All rights reserved.
   Licensed to the person named in your licence file. Not for resale
   or redistribution.

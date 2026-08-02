@@ -1,6 +1,6 @@
 // Formatting helpers — money in INR, dates as dd-mm-yyyy with 12-hour AM/PM times.
 //
-// FinMate runs on India Standard Time everywhere. The server writes every stored
+// the app runs on India Standard Time everywhere. The server writes every stored
 // timestamp as IST wall-clock (see backend/app/ist.py), so values arriving from the
 // API are already in the right zone and are reformatted here, not converted.
 //

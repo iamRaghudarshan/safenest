@@ -1,6 +1,6 @@
 """Reading the text inside documents and photos, on this machine.
 
-A scanned bill is a picture until something reads it. Until now FinMate stored
+A scanned bill is a picture until something reads it. Until now the app stored
 those pictures and asked the owner to retype every field into the form beside
 them — the due date, the amount, the policy number — while the answer was sitting
 in the image the whole time.

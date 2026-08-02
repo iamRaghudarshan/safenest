@@ -1,7 +1,6 @@
 @echo off
 REM ===========================================================================
-REM  Double-click this to remove the FinMate auto-start services.
-REM  Your data (database files, backend\private, .env) is never touched.
+REM  Double-click this to install App as auto-starting Windows services.
 REM  It re-launches itself elevated, so just accept the Windows UAC prompt.
 REM ===========================================================================
 
@@ -14,4 +13,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 exit /b
 
 :elevated
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall-services.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-services.ps1"

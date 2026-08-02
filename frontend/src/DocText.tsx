@@ -1,4 +1,4 @@
-// What FinMate read inside a document, and the fields that follow from it.
+// What the app read inside a document, and the fields that follow from it.
 //
 // Nothing here writes on its own. The values come from a reader that is right
 // most of the time, and a wrong expiry date that filled itself in is worse than

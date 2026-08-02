@@ -569,7 +569,7 @@ function TokenSheet({ licence, onClose }: { licence: Licence; onClose: () => voi
   )
 }
 
-/** Compose a message that reaches every copy of FinMate, including ones running
+/** Compose a message that reaches every copy of the app, including ones running
  *  on machines you cannot touch.
  *
  *  Local users are notified the moment this is sent. Licensed copies are not

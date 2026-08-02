@@ -1,4 +1,4 @@
-"""Issuing and withdrawing licences for copies of FinMate given to other people.
+"""Issuing and withdrawing licences for copies of the app given to other people.
 
 Three audiences, three prefixes, and the split matters:
 

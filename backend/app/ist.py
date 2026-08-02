@@ -1,7 +1,7 @@
 """India Standard Time — the one clock this app runs on.
 
 Every stored timestamp is IST wall-clock, regardless of where the machine running
-FinMate happens to be. That matters now that the app can be copied to another
+The app happens to be. That matters now that the app can be copied to another
 computer: a MacBook carried abroad would otherwise start writing rows in local
 time, and the same expense list would show two different clocks depending on which
 machine created each row.

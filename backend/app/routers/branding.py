@@ -37,7 +37,7 @@ from ..storage import PRIVATE_ROOT
 router = APIRouter(prefix="/api/branding", tags=["branding"])
 files = APIRouter(tags=["branding"])          # no /api prefix — browser-facing
 
-DEFAULT_NAME = "FinMate"
+DEFAULT_NAME = "App"
 DEFAULT_THEME = "#5b3df5"
 MAX_UPLOAD = 6 * 1024 * 1024                  # 6 MB; a launcher icon is never bigger
 

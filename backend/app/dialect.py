@@ -1,6 +1,6 @@
 """Date expressions that work on both MySQL and SQLite.
 
-FinMate normally runs on MySQL, but the portable bundle ships with SQLite so a copy
+The app normally runs on MySQL, but the portable bundle ships with SQLite so a copy
 of the app can run on any machine without a database server. The two disagree on
 every date function that matters here, so the queries go through these helpers
 instead of naming a vendor's function directly.

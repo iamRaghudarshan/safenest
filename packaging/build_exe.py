@@ -1,4 +1,4 @@
-"""Package FinMate into an executable a customer can double-click.
+"""Package App into an executable a customer can double-click.
 
     python packaging/build_exe.py                 build for this computer's OS
     python packaging/build_exe.py --no-models     smaller build; models download later
@@ -7,7 +7,7 @@ ONE FOLDER, NOT ONE FILE — and that is deliberate. The payload is roughly 680 
 (cv2 117 MB, transformers 98 MB, onnxruntime 45 MB, the vision models 188 MB). A
 one-file build unpacks all of it into a temporary directory on every single
 launch, which turns a two-second start into most of a minute, every time. One
-folder with FinMate.exe inside it is how desktop software of this size actually
+folder with App.exe inside it is how desktop software of this size actually
 ships.
 
 CROSS-COMPILING IS NOT POSSIBLE. PyInstaller freezes the interpreter it is run
@@ -34,7 +34,7 @@ WORK = ROOT / "build-app"
 
 IS_WINDOWS = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
-APP_NAME = "FinMate"
+APP_NAME = "App"
 
 # The version this build reports. Read from VERSION at the project root so the
 # number lives in one place -- the customer's copy compares it against what the
@@ -490,7 +490,7 @@ def build(with_models: bool, native: bool = False) -> Path:
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Package FinMate as an executable.")
+    ap = argparse.ArgumentParser(description="Package App as an executable.")
     ap.add_argument("--no-models", action="store_true",
                     help="leave out the 188 MB vision models (downloaded on first use)")
     ap.add_argument("--clean", action="store_true", help="delete previous build output first")
