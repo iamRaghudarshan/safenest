@@ -596,7 +596,7 @@ def build_installed(platform: str, include_data: bool, out_root: Path | None = N
     return result
 
 
-def _mac_gatekeeper_note(brand: str, launcher: str) -> list:
+def _mac_gatekeeper_note(brand: str, launcher: str, folder: str) -> list:
     """What a Mac owner must do before the app will open at all.
 
     macOS refuses anything downloaded that Apple has not signed, and the refusal
@@ -612,25 +612,26 @@ def _mac_gatekeeper_note(brand: str, launcher: str) -> list:
     page is the difference between a working copy and a refund.
     """
     return [
-        "  FIRST, ON macOS: LET IT OPEN",
-        "    macOS blocks apps it has not seen before. It may say this one is",
-        "    damaged, or offer only 'Move to Bin'. Nothing is wrong with it --",
-        "    Apple simply has not been paid to vouch for it. Do this once:",
+        "  INSTALLING IT",
         "",
-        "      1. Open Terminal (Applications > Utilities > Terminal)",
-        "      2. Type this, WITH the space at the end:",
+        f"    1. Drag {brand}.app into your Applications folder.",
         "",
-        "           xattr -dr com.apple.quarantine ",
+        f"    2. Open Applications, RIGHT-CLICK {brand} and choose Open.",
+        "       (Right-click, not double-click, only this first time.)",
         "",
-        "      3. Drag this folder onto the Terminal window - it fills in the",
-        "         path for you - then press Enter. Nothing printed means it",
-        "         worked.",
+        "    3. macOS will say it cannot verify the developer. Choose Open.",
         "",
-        f"    Then double-click {launcher} as normal.",
+        "    That is all. From then on it opens with a normal double-click.",
         "",
-        "    Prefer not to use Terminal? Double-click it, let macOS refuse, then",
-        "    go to System Settings > Privacy & Security, scroll down to the line",
-        f"    about {brand}, and choose 'Open Anyway'.",
+        "  WHY macOS ASKS",
+        "    Apple charges software makers a yearly fee to vouch for their apps.",
+        "    This one is signed but not registered with Apple, so macOS asks you",
+        "    once whether you trust it. Nothing is wrong with the download.",
+        "",
+        "    If you double-clicked and were only offered 'Move to Bin', that is",
+        "    the same thing: right-click and choose Open instead, and the Open",
+        "    button appears. Or go to System Settings > Privacy & Security and",
+        f"    click 'Open Anyway' beside the note about {brand}.",
         "",
     ]
 
@@ -672,6 +673,7 @@ def _mac_from_tar(tar_src: Path, folder: str, data_dir: Path,
     with tarfile.open(tar_src, "r:gz") as src, \
             tarfile.open(out, "w:gz", compresslevel=6) as dst:
         progress("Packing the app", 40)
+        app_entries = []
         for member in src:
             # Re-root FinMate/... under the customer's folder name, and rename the
             # executable to their product's name on the way past.
@@ -681,6 +683,8 @@ def _mac_from_tar(tar_src: Path, folder: str, data_dir: Path,
             if len(parts) == 2 and parts[1] == BRAND_TOKEN:
                 parts[1] = exe_name
             member.name = "/".join(parts)
+            if len(parts) == 2 and parts[1] not in app_entries:
+                app_entries.append(parts[1])
             if member.issym() or member.islnk():
                 dst.addfile(member)          # the link itself, never its target
                 links += 1
@@ -692,9 +696,16 @@ def _mac_from_tar(tar_src: Path, folder: str, data_dir: Path,
                 copied += 1
 
         progress("Adding your licence", 80)
+        # Inside the .app when there is one -- Contents/Resources/seed-data --
+        # because a Mac app is a read-only bundle the customer drags to
+        # Applications, and anything left beside it is lost on the first drag.
+        # runner.py copies it out to Application Support on first run.
+        app_dir = next((n for n in app_entries if n.endswith(".app")), "")
+        prefix = (f"{app_dir}/Contents/Resources/seed-data"
+                  if app_dir else f"{folder}/data")
         for path in sorted(data_dir.rglob("*")):
             if path.is_file():
-                dst.add(path, arcname=f"{folder}/data/"
+                dst.add(path, arcname=f"{prefix}/"
                         f"{path.relative_to(data_dir).as_posix()}")
                 copied += 1
         if readme.is_file():
@@ -735,7 +746,7 @@ def _licensed_readme(dest: Path, app_name: str, launcher: str, token: str,
         "",
     ]
     if platform == MAC:
-        lines += _mac_gatekeeper_note(brand, launcher)
+        lines += _mac_gatekeeper_note(brand, launcher, dest.name)
     lines += [
         "  STARTING IT",
         f"    Double-click  {launcher}",

@@ -22,16 +22,47 @@ def bundle_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def in_app_bundle() -> bool:
+    """Running from a macOS .app rather than a plain folder."""
+    return ".app/Contents/MacOS" in str(Path(sys.executable).resolve())
+
+
 def install_dir() -> Path:
-    """The folder the user actually double-clicked in — writable, and where data goes.
+    """The folder that owns this copy's records.
 
     Deliberately not _MEIPASS: in one-file mode that is a temporary directory
     that gets deleted on exit, which would silently discard every record the
     moment the app closed.
+
+    Inside a macOS .app it is not the executable's folder either. Writing into an
+    .app breaks its code signature, and everything in there is replaced wholesale
+    by an update or a drag to Applications -- a customer's whole history would go
+    with it. macOS keeps that sort of thing in Application Support, so that is
+    where it goes, and the .app stays read-only as Apple intends.
     """
     if getattr(sys, "frozen", False):
+        if in_app_bundle():
+            name = Path(sys.executable).resolve().parent.parent.parent.stem
+            root = Path.home() / "Library" / "Application Support" / (name or "SafeNest")
+            root.mkdir(parents=True, exist_ok=True)
+            return root
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent.parent
+
+
+def seed_dir() -> Path | None:
+    """Where a .app carries the licence it shipped with, read-only.
+
+    The .app cannot be written to, so the licence, the branded database and the
+    vault key travel inside it and are copied out to Application Support the first
+    time it runs. Without this a customer's copy would start with no licence at
+    all and refuse to work.
+    """
+    if not (getattr(sys, "frozen", False) and in_app_bundle()):
+        return None
+    contents = Path(sys.executable).resolve().parent.parent
+    seed = contents / "Resources" / "seed-data"
+    return seed if seed.is_dir() else None
 
 
 def pause() -> None:
@@ -125,6 +156,16 @@ def resolve_data_dir() -> Path:
         return chosen
 
     default = root / "data"
+
+    # A .app carries its licence read-only inside itself; copy it out the first
+    # time, before anything asks whether this copy has been used. Without this the
+    # app starts with no licence and refuses to run, which looks like a faulty
+    # download rather than a first run.
+    seed = seed_dir()
+    if seed is not None and not (default / "instance.env").exists():
+        default.mkdir(parents=True, exist_ok=True)
+        _carry_shipped_data(seed, default)
+
     # "Has this copy been used yet?" is instance.env, NOT finmate.db.
     #
     # A licensed bundle SHIPS data/finmate.db already made -- an empty database
