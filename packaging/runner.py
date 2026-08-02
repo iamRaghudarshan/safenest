@@ -153,6 +153,10 @@ def resolve_data_dir() -> Path:
             chosen.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise SystemExit(f"\n  Cannot use {chosen}: {exc}\n")
+        # This is the branch every launch after the first takes, which is exactly
+        # why the repair belongs here: a folder that never received the licence
+        # would otherwise stay unlicensed for the life of the installation.
+        _restore_from_seed(chosen)
         return chosen
 
     default = root / "data"
@@ -187,10 +191,107 @@ def resolve_data_dir() -> Path:
             target = Path(picked)
             target.mkdir(parents=True, exist_ok=True)
             _carry_shipped_data(default, target)
+            _restore_from_seed(target)
             (root / POINTER).write_text(str(target) + "\n", encoding="utf-8")
             return target
     default.mkdir(parents=True, exist_ok=True)
+    _restore_from_seed(default)
     return default
+
+
+#: What the .app carries read-only and the records folder cannot do without.
+#: Deliberately NOT carried-secrets.env: it holds the vault key this copy was
+#: sealed with, and a copy already running on a generated key has encrypted things
+#: with that one. Restoring the other key would make those permanently unreadable,
+#: which is a worse fault than the one being repaired.
+_SEED_ESSENTIALS = ("licence.json", "licence.key", "media")
+
+
+def _restore_from_seed(data: Path) -> None:
+    """Put back anything the bundle ships that the records folder is missing.
+
+    Every launch, not just the first, and this is the point of it.
+
+    A customer's copy was running as an UNLICENSED installation: no licence.json,
+    so LICENSED_MODE was never set, so the licence gate was inert, the startup role
+    sweep never ran and the admin guard let everything through. They were made an
+    administrator of their own licensed copy and shown User management, Licences
+    and the whole-installation export. Their branding said "App" too, because the
+    database they were using was not the one that shipped.
+
+    It could not correct itself. Once a records folder has been chosen, every later
+    launch takes the `chosen is not None` path and returns immediately -- the seed
+    was only ever copied on the first run, so a first run that missed it left the
+    copy wrong for ever, and installing three updates changed nothing.
+
+    Only ever adds what is absent. It cannot overwrite records, cannot replace a
+    database, and cannot change a vault key.
+    """
+    seed = seed_dir()
+    if seed is None or not data.is_dir():
+        return
+    import shutil
+    for name in _SEED_ESSENTIALS:
+        src, dst = seed / name, data / name
+        if not src.exists() or dst.exists():
+            continue
+        try:
+            if src.is_dir():
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+            print(f"  [restore] put back {name}, which was missing")
+        except OSError as exc:
+            # Not fatal. A copy that is running is worth more than a tidy one, and
+            # the licence gate will say plainly if the licence is still absent.
+            print(f"  [restore] could not put back {name}: {exc}")
+
+
+def _restore_branding(data: Path) -> None:
+    """Give the app its name back, if the database in use never had it.
+
+    The name and icon are a row in the database (§9), and a licensed bundle ships
+    one already carrying them. A copy running on a database it made for itself has
+    no such row, so it calls itself "App" everywhere -- on the login screen, in the
+    tab, on the home-screen shortcut. That is what the customer saw.
+
+    Copies the row out of the shipped database into the one in use. Additive: if
+    there is already a branding row it is left alone, because a name that was set
+    on purpose must outrank the one that shipped.
+    """
+    seed = seed_dir()
+    if seed is None:
+        return
+    src, dst = seed / "finmate.db", data / "finmate.db"
+    if not src.is_file() or not dst.is_file() or src.samefile(dst):
+        return
+    import sqlite3
+    try:
+        out = sqlite3.connect(dst)
+        try:
+            cur = out.execute("SELECT name FROM sqlite_master "
+                              "WHERE type='table' AND name='branding'")
+            if not cur.fetchone() or out.execute(
+                    "SELECT 1 FROM branding LIMIT 1").fetchone():
+                return
+            src_db = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+            try:
+                src_db.row_factory = sqlite3.Row
+                row = src_db.execute("SELECT * FROM branding LIMIT 1").fetchone()
+            finally:
+                src_db.close()
+            if row is None:
+                return
+            cols = [k for k in row.keys()]
+            out.execute(f"INSERT INTO branding ({','.join(cols)}) VALUES "
+                        f"({','.join('?' * len(cols))})", tuple(row[k] for k in cols))
+            out.commit()
+            print("  [restore] put the app's name and icon back")
+        finally:
+            out.close()
+    except Exception as exc:
+        # A name is not worth failing a launch over.
+        print(f"  [restore] could not restore the branding: {exc}")
 
 
 def _carry_shipped_data(src: Path, dst: Path) -> None:
@@ -456,8 +557,11 @@ def main() -> int:
     print("=" * 66)
     print(f"  Your data: {data}")
 
+    # After ensure_account, so the tables are certainly there — it is the first
+    # thing that opens the database and creates the schema.
     try:
         ensure_account(data)
+        _restore_branding(data)
     except Exception as exc:
         print(f"\n  {exc}\n")
         pause()
