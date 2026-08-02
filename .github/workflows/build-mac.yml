@@ -60,10 +60,30 @@ jobs:
             echo "No Mac executable was produced"; exit 1; }
           file "dist-app/mac/FinMate/FinMate"
 
+      # Tarred HERE, on the Mac, and never unpacked until it reaches another Mac.
+      #
+      # Python.framework is built from symlinks — Python -> Versions/Current/Python,
+      # Versions/Current -> 3.13 — and macOS seals that structure into the code
+      # signature. Anything that turns those links into copies invalidates it, and
+      # the app dies with "code signature not valid for use in process". Both a zip
+      # artifact and a Windows file copy do exactly that, silently.
+      #
+      # tar records a symlink as a symlink. The bundler then copies entries from
+      # this archive straight into the customer's, without ever materialising them
+      # on a filesystem that cannot represent them.
+      - name: Pack, preserving symlinks
+        run: |
+          cd dist-app/mac
+          tar -czf ../../mac-app.tar.gz FinMate
+          cd ../..
+          echo "symlinks preserved:"
+          tar -tvzf mac-app.tar.gz | grep -c '^l' || true
+          ls -lh mac-app.tar.gz
+
       - uses: actions/upload-artifact@v4
         with:
           name: mac-build
-          path: dist-app/mac/
+          path: mac-app.tar.gz
           # A few hundred megabytes; long enough to download, short enough not to
           # sit in the account for months.
           retention-days: 14

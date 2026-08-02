@@ -596,7 +596,117 @@ def build_installed(platform: str, include_data: bool, out_root: Path | None = N
     return result
 
 
-def _licensed_readme(dest: Path, app_name: str, launcher: str, token: str) -> None:
+def _mac_gatekeeper_note(brand: str, launcher: str) -> list:
+    """What a Mac owner must do before the app will open at all.
+
+    macOS refuses anything downloaded that Apple has not signed, and the refusal
+    reads as an accusation: "Apple could not verify this app is free of malware",
+    with the only button being **Move to Bin**. A customer who has just paid for
+    software and is told to bin it does not try again -- and nothing in the app
+    can catch this, because macOS blocks it before a line of ours runs.
+
+    The old right-click -> Open route stopped working in recent macOS, so both
+    current routes are given. Removing the quarantine flag is the reliable one.
+
+    The real fix is an Apple Developer account and notarisation; until then this
+    page is the difference between a working copy and a refund.
+    """
+    return [
+        "  FIRST, ON macOS: LET IT OPEN",
+        "    macOS blocks apps it has not seen before. It may say this one is",
+        "    damaged, or offer only 'Move to Bin'. Nothing is wrong with it --",
+        "    Apple simply has not been paid to vouch for it. Do this once:",
+        "",
+        "      1. Open Terminal (Applications > Utilities > Terminal)",
+        "      2. Type this, WITH the space at the end:",
+        "",
+        "           xattr -dr com.apple.quarantine ",
+        "",
+        "      3. Drag this folder onto the Terminal window - it fills in the",
+        "         path for you - then press Enter. Nothing printed means it",
+        "         worked.",
+        "",
+        f"    Then double-click {launcher} as normal.",
+        "",
+        "    Prefer not to use Terminal? Double-click it, let macOS refuse, then",
+        "    go to System Settings > Privacy & Security, scroll down to the line",
+        f"    about {brand}, and choose 'Open Anyway'.",
+        "",
+    ]
+
+
+MAC_TARBALL = "mac-app.tar.gz"
+
+
+def mac_tarball() -> Path:
+    """The Mac build as CI packed it, symlinks and modes intact."""
+    return PROJECT_ROOT / "dist-app" / "mac" / MAC_TARBALL
+
+
+def _mac_from_tar(tar_src: Path, folder: str, data_dir: Path,
+                  readme: Path, exe_name: str, out: Path,
+                  progress=lambda s, p: None) -> int:
+    """Write the customer's Mac archive by copying entries, never unpacking them.
+
+    WHY THIS EXISTS
+    A macOS Python.framework is a structure of symlinks -- Python points at
+    Versions/Current/Python, Versions/Current points at 3.13 -- and the code
+    signature seals that structure. Turn the links into copies and macOS refuses
+    to load the library at all:
+
+        code signature ... not valid for use in process:
+        library load disallowed by system policy
+
+    Which is exactly what happens if the build is zipped, or copied by a Windows
+    filesystem that has no symlinks to copy. It happened here: four identical
+    6.7 MB Pythons where there should have been one file and three links.
+
+    So nothing is ever extracted on this machine. Each member is copied from the
+    Mac's own tar into the customer's tar with its type, mode and link target
+    unchanged, and only the data folder is added.
+    """
+    import tarfile
+    copied = links = 0
+    # One pass: a gzipped tar cannot be reopened and appended to, so the app and
+    # the customer's data are written together.
+    with tarfile.open(tar_src, "r:gz") as src, \
+            tarfile.open(out, "w:gz", compresslevel=6) as dst:
+        progress("Packing the app", 40)
+        for member in src:
+            # Re-root FinMate/... under the customer's folder name, and rename the
+            # executable to their product's name on the way past.
+            parts = member.name.split("/")
+            if parts and parts[0] != folder:
+                parts[0] = folder
+            if len(parts) == 2 and parts[1] == BRAND_TOKEN:
+                parts[1] = exe_name
+            member.name = "/".join(parts)
+            if member.issym() or member.islnk():
+                dst.addfile(member)          # the link itself, never its target
+                links += 1
+            elif member.isfile():
+                dst.addfile(member, src.extractfile(member))
+                copied += 1
+            else:
+                dst.addfile(member)          # directories and the rest
+                copied += 1
+
+        progress("Adding your licence", 80)
+        for path in sorted(data_dir.rglob("*")):
+            if path.is_file():
+                dst.add(path, arcname=f"{folder}/data/"
+                        f"{path.relative_to(data_dir).as_posix()}")
+                copied += 1
+        if readme.is_file():
+            dst.add(readme, arcname=f"{folder}/README.txt")
+            copied += 1
+
+    print(f"[bundle] mac archive: {copied} files, {links} symlinks preserved")
+    return links
+
+
+def _licensed_readme(dest: Path, app_name: str, launcher: str, token: str,
+                     platform: str = WINDOWS) -> None:
     """The one page a customer sees before they double-click anything.
 
     The compiled bundle is an executable and two folders; without this it arrives
@@ -623,6 +733,10 @@ def _licensed_readme(dest: Path, app_name: str, launcher: str, token: str) -> No
         brand,
         "=" * len(brand),
         "",
+    ]
+    if platform == MAC:
+        lines += _mac_gatekeeper_note(brand, launcher)
+    lines += [
         "  STARTING IT",
         f"    Double-click  {launcher}",
         "    The first run asks a few questions and sets everything up. After",
@@ -675,7 +789,23 @@ def build_licensed(platform: str, licence_token: str, out_root: Path | None = No
     # Without the check, asking for a Mac copy on Windows copied the Windows build
     # into a Mac-named folder: a bundle that looks right, zips, sends, and cannot
     # start on the machine it was made for. Found in a real customer bundle.
-    if not compiled_available(platform):
+    # A Mac copy assembled on anything but a Mac must come from the tarball, or
+    # the Python.framework symlinks become copies and macOS refuses to load the
+    # library at all. There is no way to represent them on this filesystem, so
+    # there is no half-measure to fall back to.
+    if platform == MAC and host_platform() != MAC and not mac_tarball().is_file():
+        raise FileNotFoundError(
+            f"The Mac build here cannot be packaged on {host_platform().title()}.\n\n"
+            f"macOS builds contain symlinks inside Python.framework, and the code "
+            f"signature covers them. Copying them on {host_platform().title()} "
+            f"turns them into duplicate files, and the app then dies with "
+            f"'library load disallowed by system policy'.\n\n"
+            f"Re-run the 'Build the Mac app' workflow — it now packs a tarball "
+            f"that keeps them — and put it at:\n"
+            f"    {mac_tarball()}")
+
+    if not compiled_available(platform) and not (
+            platform == MAC and mac_tarball().is_file()):
         where = compiled_dir(platform)
         if platform == host_platform():
             raise FileNotFoundError(
@@ -752,10 +882,29 @@ def build_licensed(platform: str, licence_token: str, out_root: Path | None = No
         _carry_hosting(data_dir, hosting["hostname"], hosting["tunnel_token"])
         result["hostname"] = hosting["hostname"]
 
-    _licensed_readme(dest, app_name, wanted, licence_token)
+    _licensed_readme(dest, app_name, wanted, licence_token, platform)
 
     progress("Finishing", 92)
     result["bytes"] = sum(p.stat().st_size for p in dest.rglob("*") if p.is_file())
+
+    if platform == MAC and host_platform() != MAC:
+        # Built from the Mac's own tarball, so Python.framework's symlinks reach
+        # the customer as symlinks. Everything assembled in `dest` above is thrown
+        # away except data/ and the README -- the app files come from the archive,
+        # untouched, because this filesystem cannot represent them.
+        tpath = dest.parent / (dest.name + ".tar.gz")
+        if tpath.exists():
+            tpath.unlink()
+        links = _mac_from_tar(mac_tarball(), dest.name, data_dir,
+                              dest / "README.txt", wanted, tpath, progress)
+        shutil.rmtree(dest, ignore_errors=True)   # the folder would be misleading
+        result["zip"] = str(tpath)
+        result["zip_bytes"] = tpath.stat().st_size
+        result["bytes"] = result["zip_bytes"]
+        result["symlinks"] = links
+        result["archive"] = "tar.gz"
+        progress("Done", 100)
+        return result
 
     # Always zipped: it is one file to send, and on a Mac the zip is the only way
     # the executable arrives with its executable bit intact.
