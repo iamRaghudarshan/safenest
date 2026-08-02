@@ -130,11 +130,29 @@ def is_newer(candidate: str, running: str) -> bool:
 
 # ------------------------------------------------------- customer: install
 def install_root() -> Path | None:
-    """The folder holding the running program, or None outside a packaged build."""
+    """What an update replaces: the .app bundle, or the folder holding the program.
+
+    On macOS this is the whole `.app`, not the directory the executable sits in --
+    that is Contents/MacOS, inside the bundle. Looking for `_internal` there found
+    nothing (PyInstaller puts it in Contents/Frameworks) and the updater refused
+    every Mac copy with "Updates only apply to an installed copy".
+
+    Replacing the whole bundle is also the only correct unit: a .app is signed as
+    one thing, and swapping pieces of it invalidates the signature.
+    """
     if not getattr(sys, "frozen", False):
         return None
-    root = Path(sys.executable).resolve().parent
+    exe = Path(sys.executable).resolve()
+    for parent in exe.parents:
+        if parent.suffix == ".app":
+            return parent
+    root = exe.parent
     return root if (root / "_internal").is_dir() else None
+
+
+def is_app_bundle(path: Path | None = None) -> bool:
+    p = path or install_root()
+    return bool(p and p.suffix == ".app")
 
 
 def staging_dir() -> Path:
@@ -197,15 +215,43 @@ def _swap_script(new_root: Path, app_root: Path, exe: Path) -> Path:
         return script
 
     script = app_root.parent / f".{app_root.name}-apply.sh"
-    script.write_text(
-        "#!/bin/sh\n"
-        f'while pgrep -f "{exe.name}" >/dev/null 2>&1; do sleep 1; done\n'
-        f'rm -rf "{app_root}/_internal"\n'
-        f'cp -R "{new_root}/." "{app_root}/"\n'
-        f'chmod +x "{exe}" 2>/dev/null\n'
-        f'open "{exe}" 2>/dev/null || "{exe}" &\n'
-        f'rm -rf "{new_root.parent}"\n'
-        'rm -- "$0"\n', encoding="ascii")
+    if app_root.suffix == ".app":
+        # Replace the bundle whole, and use `ditto` rather than `cp`: it keeps the
+        # symlinks inside Python.framework and the extended attributes the code
+        # signature is stored in. `cp -R` would flatten the first and drop the
+        # second, and macOS then refuses to load the app at all.
+        #
+        # Records are not in here -- they live in ~/Library/Application Support --
+        # so replacing the bundle cannot touch them.
+        body = (
+            "#!/bin/sh\n"
+            f'while pgrep -f "{app_root.name}" >/dev/null 2>&1; do sleep 1; done\n'
+            "sleep 1\n"
+            f'rm -rf "{app_root}.old"\n'
+            # Moved aside rather than deleted: if the copy fails there is still a
+            # working application to put back, instead of none at all.
+            f'mv "{app_root}" "{app_root}.old" 2>/dev/null\n'
+            f'ditto "{new_root}" "{app_root}"\n'
+            f'if [ -d "{app_root}/Contents/MacOS" ]; then\n'
+            f'  rm -rf "{app_root}.old"\n'
+            "else\n"
+            f'  rm -rf "{app_root}"; mv "{app_root}.old" "{app_root}"\n'
+            "fi\n"
+            f'xattr -dr com.apple.quarantine "{app_root}" 2>/dev/null\n'
+            f'open "{app_root}"\n'
+            f'rm -rf "{new_root.parent}"\n'
+            'rm -- "$0"\n')
+    else:
+        body = (
+            "#!/bin/sh\n"
+            f'while pgrep -f "{exe.name}" >/dev/null 2>&1; do sleep 1; done\n'
+            f'rm -rf "{app_root}/_internal"\n'
+            f'ditto "{new_root}" "{app_root}"\n'
+            f'chmod +x "{exe}" 2>/dev/null\n'
+            f'open "{exe}" 2>/dev/null || "{exe}" &\n'
+            f'rm -rf "{new_root.parent}"\n'
+            'rm -- "$0"\n')
+    script.write_text(body, encoding="ascii")
     script.chmod(0o755)
     return script
 
@@ -220,12 +266,26 @@ def apply_staged(new_root: Path) -> Path:
     if app_root is None:
         raise UpdateError("Updates only apply to an installed copy.")
     exe = Path(sys.executable).resolve()
-    if not (new_root / exe.name).exists():
-        # Renamed per customer, so a mismatch means the wrong archive entirely.
-        found = [p.name for p in new_root.iterdir() if p.suffix in (".exe", "")]
-        raise UpdateError(f"This update does not contain {exe.name} "
-                          f"(found: {', '.join(found[:4]) or 'nothing'}).")
-    script = _swap_script(new_root, app_root, exe)
+
+    if is_app_bundle(app_root):
+        # The whole bundle is the unit. Find the .app inside what was unpacked --
+        # its name may differ from the installed one if the product was renamed
+        # between releases, and matching on the old name would reject a perfectly
+        # good update.
+        found = [p for p in new_root.rglob("*.app") if p.is_dir()]
+        found = [p for p in found if ".app/" not in str(p.relative_to(new_root))]
+        if not found:
+            raise UpdateError("This update does not contain an application.")
+        source = found[0]
+    else:
+        if not (new_root / exe.name).exists():
+            # Renamed per customer, so a mismatch means the wrong archive entirely.
+            names = [p.name for p in new_root.iterdir() if p.suffix in (".exe", "")]
+            raise UpdateError(f"This update does not contain {exe.name} "
+                              f"(found: {', '.join(names[:4]) or 'nothing'}).")
+        source = new_root
+
+    script = _swap_script(source, app_root, exe)
     flags = 0
     if os.name == "nt":
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | \
