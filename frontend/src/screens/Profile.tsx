@@ -1725,12 +1725,28 @@ function AppUpdateRow() {
   const [st, setSt] = useState<UpdateState | null>(null)
   const [busy, setBusy] = useState<'' | 'check' | 'install'>('')
 
-  const look = useCallback(async () => {
+  /** Check for a newer version. `announce` when a person asked, not on load.
+   *
+   *  Tapping this used to re-check and say nothing: the request is fast, the row
+   *  redraws identically, and the only sign anything happened was a "Checking…"
+   *  that flashed past. Reported as "I clicked it and there was no action" —
+   *  which was exactly right.
+   */
+  const look = useCallback(async (announce = false) => {
     setBusy('check')
-    try { setSt(await api<UpdateState>('/api/update')) }
-    catch { setSt(null) }
-    finally { setBusy('') }
-  }, [])
+    try {
+      const next = await api<UpdateState>('/api/update')
+      setSt(next)
+      if (announce) {
+        toast(next.available
+          ? `Version ${next.version} is ready — tap to install`
+          : next.reason || `You are on the latest version (${next.running})`)
+      }
+    } catch (e) {
+      setSt(null)
+      if (announce) toast(errorMessage(e, 'Could not check for updates'))
+    } finally { setBusy('') }
+  }, [toast])
   useEffect(() => { look() }, [look])
 
   if (!st || !st.installable) return null
@@ -1757,7 +1773,8 @@ ${appName()} will close and reopen. Your records are not touched.`)) return
   return (
     <SettingsRow icon="✓" tint="var(--ink-faint)"
       label={busy === 'check' ? 'Checking…' : `App version ${st.running}`}
-      sub={st.reason || 'Up to date'} onClick={busy ? undefined : look} />
+      sub={st.reason || 'Tap to check for a new version'}
+      onClick={busy ? undefined : () => look(true)} />
   )
 }
 
