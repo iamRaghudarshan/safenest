@@ -265,8 +265,12 @@ def install_progress(user: User = Depends(_manager)):
     on a request for several minutes with nothing to show, which reads as a hung
     app — reported as "it says update now but there is no progress bar". The work
     happens on a thread and this reports it.
+
+    Always the whole shape, even before anything starts: the screen reads
+    `percent` straight into a width and a label, and a missing key renders as
+    "undefined%" across the bar.
     """
-    return dict(_INSTALL)
+    return {"state": "idle", "percent": 0, "note": "", **_INSTALL}
 
 
 @updater.post("")

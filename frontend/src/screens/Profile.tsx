@@ -1374,7 +1374,12 @@ function WebAddress({ onClose }: { onClose: () => void }) {
   const host = url.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase()
   const tunnelName = (appName() || 'safenest').toLowerCase().replace(/[^a-z0-9-]/g, '') || 'safenest'
   const idOrPlaceholder = tunnelId.trim() || 'PASTE-THE-ID-FROM-STEP-6'
-  const hostOrPlaceholder = /^([a-z0-9-]+\.)+[a-z]{2,}$/.test(host) ? host : 'finmate.yourdomain.com'
+  const hostOrPlaceholder = /^([a-z0-9-]+\.)+[a-z]{2,}$/.test(host)
+    ? host
+    // Built from the app's own name, like the tunnel name above it. Hard-coding
+    // an example address put a product name the branding screen cannot reach in
+    // front of a customer, on their own machine.
+    : `${tunnelName}.yourdomain.com`
   const hasHost = /^([a-z0-9-]+\.)+[a-z]{2,}$/.test(host)
   const live = !!(state?.public_url && !state.from_env)
 
@@ -1394,7 +1399,7 @@ function WebAddress({ onClose }: { onClose: () => void }) {
   }
 
   async function autoSetup() {
-    if (!hasHost) { toast('Enter your address first, like finmate.yourdomain.com'); return }
+    if (!hasHost) { toast(`Enter your address first, like ${tunnelName}.yourdomain.com`); return }
     setBusy('auto'); setAutoNote(''); setAutoOk(false); setWarn('')
     setAutoStep('Talking to Cloudflare…')
     try {
@@ -1422,7 +1427,7 @@ function WebAddress({ onClose }: { onClose: () => void }) {
   }
 
   async function saveAll() {
-    if (!hasHost) { toast('Enter your address first, like finmate.yourdomain.com'); return }
+    if (!hasHost) { toast(`Enter your address first, like ${tunnelName}.yourdomain.com`); return }
     setBusy('save'); setWarn('')
     try {
       const r = await api<HostingState & { previous_url: string; licences_on_old_url: number }>(
@@ -1509,14 +1514,14 @@ function WebAddress({ onClose }: { onClose: () => void }) {
       <Step n={3} title="Choose your address" done={hasHost}>
         <p>What would you like to type into a browser to reach {appName()}?</p>
         <Field label="Your address">
-          <input className="input" value={url} placeholder="finmate.yourdomain.com"
+          <input className="input" value={url} placeholder={`${tunnelName}.yourdomain.com`}
             autoCapitalize="off" autoCorrect="off" spellCheck={false}
             onChange={(e) => setUrl(e.target.value)} />
         </Field>
         {url.trim() && !hasHost && (
           <p className="form-hint warn">
             That does not look like a domain yet. It should read like
-            <b> finmate.yourdomain.com</b> - no https, no slashes.
+            <b> {tunnelName}.yourdomain.com</b> - no https, no slashes.
           </p>
         )}
         {state?.from_env && (

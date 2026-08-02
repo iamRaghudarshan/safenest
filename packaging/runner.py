@@ -207,6 +207,30 @@ def resolve_data_dir() -> Path:
 _SEED_ESSENTIALS = ("licence.json", "licence.key", "media")
 
 
+def _seed_source(data: Path) -> Path | None:
+    """Where this copy's shipped licence and branding can be read back from.
+
+    Two shapes, one idea. A .app carries them read-only in Contents/Resources,
+    because writing inside a bundle breaks its signature. A Windows copy ships
+    `data/` beside the executable and keeps working there unless the owner chose
+    another folder -- in which case the originals are still sitting beside the
+    exe, untouched, and are exactly what a chosen folder missing its licence needs.
+
+    Written as one function because the failure is one failure: a records folder
+    without a licence, on a copy that has one a few directories away.
+    """
+    seed = seed_dir()
+    if seed is not None:
+        return seed
+    try:
+        shipped = install_dir() / "data"
+    except Exception:
+        return None
+    if not shipped.is_dir() or shipped.resolve() == data.resolve():
+        return None
+    return shipped
+
+
 def _restore_from_seed(data: Path) -> None:
     """Put back anything the bundle ships that the records folder is missing.
 
@@ -227,7 +251,7 @@ def _restore_from_seed(data: Path) -> None:
     Only ever adds what is absent. It cannot overwrite records, cannot replace a
     database, and cannot change a vault key.
     """
-    seed = seed_dir()
+    seed = _seed_source(data)
     if seed is None or not data.is_dir():
         return
     import shutil
@@ -259,7 +283,7 @@ def _restore_branding(data: Path) -> None:
     there is already a branding row it is left alone, because a name that was set
     on purpose must outrank the one that shipped.
     """
-    seed = seed_dir()
+    seed = _seed_source(data)
     if seed is None:
         return
     src, dst = seed / "finmate.db", data / "finmate.db"
@@ -267,7 +291,10 @@ def _restore_branding(data: Path) -> None:
         return
     import sqlite3
     try:
-        out = sqlite3.connect(dst)
+        # A timeout rather than the default of failing at once: if anything else
+        # is mid-write, waiting is right and giving up silently is how this went
+        # wrong the first time.
+        out = sqlite3.connect(dst, timeout=15)
         try:
             cur = out.execute("SELECT name FROM sqlite_master "
                               "WHERE type='table' AND name='branding'")
@@ -552,16 +579,25 @@ def main() -> int:
     os.environ["FRONTEND_DIST"] = str(base / "backend" / "frontend" / "dist")
 
     data = prepare_environment()
+
+    # Before ANYTHING reads the branding, and that ordering is the whole of it.
+    # branding._row() creates the default row when it finds none -- so simply
+    # printing the banner below was enough to put "App" in the database, after
+    # which this function correctly declined to overwrite a name that appeared to
+    # have been set. The repair ran, found a row, and did nothing; the customer
+    # went on seeing "App".
+    #
+    # A read that writes is easy to walk past. If you add anything above this line
+    # that touches the database, this stops working and nothing will say so.
+    _restore_branding(data)
+
     print("=" * 66)
     print(f"  {brand()}")
     print("=" * 66)
     print(f"  Your data: {data}")
 
-    # After ensure_account, so the tables are certainly there — it is the first
-    # thing that opens the database and creates the schema.
     try:
         ensure_account(data)
-        _restore_branding(data)
     except Exception as exc:
         print(f"\n  {exc}\n")
         pause()
@@ -613,8 +649,13 @@ def main() -> int:
             pass
     print(f"\n  Leave this window open. Press Ctrl+C to stop {brand()}.\n")
 
-    threading.Thread(target=lambda: (time.sleep(2), webbrowser.open(local)),
-                     daemon=True).start()
+    # NO_BROWSER exists for anything that starts this copy without a person
+    # watching -- a service, a scheduled task, or a test that launches the real
+    # executable. Without it those all throw a browser window at whoever happens
+    # to be at the machine.
+    if os.environ.get("NO_BROWSER", "").strip().lower() not in ("1", "true", "yes"):
+        threading.Thread(target=lambda: (time.sleep(2), webbrowser.open(local)),
+                         daemon=True).start()
 
     import uvicorn
     from app.main import app

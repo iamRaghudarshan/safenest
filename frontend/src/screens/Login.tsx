@@ -46,7 +46,11 @@ export default function Login() {
         <form onSubmit={submit} className="auth-card">
           <div className="field">
             <label>Email</label>
-            <input className="input" type="email" autoComplete="username" placeholder="you@finmate.app"
+            {/* Not a branded example address. The old one read "you@finmate.app",
+                which put a name the branding screen cannot reach on the first
+                screen anybody sees — and on a renamed copy it named the wrong
+                product to the customer, on their own machine. */}
+            <input className="input" type="email" autoComplete="username" placeholder="you@example.com"
               value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
           </div>
           <div className="field">
