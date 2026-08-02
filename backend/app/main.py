@@ -329,23 +329,30 @@ def _enforce_licence_role() -> None:
     # opposite of the point.
     if payload.get("state") in (licensing.INVALID, licensing.MISSING):
         return
-    email = (payload.get("email") or "").strip().lower()
-    # Only when the licence actually says "user". A payload without the field is
-    # not evidence of anything, and guessing here would demote someone on the
-    # strength of a missing key.
-    if not email or payload.get("role") != "user":
-        return
+    # Whoever the licence names AND grants admin to, if anyone. Everybody else in
+    # a licensed copy is a user -- not just the licence holder. The holder was the
+    # one made an admin by the first-run bug, but an admin can create more admins,
+    # and those accounts are exactly the ones a check aimed at the holder would
+    # walk straight past.
+    keep = ""
+    if payload.get("role") == "admin":
+        keep = (payload.get("email") or "").strip().lower()
+
     from .database import SessionLocal
     from .models import User
     db = SessionLocal()
     try:
-        holder = db.query(User).filter(User.email == email,
-                                       User.role == "admin").first()
-        if holder:
-            holder.role = "user"
+        wrong = [u for u in db.query(User).filter(User.role == "admin").all()
+                 if (u.email or "").strip().lower() != keep]
+        for u in wrong:
+            u.role = "user"
+            # Retire their existing sessions too. Leaving a token alive that was
+            # minted while the row said admin is how a demotion becomes cosmetic.
+            u.token_version = int(u.token_version or 0) + 1
+        if wrong:
             db.commit()
-            print(f"[licence] {email} is licensed as a user, not an administrator "
-                  "— corrected")
+            print(f"[licence] this copy is licensed to be used, not administered "
+                  f"— corrected {', '.join(u.email for u in wrong)}")
     finally:
         db.close()
 

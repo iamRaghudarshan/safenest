@@ -81,7 +81,38 @@ def get_current_user(token: str = Depends(oauth2), db: Session = Depends(get_db)
 def require_admin(user: User = Depends(get_current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
+    if not licence_grants_admin(user):
+        # A licensed copy has no administrator by design (see §10). The startup
+        # sweep in main.py corrects the rows, but a sweep is a tidy-up and this is
+        # the guarantee: whatever a row says, the signed licence decides, and it
+        # decides on every request rather than once at boot.
+        #
+        # It matters because the row could be wrong. A customer was made an admin
+        # by a first-run bug, and an admin can create more admins -- accounts the
+        # sweep does not know to look for. This closes that off whether or not
+        # anything was ever tidied.
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "This copy is licensed to be used, not administered.")
     return user
+
+
+def licence_grants_admin(user: User) -> bool:
+    """May this account act as an administrator on this installation?
+
+    True everywhere except a licensed copy, where the Ed25519 licence is the
+    authority: only the person it names, and only if it says `role: admin`.
+    Nothing a customer can edit takes part in this decision.
+    """
+    if not settings.licensed_mode:
+        return True
+    from . import licensing
+    payload = licensing.parse(licensing.read_token(settings.license_path),
+                              settings.license_public_key_hex) or {}
+    if payload.get("state") in (licensing.INVALID, licensing.MISSING):
+        return False
+    email = (payload.get("email") or "").strip().lower()
+    return bool(email and payload.get("role") == "admin"
+                and (user.email or "").strip().lower() == email)
 
 
 def guard(module: str, action: str = "view"):
