@@ -299,12 +299,67 @@ async def _integrity_error(request: Request, exc: IntegrityError):
     return JSONResponse(status_code=422, content={"detail": msg})
 
 
+def _enforce_licence_role() -> None:
+    """The signed licence decides the holder's role; the database may not disagree.
+
+    A licensed copy is meant to have no administrator at all -- an administrator
+    there can reach User management, the Licences screen and "Move everything to
+    another computer", none of which belong to a customer.
+
+    It went wrong for a real customer. `licence.key` travels read-only inside the
+    .app and is copied out on first run, and in the build that customer installed
+    that copy happened *after* the first-run account was created. So the account
+    was made with no licence in sight, the launcher fell to its "this is somebody's
+    own installation" branch, and it made them an admin. The current build copies
+    the licence out first, but that does not help a copy already in someone's
+    hands: records live in Application Support and survive the app being replaced,
+    so the wrong role outlives every update.
+
+    Hence a correction at startup rather than a fix in the installer alone. The
+    licence is Ed25519-signed and carries `role`, so it -- not a row anyone could
+    have edited -- is the authority on what its holder may do. Matched on the
+    licence's own email, so it can only ever demote the person the licence names.
+    """
+    if not settings.licensed_mode:
+        return
+    payload = licensing.parse(licensing.read_token(settings.license_path),
+                              settings.license_public_key_hex) or {}
+    # An unreadable or unsigned licence says nothing about anybody's role. Acting
+    # on one would let an edited file change what an account may do, which is the
+    # opposite of the point.
+    if payload.get("state") in (licensing.INVALID, licensing.MISSING):
+        return
+    email = (payload.get("email") or "").strip().lower()
+    # Only when the licence actually says "user". A payload without the field is
+    # not evidence of anything, and guessing here would demote someone on the
+    # strength of a missing key.
+    if not email or payload.get("role") != "user":
+        return
+    from .database import SessionLocal
+    from .models import User
+    db = SessionLocal()
+    try:
+        holder = db.query(User).filter(User.email == email,
+                                       User.role == "admin").first()
+        if holder:
+            holder.role = "user"
+            db.commit()
+            print(f"[licence] {email} is licensed as a user, not an administrator "
+                  "— corrected")
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 def _on_startup() -> None:
     try:
         _migrate()
     except Exception as e:  # never block boot on a migration hiccup
         print(f"[migrate] skipped: {e}")
+    try:
+        _enforce_licence_role()
+    except Exception as e:
+        print(f"[licence] role check skipped: {e}")
     # After the migration, so the branding table is certain to exist. This is what
     # /docs and any generated client are titled.
     app.title = f"{_app_name()} API"
