@@ -273,10 +273,10 @@ def _swap_script(new_root: Path, app_root: Path, exe: Path) -> Path:
             # working application to put back, instead of none at all.
             f'mv "{app_root}" "{app_root}.old" 2>/dev/null\n'
             f'ditto "{new_root}" "{app_root}"\n'
-            f'if [ -d "{app_root}/Contents/MacOS" ]; then\n'
-            f'  rm -rf "{app_root}.old"\n'
-            "else\n"
+            f'if [ ! -d "{app_root}/Contents/MacOS" ]; then\n'
             f'  rm -rf "{app_root}"; mv "{app_root}.old" "{app_root}"\n'
+            f'  xattr -dr com.apple.quarantine "{app_root}" 2>/dev/null\n'
+            f'  open "{app_root}"; rm -- "$0"; exit 0\n'
             "fi\n"
             # One release goes to every Mac customer, so the bundle inside it is
             # named for the build and not for them. Copied in as-is, the folder
@@ -284,31 +284,43 @@ def _swap_script(new_root: Path, app_root: Path, exe: Path) -> Path:
             # switcher all read the build's name -- so an update quietly renames
             # the product on their machine.
             #
-            # Renaming the executable breaks the ad-hoc signature, which on macOS
-            # means the interpreter will not load at all, so it is re-signed. If
-            # any of that fails the rename is undone and the app is left exactly
-            # as ditto produced it: a wrong name in the Dock is a blemish, an app
-            # that will not start is not.
+            # So the names are read off the copy being replaced and written back
+            # afterwards, which is why the old bundle is kept until this is done.
+            #
+            # From the old Info.plist and NOT from the executable's filename. The
+            # bundler leaves the executable called "App" and puts the product name
+            # only in the plist, so deriving it from the file would have set the
+            # Dock to "App" and called that a fix.
+            #
+            # Editing inside a bundle breaks its signature, and on macOS that means
+            # the interpreter will not load at all, so it is re-signed. If any of
+            # that fails the old plist goes back and the app is left exactly as
+            # ditto produced it: a wrong name in the Dock is a blemish, an app that
+            # will not start is not.
             f'PL="{app_root}/Contents/Info.plist"\n'
-            'CUR=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$PL" '
-            '2>/dev/null)\n'
-            f'WANT="{exe.name}"\n'
-            'if [ -n "$CUR" ] && [ "$CUR" != "$WANT" ]; then\n'
-            f'  cp -p "$PL" "{app_root}/Contents/.Info.plist.bak"\n'
-            f'  if mv "{app_root}/Contents/MacOS/$CUR" '
-            f'"{app_root}/Contents/MacOS/$WANT" 2>/dev/null; then\n'
-            '    for k in CFBundleExecutable CFBundleName CFBundleDisplayName; do\n'
-            '      /usr/libexec/PlistBuddy -c "Set :$k $WANT" "$PL" 2>/dev/null\n'
-            '    done\n'
-            f'    if ! codesign --force --deep --sign - "{app_root}" 2>/dev/null; '
-            'then\n'
-            f'      mv "{app_root}/Contents/MacOS/$WANT" '
-            f'"{app_root}/Contents/MacOS/$CUR"\n'
-            f'      mv "{app_root}/Contents/.Info.plist.bak" "$PL"\n'
+            f'OLDPL="{app_root}.old/Contents/Info.plist"\n'
+            'if [ -f "$OLDPL" ] && [ -f "$PL" ]; then\n'
+            '  cp -p "$PL" "$PL.bak"\n'
+            '  CHANGED=0\n'
+            '  for k in CFBundleName CFBundleDisplayName; do\n'
+            '    WAS=$(/usr/libexec/PlistBuddy -c "Print :$k" "$OLDPL" 2>/dev/null)\n'
+            '    NOW=$(/usr/libexec/PlistBuddy -c "Print :$k" "$PL" 2>/dev/null)\n'
+            '    if [ -n "$WAS" ] && [ "$WAS" != "$NOW" ]; then\n'
+            '      /usr/libexec/PlistBuddy -c "Set :$k $WAS" "$PL" 2>/dev/null'
+            ' && CHANGED=1\n'
             '    fi\n'
+            '  done\n'
+            '  if [ "$CHANGED" = "1" ]; then\n'
+            f'    if codesign --force --deep --sign - "{app_root}" 2>/dev/null; then\n'
+            '      rm -f "$PL.bak"\n'
+            '    else\n'
+            '      mv "$PL.bak" "$PL"\n'
+            '    fi\n'
+            '  else\n'
+            '    rm -f "$PL.bak"\n'
             '  fi\n'
-            f'  rm -f "{app_root}/Contents/.Info.plist.bak"\n'
             "fi\n"
+            f'rm -rf "{app_root}.old"\n'
             f'xattr -dr com.apple.quarantine "{app_root}" 2>/dev/null\n'
             f'open "{app_root}"\n'
             f'rm -rf "{new_root.parent}"\n'

@@ -147,32 +147,29 @@ jobs:
           rm -rf update-unpack-test
 
       # One release reaches every Mac customer, so the bundle inside it carries
-      # the build's name and not theirs. The swap script renames the executable
-      # to match the copy being replaced and re-signs -- which is the part that
-      # can only be proved on a Mac, because renaming inside a bundle breaks its
-      # signature and a broken signature means the interpreter will not load.
-      - name: An update keeps the customer's own app name, and still runs
+      # the build's name and not theirs. The swap script puts the customer's own
+      # name back and re-signs -- which is the part only a Mac can answer, because
+      # editing inside a bundle breaks its signature and a broken signature means
+      # the interpreter will not load.
+      - name: A renamed, re-signed bundle still launches
         run: |
           set -e
           rm -rf renametest && mkdir renametest
           ditto dist-app/mac/App.app "renametest/TheirName.app"
           APP="$PWD/renametest/TheirName.app"
           PL="$APP/Contents/Info.plist"
-          CUR=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$PL")
-          WANT="TheirName"
-          echo "bundle ships as: $CUR — renaming to $WANT"
-          mv "$APP/Contents/MacOS/$CUR" "$APP/Contents/MacOS/$WANT"
-          for k in CFBundleExecutable CFBundleName CFBundleDisplayName; do
-            /usr/libexec/PlistBuddy -c "Set :$k $WANT" "$PL"
+          # What the swap script does: put the customer's own name back into the
+          # bundle the release shipped, then re-sign. Editing inside a bundle
+          # breaks its signature, and on macOS a broken signature means the
+          # interpreter will not load -- which no static check can see.
+          for k in CFBundleName CFBundleDisplayName; do
+            /usr/libexec/PlistBuddy -c "Set :$k TheirName" "$PL"
           done
           codesign --force --deep --sign - "$APP"
-          codesign --verify --deep --strict "$APP" \
-            || { echo "::error::the re-signed bundle does not verify"; exit 1; }
-          test -x "$APP/Contents/MacOS/$WANT" \
-            || { echo "::error::the renamed executable is not executable"; exit 1; }
-          # The real proof: it starts. A signature that verifies but an
-          # interpreter that will not load is the exact failure this guards.
-          "$APP/Contents/MacOS/$WANT" --version >/dev/null 2>&1 &
+          codesign --verify --deep --strict "$APP"             || { echo "::error::the re-signed bundle does not verify"; exit 1; }
+          EXE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$PL")
+          echo "name now TheirName, executable still $EXE"
+          "$APP/Contents/MacOS/$EXE" --version >/dev/null 2>&1 &
           PID=$!
           sleep 25
           if kill -0 $PID 2>/dev/null; then
@@ -180,7 +177,7 @@ jobs:
             kill $PID 2>/dev/null || true
           else
             wait $PID || true
-            echo "::error::the renamed, re-signed app did not stay running"
+            echo "::error::the re-signed app did not stay running"
             exit 1
           fi
           rm -rf renametest
