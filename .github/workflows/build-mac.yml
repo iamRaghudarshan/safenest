@@ -12,13 +12,20 @@
 # sign licences and release manifests, which happens on your own installation.
 # Do not add it here.
 #
-# Trigger it from the Actions tab (workflow_dispatch), or push a tag.
+# Trigger it from the Actions tab (workflow_dispatch) at any time.
+#
+# It also starts itself whenever VERSION changes, which is the only moment a Mac
+# build is definitely needed. An ordinary commit does not warrant a 20-minute
+# macOS runner, but relying on remembering to press the button meant a release
+# went out with the Windows half on the new version and the Mac half silently on
+# the old one -- and nothing anywhere says so until it reaches a customer.
 name: Build the Mac app
 
 on:
   workflow_dispatch:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: ['VERSION']
 
 jobs:
   mac:
