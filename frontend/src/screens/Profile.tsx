@@ -1798,11 +1798,28 @@ function AppUpdateRow() {
     const done = localStorage.getItem(INSTALLED_KEY)
     if (done) {
       localStorage.removeItem(INSTALLED_KEY)
-      toast(`Updated to version ${done} — you are on the newest version`)
+      toastRef.current(`Updated to version ${done} — you are on the newest version`)
     }
-  }, [toast])
+    // Once, on mount. Depending on `toast` re-ran this on every render.
+  }, [])
 
   /** Follow an install through to the app reopening.
+   *
+   *  WHY THIS IS KEYED ON A STRING AND NOT ON `prog`
+   *  It used to depend on the `prog` OBJECT and on `toast`. Both get a new
+   *  identity on every render, so every render tore the effect down — setting
+   *  `alive = false` and clearing the pending timer — and scheduled a fresh first
+   *  tick 1.5s later. Anything re-rendering this screen faster than that meant
+   *  the first tick never fired at all.
+   *
+   *  So the bar sat at 0% saying "Starting the download…" while the download was
+   *  running perfectly well underneath it, and pressing the button again
+   *  correctly answered "an update is already being installed". Reported exactly
+   *  that way, and it reads as a hung update rather than a screen that stopped
+   *  looking.
+   *
+   *  `phase` is a string. It changes when the install genuinely moves on, and not
+   *  when React happens to re-render.
    *
    *  Two halves, and the join between them is the awkward part: while the server
    *  is alive it reports its own progress, but the last act of an install is to
@@ -1810,27 +1827,37 @@ function AppUpdateRow() {
    *  expected thing rather than an error. The poll keeps going until the app
    *  answers again on the new version.
    */
+  const progRef = useRef<InstallProgress | null>(null)
+  progRef.current = prog
+  const toastRef = useRef(toast)
+  toastRef.current = toast
+  const phase = prog && prog.state !== 'idle' && prog.state !== 'failed'
+    ? `${prog.state}:${prog.version || ''}`
+    : ''
+
   useEffect(() => {
-    if (!prog || prog.state === 'idle' || prog.state === 'failed') return
+    if (!phase) return
     let alive = true
     let waited = 0
 
     const tick = async () => {
       if (!alive) return
-      if (prog.state === 'restarting') {
+      const cur = progRef.current
+      if (!cur) return
+      if (cur.state === 'restarting') {
         waited += 2
         try {
           const back = await api<UpdateState>('/api/update')
           // Answering on the version we installed means the swap completed and
           // this is the new program talking. Anything else is the old one not yet
           // gone, so keep waiting.
-          if (!updatedTo(back.running, prog.version)) throw new Error('not yet')
+          if (!updatedTo(back.running, cur.version)) throw new Error('not yet')
           localStorage.setItem(INSTALLED_KEY, back.running)
           location.reload()
           return
         } catch {
           if (waited > 180) {
-            setProg({ ...prog, state: 'failed', percent: 0,
+            setProg({ ...cur, state: 'failed', percent: 0,
                       note: `${appName()} is taking longer than expected to reopen. `
                           + 'If it does not come back, open it yourself — your '
                           + 'records are safe either way.' })
@@ -1843,11 +1870,13 @@ function AppUpdateRow() {
           if (alive) setProg(p)
         } catch { /* a blip mid-download; the next tick asks again */ }
       }
-      if (alive) setTimeout(tick, 2000)
+      if (alive) timer = setTimeout(tick, 2000)
     }
-    const t = setTimeout(tick, 1500)
-    return () => { alive = false; clearTimeout(t) }
-  }, [prog, toast])
+    // Held in one variable so the cleanup cancels whichever tick is pending,
+    // not only the first. Leaking a timer here would leave two polls running.
+    let timer = setTimeout(tick, 1200)
+    return () => { alive = false; clearTimeout(timer) }
+  }, [phase])
 
   if (!st || !st.installable) return null
 

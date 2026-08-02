@@ -333,8 +333,15 @@ def install_update(request: Request, user: User = Depends(_manager),
             staging.mkdir(parents=True, exist_ok=True)
             total = int(manifest.get("size") or 0)
             done = 0
-            _progress("downloading", 0, "Starting the download…")
-            with requests.get(url, stream=True, timeout=600) as resp:
+            _progress("downloading", 0, "Contacting your supplier…")
+            # (connect, read) rather than one number. A single `timeout=600` is a
+            # per-socket-operation limit, so a supplier that accepts the connection
+            # and then sends nothing sat at "Starting the download…" for ten
+            # minutes before saying anything -- which is indistinguishable from a
+            # slow connection, and the one thing the person watching needs to be
+            # able to tell apart. Fifteen seconds to answer, two minutes of
+            # silence mid-stream, and it says so.
+            with requests.get(url, stream=True, timeout=(15, 120)) as resp:
                 resp.raise_for_status()
                 total = int(resp.headers.get("content-length") or total or 0)
                 with open(blob, "wb") as fh:
