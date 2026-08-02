@@ -1915,10 +1915,20 @@ ${appName()} will download it, then close and reopen. Your records are not touch
         <div className="upbar-sub" style={failed ? { color: 'var(--danger)' } : undefined}>
           {prog.note}
         </div>
-        {failed && (
-          <button className="btn ghost" style={{ marginTop: 10 }}
-            onClick={() => { setProg(null); setBusy(''); look() }}>Close</button>
-        )}
+        {failed
+          ? <button className="btn ghost" style={{ marginTop: 10 }}
+              onClick={() => { setProg(null); setBusy(''); look() }}>Close</button>
+          // A way out of an install that is going nowhere. Without it a stalled
+          // download answers "already being installed" to every later press and
+          // the only escape is quitting the app, which reads as the update having
+          // broken the program.
+          : prog.state !== 'restarting' && (
+            <button className="btn ghost" style={{ marginTop: 10 }}
+              onClick={async () => {
+                try { await api('/api/update/cancel', { method: 'POST' }) } catch { /* already gone */ }
+                setProg(null); setBusy(''); look()
+              }}>Stop</button>
+          )}
       </div>
     )
   }

@@ -344,11 +344,20 @@ def apply_staged(new_root: Path) -> Path:
         # its name may differ from the installed one if the product was renamed
         # between releases, and matching on the old name would reject a perfectly
         # good update.
-        found = [p for p in new_root.rglob("*.app") if p.is_dir()]
-        found = [p for p in found if ".app/" not in str(p.relative_to(new_root))]
-        if not found:
-            raise UpdateError("This update does not contain an application.")
-        source = found[0]
+        # The archive holds one folder, so unpack() has already stepped into it —
+        # meaning new_root IS the .app, not something containing one. Searching
+        # inside it for a bundle found nothing and refused the update with "this
+        # update does not contain an application", on an archive that contained
+        # exactly that. It failed the same way every time, so the Mac updater had
+        # never once completed.
+        if new_root.suffix == ".app" and new_root.is_dir():
+            source = new_root
+        else:
+            found = [p for p in new_root.rglob("*.app") if p.is_dir()]
+            found = [p for p in found if ".app/" not in str(p.relative_to(new_root))]
+            if not found:
+                raise UpdateError("This update does not contain an application.")
+            source = found[0]
     else:
         if not (new_root / exe.name).exists():
             # Renamed per customer, so a mismatch means the wrong archive entirely.

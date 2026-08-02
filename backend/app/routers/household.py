@@ -257,6 +257,27 @@ def _progress(state: str, percent: int, note: str = "", **extra) -> None:
     _INSTALL.update({"state": state, "percent": percent, "note": note, **extra})
 
 
+@updater.post("/cancel")
+def cancel_install(user: User = Depends(_manager)):
+    """Give up on an install that is going nowhere.
+
+    There was no way out of one. A download that stalls leaves the state at
+    "downloading", every later press answers "an update is already being
+    installed", and the only escape is quitting the app — which nobody would
+    guess, and which reads as the update having broken the program.
+
+    Deliberately refuses once the swap is under way: at that point a helper script
+    is already waiting for this process to exit, and pretending it can be called
+    off would be a lie. Nothing is deleted either — the partial download is left
+    for the next attempt to overwrite.
+    """
+    if _INSTALL.get("state") == "restarting":
+        raise HTTPException(409, "The new version is already being put in place.")
+    _INSTALL.clear()
+    _INSTALL.update({"state": "idle", "percent": 0, "note": ""})
+    return {"cancelled": True}
+
+
 @updater.get("/progress")
 def install_progress(user: User = Depends(_manager)):
     """How far the install has got.
