@@ -17,6 +17,7 @@ import Reminders from './screens/Reminders'
 import Todos from './screens/Todos'
 import Vault from './screens/Vault'
 import Gallery from './screens/Gallery'
+import { UploadBar } from './screens/UploadBar'
 import Documents from './screens/Documents'
 import Masters from './screens/Masters'
 import Profile from './screens/Profile'
@@ -178,6 +179,12 @@ export default function App() {
   return (
     <div className="app">
       <ConnectionBanner />
+      {/* Above the screen, not inside the Gallery. Backing up a phone's library
+          takes many minutes and nobody sits on one screen for that long -- moving
+          to Expenses used to hide the progress entirely while the upload carried
+          on, which reads as the upload having stopped. It renders nothing when
+          there is nothing to upload. */}
+      <UploadBar />
       <Screen />
       {/* Portalled to <body>. As a child of .app it was clipped by that element's
           overflow:hidden and height — WebKit clips position:fixed descendants in

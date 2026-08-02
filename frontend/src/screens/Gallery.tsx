@@ -8,7 +8,6 @@ import { useUpload } from '../upload'
 import { TopBar, Spinner, Empty, Sheet, Field } from '../ui'
 import { PullToRefresh } from '../PullToRefresh'
 import { Zoomable } from '../Zoomable'
-import { UploadBar } from './UploadBar'
 import { PhotoIndexCard } from '../PhotoIndex'
 import { IcTrash } from '../icons'
 import { fmtDate, fmtDateTime } from '../format'
@@ -143,7 +142,7 @@ export default function Gallery() {
         </button>
       )}
       <button className="icon-btn" onClick={() => setTrashOpen(true)} aria-label="Trash"><IcTrash className="ic" /></button>
-      {canEdit && <button className="btn sm" onClick={() => fileRef.current?.click()}>{u.uploading ? 'Uploading…' : '＋ Upload'}</button>}
+      {canEdit && <button className="btn sm" onClick={() => fileRef.current?.click()}>{u.uploading ? 'Backing up…' : '＋ Back up photos'}</button>}
     </div>
   )
 
@@ -159,7 +158,6 @@ export default function Gallery() {
       <TopBar title="Gallery" sub={countLabel} onBack={canBack ? back : undefined} right={headerRight} />
       <input ref={fileRef} type="file" accept="image/*,.heic,.heif" multiple hidden
         onChange={(e) => { pick(e.target.files); e.currentTarget.value = '' }} />
-      <UploadBar />
 
       <div className="seg4 five">
         {(['all', 'fav', 'albums', 'people', 'memories'] as Tab[]).map((t) => (
@@ -221,7 +219,13 @@ export default function Gallery() {
                           ? 'Your photos haven’t been read yet — that runs in the background and can take a few minutes.'
                           : `No photo looks like “${query}”. Try plainer words: cake, beach, car, document, dog.`} />
                     : <Empty icon="🔍" title="No matches" hint={`Nothing found for “${query}”. Try a person's name, an album, a year like 2024, or a month.`} />
-                  : <Empty icon={isFav ? '★' : '🖼️'} title={isFav ? 'No favourites yet' : 'No photos yet'} hint={isFav ? 'Tap ☆ on a photo to save it here' : canEdit ? 'Tap Upload to add photos' : undefined} />
+                  : isFav
+                    ? <Empty icon="★" title="No favourites yet" hint="Tap ☆ on a photo to save it here" />
+                    : (
+                      <Empty icon="🖼️" title="No photos yet"
+                        hint={canEdit ? 'Back up your phone’s photos here. Select as many as you like — they keep uploading while you use the rest of the app.' : undefined}
+                        action={canEdit ? { label: '＋ Back up my photos', onClick: () => fileRef.current?.click() } : undefined} />
+                    )
               )
               : <>
                   <PhotoGrid photos={shown} onOpen={setView} />

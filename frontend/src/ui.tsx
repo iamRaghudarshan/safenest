@@ -110,8 +110,28 @@ export function Segment<T extends string>({ value, options, onChange }: {
   )
 }
 
-export function Empty({ icon, title, hint }: { icon: string; title: string; hint?: string }) {
-  return <div className="empty"><div className="big">{icon}</div><div style={{ fontWeight: 700, color: 'var(--ink-soft)' }}>{title}</div>{hint && <div style={{ marginTop: 4, fontSize: 13 }}>{hint}</div>}</div>
+/** An empty state, optionally with the one thing to do about it.
+ *
+ *  The action matters where the screen is empty precisely because nothing has been
+ *  added yet: describing the button someone should find ("Tap Upload") asks them to
+ *  go looking, when the button could simply be here.
+ */
+export function Empty({ icon, title, hint, action }: {
+  icon: string; title: string; hint?: string
+  action?: { label: string; onClick: () => void }
+}) {
+  return (
+    <div className="empty">
+      <div className="big">{icon}</div>
+      <div style={{ fontWeight: 700, color: 'var(--ink-soft)' }}>{title}</div>
+      {hint && <div style={{ marginTop: 4, fontSize: 13 }}>{hint}</div>}
+      {action && (
+        <button className="btn" style={{ marginTop: 14 }} onClick={action.onClick}>
+          {action.label}
+        </button>
+      )}
+    </div>
+  )
 }
 
 export function Spinner() { return <div className="spinner" /> }
