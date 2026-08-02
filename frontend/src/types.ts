@@ -60,6 +60,16 @@ export interface User {
   name: string
   email: string
   role: 'admin' | 'user'
+  /**
+   * Whether this account may actually reach the admin API — decided by the
+   * server, not worked out here from `role`.
+   *
+   * In a licensed copy there is no administrator by design, so a row that says
+   * admin is a mistake rather than a permission. Drawing the admin screens from
+   * `role` offered a customer User management, Licences and the whole-installation
+   * export while every one of those calls came back 403.
+   */
+  can_admin?: boolean
   status: 'active' | 'suspended'
   phone?: string | null
   initials: string

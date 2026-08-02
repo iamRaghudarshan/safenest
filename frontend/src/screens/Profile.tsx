@@ -87,7 +87,7 @@ export default function Profile() {
           sub="Your own copy, for a USB drive" onClick={() => setExportScope('mine')} />
       </SettingsGroup>
 
-      {user?.role === 'admin' && (
+      {user?.can_admin && (
         <SettingsGroup title="Administration"
           footer="Only administrators see this section.">
           <SettingsRow icon="👥" tint="var(--c-loans)" label="User management"

@@ -40,7 +40,7 @@ export default function Modules() {
             </button>
           )
         })}
-        {user?.role === 'admin' && (
+        {user?.can_admin && (
           <button className="mod-tile" onClick={() => go('admin')}>
             <span className="mod-glow" style={{ background: '#334155' }} />
             <div className="mod-ic" style={{ background: 'linear-gradient(135deg,#334155,#0f172a)', fontSize: 22 }}>⚙️</div>

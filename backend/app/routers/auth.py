@@ -16,7 +16,7 @@ from ..helpers import audit
 from ..models import User, UserModule
 from ..ratelimit import rate_limit
 from ..security import (check_password_strength, create_token, get_current_user,
-                        hash_password, verify_password)
+                        hash_password, licence_grants_admin, verify_password)
 from ..signing import sign, verify
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -46,6 +46,16 @@ def public_user(u: User) -> dict:
         "id": u.id, "name": u.name, "email": u.email, "role": u.role,
         "status": u.status, "phone": u.phone, "initials": initials,
         "avatar_url": avatar_url,
+        # What this account may ACTUALLY do, not what its row says. The screens
+        # were reading `role` and drawing User management, Licences and the
+        # whole-installation export from it -- so an account whose row said admin
+        # kept being offered all of it while every one of those calls came back
+        # 403. Buttons that cannot work are worse than no buttons: the customer
+        # reads them as things the supplier can do on their machine.
+        #
+        # Same rule as hosting.can_manage: the server decides, the screen asks.
+        # Working it out in the frontend is how the two halves drift apart.
+        "can_admin": licence_grants_admin(u) and u.role == "admin",
     }
 
 
