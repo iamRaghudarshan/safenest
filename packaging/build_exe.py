@@ -402,7 +402,11 @@ def build(with_models: bool, native: bool = False) -> Path:
         if shared.exists():
             shutil.rmtree(shared)
         shared.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(app_dir, shared)
+        # symlinks=True, or this very copy is what breaks the Mac build.
+        # copytree dereferences by default, so Python.framework's links became
+        # duplicate 6.7 MB files right here -- on the Mac, before anything was
+        # even packed -- and macOS then refused to load the library at all.
+        shutil.copytree(app_dir, shared, symlinks=True)
         print(f"  Also placed at: dist-app/{plat}/{APP_NAME}")
     except OSError as exc:
         print(f"  ! could not place the per-platform copy: {exc}")

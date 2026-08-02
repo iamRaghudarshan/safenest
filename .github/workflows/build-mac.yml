@@ -76,8 +76,17 @@ jobs:
           cd dist-app/mac
           tar -czf ../../mac-app.tar.gz FinMate
           cd ../..
-          echo "symlinks preserved:"
-          tar -tvzf mac-app.tar.gz | grep -c '^l' || true
+          links=$(tar -tvzf mac-app.tar.gz | grep -c '^l' || true)
+          echo "symlinks in the archive: $links"
+          # A hard failure, not a note. Zero means something dereferenced them,
+          # and the build only fails later — on the customer's Mac, with
+          # "library load disallowed by system policy" and no clue why.
+          if [ "$links" -lt 1 ]; then
+            echo "::error::Python.framework's symlinks were flattened. macOS will"
+            echo "::error::refuse to load the library. Not shipping this."
+            tar -tvzf mac-app.tar.gz | grep -i 'Python.framework' | head -20
+            exit 1
+          fi
           ls -lh mac-app.tar.gz
 
       - uses: actions/upload-artifact@v4
