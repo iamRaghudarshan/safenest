@@ -9,8 +9,10 @@ audited.
 """
 import json
 import os
+import shutil
 import threading
 import time
+from pathlib import Path
 
 import requests
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -19,6 +21,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from .. import bundler, hosts, ist, push, storage, weburl
+from . import hosting
 from ..config import settings
 from ..database import get_db
 from ..helpers import audit
@@ -379,3 +382,204 @@ def export_start(request: Request, body: dict = Body(default={}),
                            licence_token, licence_tag, hosting),
                      daemon=True).start()
     return {**_visible_job(user), "notify": notify}
+
+
+# ------------------------------------------------ where the records are kept
+#
+# WHY THIS SCREEN EXISTS
+# The launcher asks once, on the very first run, and never again. That is right
+# for the common case and wrong for every other one: someone who kept the default
+# and later bought an external disk, someone whose photos have outgrown a laptop
+# drive, and -- the case that prompted this -- someone who never saw the question
+# at all, because the first-run window failed to open and the launcher used its
+# default rather than blocking a launch on a window that would not appear.
+#
+# Photos and scanned documents grow without limit, and the folder somebody unzipped
+# into is usually Downloads on a full drive. "You chose once, live with it" is not
+# a reasonable position to leave a customer in.
+def _pointer() -> Path | None:
+    """The file the launcher reads on the next start to find the records.
+
+    Handed over in the environment by packaging/runner.py rather than worked out
+    again here: two places computing the same path is two places to get it wrong,
+    and getting it wrong means writing a pointer nothing ever reads.
+    """
+    p = os.environ.get("APP_DATA_POINTER", "").strip()
+    return Path(p) if p else None
+
+
+def _data_dir() -> Path | None:
+    p = os.environ.get("APP_DATA_DIR", "").strip()
+    return Path(p) if p else None
+
+
+def _dir_size(path: Path) -> int:
+    total = 0
+    for f in path.rglob("*"):
+        try:
+            if f.is_file():
+                total += f.stat().st_size
+        except OSError:
+            pass            # a file that vanished mid-walk is not worth failing on
+    return total
+
+
+@router.get("/records-location")
+def records_location(user: User = Depends(get_current_user)):
+    """Where the records are, how big they are, and whether this copy can move them."""
+    data, pointer = _data_dir(), _pointer()
+    out = {
+        "path": str(data) if data else "",
+        "can_change": bool(data and pointer and hosting.can_manage(user)),
+        "size_bytes": 0, "free_bytes": 0, "reason": "",
+    }
+    if not (data and pointer):
+        # Run from its own folder rather than from a packaged copy: there is no
+        # launcher holding a pointer, so there is nothing here to move.
+        out["reason"] = "This installation is run from its own folder."
+        return out
+    if not hosting.can_manage(user):
+        out["reason"] = "Only the person this copy belongs to can move the records."
+    try:
+        out["size_bytes"] = _dir_size(data)
+        out["free_bytes"] = shutil.disk_usage(data).free
+    except OSError as exc:
+        out["reason"] = str(exc)
+    return out
+
+
+@router.post("/records-location/check")
+def records_location_check(body: dict = Body(...),
+                           user: User = Depends(get_current_user)):
+    """Would this folder work? Asked before anything is copied.
+
+    Every refusal here is one somebody would otherwise discover halfway through
+    copying twenty gigabytes of photographs.
+    """
+    data, pointer = _data_dir(), _pointer()
+    if not (data and pointer) or not hosting.can_manage(user):
+        raise HTTPException(403, "This copy cannot move its records.")
+    raw = (body.get("path") or "").strip()
+    if not raw:
+        raise HTTPException(422, "Give a folder.")
+    target = Path(raw).expanduser()
+    if not target.is_absolute():
+        raise HTTPException(422, "Give the full path to the folder, starting from "
+                                 "the drive.")
+    try:
+        if target.resolve() == data.resolve():
+            raise HTTPException(422, "That is where the records already are.")
+        # Inside the current folder would copy a folder into itself: it never
+        # finishes, and fills the disk trying.
+        if data.resolve() in target.resolve().parents:
+            raise HTTPException(422, "That folder is inside the current one. "
+                                     "Choose somewhere separate.")
+    except OSError:
+        pass
+    # Separators normalised: on Windows this read ".app/Contents" against a path
+    # spelled with backslashes and never matched, so the one check that stops
+    # somebody putting their records inside the application quietly did nothing.
+    if ".app/Contents" in str(target).replace("\\", "/"):
+        raise HTTPException(422, "That is inside the application itself. Anything "
+                                 "put there is destroyed by the next update.")
+
+    drive = target.anchor or str(target)
+    if not os.path.isdir(drive):
+        raise HTTPException(422, f"{drive} is not connected.")
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / ".write-test"
+        probe.write_text("x", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        raise HTTPException(422, f"Cannot write to that folder: {exc}")
+
+    existing = [p.name for p in target.iterdir()] if target.is_dir() else []
+    need = _dir_size(data)
+    free = shutil.disk_usage(target).free
+    if free < need * 1.1 + 50 * 1024 * 1024:
+        raise HTTPException(
+            422, f"Not enough room: this needs about {need // 1048576} MB and that "
+                 f"drive has {free // 1048576} MB free.")
+    return {"ok": True, "path": str(target), "need_bytes": need,
+            "free_bytes": free,
+            "not_empty": bool([n for n in existing if not n.startswith(".")])}
+
+
+def _copy_records(src: Path, dst: Path) -> None:
+    """Copy the records to a new home while the app is still using them.
+
+    The database goes through SQLite's own backup, not as a file copy. A running
+    app holds it open with a write-ahead log, and a plain copy can catch it
+    mid-transaction -- producing a file that opens perfectly and is missing the
+    last thing somebody typed. The backup API takes a consistent snapshot of
+    exactly what is committed.
+    """
+    dst.mkdir(parents=True, exist_ok=True)
+    db_name = "finmate.db"
+    live = src / db_name
+    if live.is_file():
+        import sqlite3
+        source = sqlite3.connect(f"file:{live}?mode=ro", uri=True)
+        try:
+            target = sqlite3.connect(dst / db_name)
+            try:
+                source.backup(target)
+            finally:
+                target.close()
+        finally:
+            source.close()
+        # The backup connection leaves its own -wal and -shm behind. Harmless
+        # where they sit, but the folder should be one self-contained file: it may
+        # be carried to another machine, and a stray journal beside a database is
+        # exactly the thing that later gets copied without its pair.
+        for extra in ("-wal", "-shm"):
+            (dst / (db_name + extra)).unlink(missing_ok=True)
+
+    for item in src.iterdir():
+        # The database is already done. Its -wal and -shm belong to the live file
+        # and must NOT travel: beside a fresh backup they describe writes that are
+        # already in it, and SQLite would replay them wrongly or refuse to open.
+        if item.name.startswith(db_name):
+            continue
+        dest = dst / item.name
+        if dest.exists():
+            continue
+        if item.is_dir():
+            shutil.copytree(item, dest, symlinks=True)
+        else:
+            shutil.copy2(item, dest)
+
+
+@router.post("/records-location")
+def move_records(request: Request, body: dict = Body(...),
+                 user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Copy the records somewhere else and point the launcher at it.
+
+    COPIES, and leaves the originals exactly where they are. Moving would mean
+    deleting somebody's only copy of everything on the strength of a copy this
+    process has not been restarted to read yet -- and on Windows the files are
+    open, so the delete would half-fail and leave the records split across two
+    folders. The old folder stays until they choose to remove it.
+    """
+    data, pointer = _data_dir(), _pointer()
+    if not (data and pointer) or not hosting.can_manage(user):
+        raise HTTPException(403, "This copy cannot move its records.")
+    checked = records_location_check(body, user)
+    target = Path(checked["path"])
+
+    _copy_records(data, target)
+    # Written last. If the copy fails, the launcher still points at the folder
+    # that definitely has everything in it.
+    pointer.parent.mkdir(parents=True, exist_ok=True)
+    pointer.write_text(str(target) + "\n", encoding="utf-8")
+
+    audit(db, user.id, "records_move", "system", 0,
+          {"label": str(target), "from": str(data)}, request=request)
+    return {
+        "moved": True, "path": str(target), "old_path": str(data),
+        "message": "Copied. Close the app and open it again to start using the "
+                   "new folder. Your old records are untouched — delete that "
+                   "folder yourself once you have checked everything is there.",
+    }

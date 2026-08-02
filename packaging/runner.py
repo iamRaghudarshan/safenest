@@ -271,6 +271,33 @@ def _restore_from_seed(data: Path) -> None:
             print(f"  [restore] could not put back {name}: {exc}")
 
 
+#: What branding._row() writes when it is asked for a name and finds none. A row
+#: holding exactly this was created BY the app, not chosen by anybody.
+_STOCK_NAME = "App"
+
+
+def _is_default_branding(row) -> bool:
+    """Is this row the placeholder the app makes for itself, or somebody's choice?
+
+    The distinction is the whole of it, and getting it wrong the first time is why
+    a customer went on staring at "App" and a rupee mark after the repair shipped.
+    branding._row() CREATES a row the moment anything asks for the name, so a copy
+    that ran once without its shipped database does not have an empty table -- it
+    has a full one, holding "App", no tagline and no icon. Treating any existing
+    row as deliberate meant the repair looked at that and politely declined.
+
+    A row is the placeholder only if every part of it is still the placeholder. A
+    customer who renamed their copy to anything at all keeps their name.
+    """
+    try:
+        name = (row["app_name"] or "").strip()
+        tagline = (row["tagline"] or "").strip()
+        icon = int(row["icon_version"] or 0)
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False        # an unfamiliar shape is not something to overwrite
+    return (not name or name == _STOCK_NAME) and not tagline and icon == 0
+
+
 def _restore_branding(data: Path) -> None:
     """Give the app its name back, if the database in use never had it.
 
@@ -298,9 +325,12 @@ def _restore_branding(data: Path) -> None:
         try:
             cur = out.execute("SELECT name FROM sqlite_master "
                               "WHERE type='table' AND name='branding'")
-            if not cur.fetchone() or out.execute(
-                    "SELECT 1 FROM branding LIMIT 1").fetchone():
+            if not cur.fetchone():
                 return
+            out.row_factory = sqlite3.Row
+            live = out.execute("SELECT * FROM branding LIMIT 1").fetchone()
+            if live is not None and not _is_default_branding(live):
+                return          # a name somebody chose; it outranks the shipped one
             src_db = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
             try:
                 src_db.row_factory = sqlite3.Row
@@ -310,10 +340,15 @@ def _restore_branding(data: Path) -> None:
             if row is None:
                 return
             cols = [k for k in row.keys()]
+            # Clear the placeholder first. INSERT alone leaves the app's own row
+            # sitting at id 1, which is the one every reader picks up.
+            if live is not None:
+                out.execute("DELETE FROM branding")
             out.execute(f"INSERT INTO branding ({','.join(cols)}) VALUES "
                         f"({','.join('?' * len(cols))})", tuple(row[k] for k in cols))
             out.commit()
-            print("  [restore] put the app's name and icon back")
+            print(f"  [restore] put the name and icon back "
+                  f"({row['app_name']})")
         finally:
             out.close()
     except Exception as exc:
@@ -366,6 +401,13 @@ def prepare_environment() -> Path:
     os.environ.setdefault("DB_ENGINE", "sqlite")
     os.environ.setdefault("DB_FILE", str(data / "finmate.db"))
     os.environ.setdefault("MEDIA_ROOT", str(data / "media"))
+    # Told, not worked out again. The app offers a screen for moving the records
+    # folder, and it must write the SAME pointer this launcher reads on the next
+    # start — a second copy of install_dir()'s reasoning inside the backend is a
+    # second thing to get wrong, and the way to get it wrong is for the app to
+    # write a pointer nothing ever reads.
+    os.environ.setdefault("APP_DATA_DIR", str(data))
+    os.environ.setdefault("APP_DATA_POINTER", str(install_dir() / POINTER))
     os.environ.setdefault("LICENSE_FILE", str(data / "licence.key"))
 
     # Per-installation secrets, generated once and kept beside the data. Baking

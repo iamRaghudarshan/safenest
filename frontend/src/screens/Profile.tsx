@@ -984,8 +984,7 @@ function ThisComputer() {
           <SettingsRow icon="🌐" tint="var(--brand)" label="Web address"
             sub={now.public_url.replace(/^https?:\/\//, '')} />
         )}
-        <SettingsRow icon="🗄️" tint="var(--c-investments)" label="Records kept in"
-          sub={now.data_dir} />
+        <RecordsLocationRow fallback={now.data_dir} />
         {now.first_seen && (
           <SettingsRow icon="🕑" tint="var(--ink-faint)" label="Serving from here since"
             sub={now.first_seen} />
@@ -1908,6 +1907,137 @@ ${appName()} will download it, then close and reopen. Your records are not touch
       label={busy === 'check' ? 'Checking…' : `App version ${st.running}`}
       sub={st.reason || 'Tap to check for a new version'}
       onClick={busy ? undefined : () => look(true)} />
+  )
+}
+
+interface RecordsLocation {
+  path: string
+  can_change: boolean
+  size_bytes: number
+  free_bytes: number
+  reason: string
+}
+
+/** Where this copy keeps its records, and moving them somewhere else.
+ *
+ *  The launcher asks once, on the very first run. That is right for the common
+ *  case and wrong for every other one — someone who kept the default and later
+ *  bought an external disk, someone whose photos have outgrown a laptop drive,
+ *  and the case that prompted this: someone who never saw the question, because
+ *  the first-run window did not open and the launcher used its default rather
+ *  than blocking the launch on a window that would never appear.
+ */
+function RecordsLocationRow({ fallback }: { fallback: string }) {
+  const [st, setSt] = useState<RecordsLocation | null>(null)
+  const [open, setOpen] = useState(false)
+
+  const load = useCallback(() => {
+    api<RecordsLocation>('/api/system/records-location').then(setSt).catch(() => setSt(null))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const where = st?.path || fallback
+  return (
+    <>
+      <SettingsRow icon="🗄️" tint="var(--c-investments)" label="Records kept in"
+        sub={st && st.size_bytes
+          ? `${where} — ${formatBytes(st.size_bytes)}`
+          : where}
+        onClick={st?.can_change ? () => setOpen(true) : undefined} />
+      {open && st && (
+        <MoveRecordsSheet st={st} onClose={() => setOpen(false)}
+          onMoved={() => { setOpen(false); load() }} />
+      )}
+    </>
+  )
+}
+
+function MoveRecordsSheet({ st, onClose, onMoved }: {
+  st: RecordsLocation; onClose: () => void; onMoved: () => void
+}) {
+  const toast = useToast()
+  const [path, setPath] = useState('')
+  const [busy, setBusy] = useState<'' | 'check' | 'move'>('')
+  const [checked, setChecked] = useState<{ need_bytes: number; free_bytes: number
+                                           not_empty: boolean } | null>(null)
+  const [done, setDone] = useState('')
+
+  async function check() {
+    setBusy('check'); setChecked(null)
+    try {
+      setChecked(await api('/api/system/records-location/check',
+        { method: 'POST', body: { path } }))
+    } catch (e) { toast(errorMessage(e, 'That folder will not work')) }
+    finally { setBusy('') }
+  }
+
+  async function move() {
+    setBusy('move')
+    try {
+      const r = await api<{ message: string }>('/api/system/records-location',
+        { method: 'POST', body: { path } })
+      setDone(r.message)
+    } catch (e) { toast(errorMessage(e, 'Could not move the records')); setBusy('') }
+  }
+
+  if (done) {
+    return (
+      <Sheet title="Records copied" onClose={onMoved}>
+        <p style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.6 }}>{done}</p>
+        <button className="btn block" style={{ marginTop: 14 }} onClick={onMoved}>Done</button>
+      </Sheet>
+    )
+  }
+
+  return (
+    <Sheet title="Move my records" onClose={onClose}>
+      <p style={{ color: 'var(--ink-soft)', fontSize: 13.5, lineHeight: 1.6 }}>
+        They are in <b style={{ wordBreak: 'break-all' }}>{st.path}</b>
+        {st.size_bytes ? <> — {formatBytes(st.size_bytes)}</> : null}.
+      </p>
+      <Field label="New folder">
+        <input className="input" value={path} placeholder="/Volumes/MyDrive/SafeNest/data"
+          autoCapitalize="off" autoCorrect="off" spellCheck={false}
+          onChange={(e) => { setPath(e.target.value); setChecked(null) }} />
+      </Field>
+      <p style={{ color: 'var(--ink-faint)', fontSize: 12.5, lineHeight: 1.55 }}>
+        The full path to a folder on this computer or a drive plugged into it.
+        It is created if it does not exist.
+      </p>
+
+      {checked && (
+        <div className="card" style={{ padding: '12px 14px', marginTop: 10 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700 }}>That folder will work</div>
+          <div className="upbar-sub">
+            Needs {formatBytes(checked.need_bytes)}, {formatBytes(checked.free_bytes)} free.
+            {checked.not_empty && ' There are already other files in it; they are left alone.'}
+          </div>
+        </div>
+      )}
+
+      {/* Said before the button, not after. Copying is the safe half; the part
+          worth knowing is that nothing changes until the app is restarted, and
+          that the old folder is deliberately not deleted. */}
+      <ul style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.7,
+                   paddingLeft: 18, margin: '12px 0 4px' }}>
+        <li>Everything is <b>copied</b>. Your current folder is left exactly as it is.</li>
+        <li>Close the app and open it again to start using the new folder.</li>
+        <li>Delete the old folder yourself, once you have checked it all arrived.</li>
+      </ul>
+
+      {!checked
+        ? <button className="btn block" style={{ marginTop: 14 }}
+            disabled={!path.trim() || busy === 'check'} onClick={check}>
+            {busy === 'check' ? 'Checking…' : 'Check this folder'}
+          </button>
+        : <button className="btn block" style={{ marginTop: 14 }}
+            disabled={busy === 'move'} onClick={move}>
+            {busy === 'move' ? 'Copying — this can take a while…' : 'Copy my records there'}
+          </button>}
+      <button className="btn ghost block" style={{ marginTop: 8 }} onClick={onClose}>
+        Not now
+      </button>
+    </Sheet>
   )
 }
 
