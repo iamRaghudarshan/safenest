@@ -82,7 +82,7 @@ finmate-react/
 ├── bundle/                  what gets copied into a portable copy
 │   ├── setup.py             the installer that runs on the customer's machine
 │   ├── wizard.py            its tkinter GUI
-│   └── Start FinMate (…)    launcher TEMPLATES — renamed at build time
+│   └── Start App (…)    launcher TEMPLATES — renamed at build time
 ├── cloudflared/config.yml   tunnel ingress
 └── *.bat / *.ps1            start/stop/install helpers
 ```
@@ -136,7 +136,7 @@ python -c "import secrets; print(secrets.token_hex(32))"       # VAULT_KEY_HEX
 
 ### Make it survive a reboot
 
-Everything above dies with its shell. `Install FinMate Services.bat`
+Everything above dies with its shell. `Install App Services.bat`
 (**run as administrator**) registers MySQL as a service, the API as a
 boot-triggered scheduled task, and cloudflared as a service. Without it, a sleep
 or a closed terminal takes the app down — this has happened repeatedly.
@@ -328,7 +328,7 @@ that way.
 | Photos/documents | **Never** served by a static mount. `/api/gallery/media/{name}` checks an HMAC signature bound to the owner and an expiry (`signing.py`) |
 | Licences | Ed25519, verified offline on the customer's machine |
 | Rate limits | `ratelimit.py` on every public unauthenticated endpoint |
-| Headers | `Cache-Control: no-store` on all `/api/*`; HSTS when the forwarded scheme is https; `Server: FinMate` replaces uvicorn's banner |
+| Headers | `Cache-Control: no-store` on all `/api/*`; HSTS when the forwarded scheme is https; `Server:` carries the app name and replaces uvicorn's banner |
 
 **Never re-add a `StaticFiles` mount over the media tree.** It would make every
 photo world-readable to anyone who guesses a filename.
@@ -575,17 +575,17 @@ Two deliberately **not** dynamic:
 - `config.py`'s configuration-error banner says `[config]`. It fires before the
   database is open, and the name lives in the database. Naming the file that needs
   fixing is more use to whoever is reading it.
-- `bundler.py`'s `COMPILED_DIR`, `FinMate.exe` and the launcher templates. Those
+- `bundler.py`'s `COMPILED_DIR`, `App.exe` and the launcher templates. Those
   are the template *filenames* the bundler looks for and renames per customer.
 
 ### The one rule that makes bundle rebranding safe
 
-`bundler.BRAND_TOKEN = "FinMate"` is replaced **case-sensitively** at build time.
+`bundler.BRAND_TOKEN = "App"` is replaced **case-sensitively** at build time.
 Every *functional* string in the bundle scripts is lower case — `finmate.db`,
 `finmate-config.json`, the MySQL user — so the swap renames all the wording and
 touches none of the plumbing. **If you add a new user-visible string to
-`bundle/setup.py` or `wizard.py`, write the brand as `FinMate` (capitalised) and it
-will be renamed automatically. Never introduce a capitalised `FinMate` as a
+`bundle/setup.py` or `wizard.py`, write the brand as `App` (capitalised) and it
+will be renamed automatically. Never introduce a capitalised `App` as a
 filename, path or dict key.**
 
 `_display_name()` strips characters illegal in filenames and caps at 40 chars;
@@ -861,7 +861,7 @@ were conflated, so a Windows machine refused to produce a Mac copy even when Mac
 binaries were available to it.
 
 `dist-app/<platform>/<APP_DIR_NAME>` holds a build per platform, and
-`compiled_dir(platform)` picks the right one. `dist-app/FinMate` stays the host
+`compiled_dir(platform)` picks the right one. `dist-app/App` stays the host
 platform's build so every existing script and path keeps working.
 
 So: compile the Mac build once per release — on a Mac, or with
@@ -876,7 +876,7 @@ both from Windows: the Mac bundle carries no `.exe`, its executable is unsuffixe
 and is the Mac binary; the Windows one is a `.exe` and is the Windows binary.
 
 The executable's suffix is chosen by the **target** platform, not by `os.name`.
-Building a Mac copy on Windows looked for `FinMate.exe` and renamed it to
+Building a Mac copy on Windows looked for `App.exe` and renamed it to
 `SafeNest.exe`, inside a bundle whose launcher expects a Unix executable.
 
 ### macOS symlinks: the trap that reaches the customer, not you
@@ -915,7 +915,7 @@ PyInstaller freezes the interpreter it runs under. There is no cross-compiling a
 no flag that changes it, so **a Mac executable must be compiled on a Mac**.
 
 `build_licensed()` did not check this. Asking for a Mac copy on Windows copied
-`dist-app/FinMate` — the Windows build — into a Mac-named folder, renamed nothing
+`dist-app/App` — the Windows build — into a Mac-named folder, renamed nothing
 that mattered, and zipped it. The result looks completely right: correct folder
 name, correct licence, correct branding, `README.txt`, `THIRD-PARTY-NOTICES.txt`.
 Inside is `SafeNest.exe`, a Windows binary, and a Mac cannot start it. Found in a
@@ -942,7 +942,7 @@ Step 2 calls `bundler.build_licensed()`, **not** `bundler.build()`. The routing 
 in `system.py`: any build with a `licence_token` takes the compiled path. The
 source bundle is for moving your OWN installation between your OWN machines.
 
-`build_licensed()` copies `dist-app/FinMate`, renames the executable to the app's
+`build_licensed()` copies `dist-app/App`, renames the executable to the app's
 current name, then writes the `data/` folder the packaged runner already knows how
 to read: an empty database, the branding, their signed licence, and a vault key
 generated for that copy alone. It always produces a zip — one file to send, and on
@@ -1112,7 +1112,7 @@ the operator sees.
 ### Known outstanding
 
 1. **Services are not installed.** MySQL, the API and the tunnel are hand-started
-   and die with their shell. Run `Install FinMate Services.bat` as administrator.
+   and die with their shell. Run `Install App Services.bat` as administrator.
 2. `VAULT_KEY_LEGACY_HEX` is still set in `backend/.env`. Once
    `reencrypt_legacy_items()` reports nothing moved, delete the line.
 3. Cloudflare Browser Cache TTL is still "4 hours" — set it to
