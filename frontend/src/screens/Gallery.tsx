@@ -173,11 +173,15 @@ export default function Gallery() {
   return (
     <div className="screen">
       <TopBar title="Gallery" sub={countLabel} onBack={canBack ? back : undefined} right={headerRight} />
-      <input ref={fileRef} type="file" accept="image/*,.heic,.heif" multiple hidden
+      {/* accept is the wildcard alone. Listing .heic/.heif beside it makes iOS
+          treat the control as an extension filter rather than "photos", and its
+          picker then hands back a fraction of a large selection. HEIC files are
+          image/heic, so the wildcard already covers them. */}
+      <input ref={fileRef} type="file" accept="image/*" multiple hidden
         onChange={(e) => { pick(e.target.files); e.currentTarget.value = '' }} />
       {/* A second input purely so the two actions can say different things
           afterwards. One picker cannot tell which button opened it. */}
-      <input ref={backupRef} type="file" accept="image/*,.heic,.heif" multiple hidden
+      <input ref={backupRef} type="file" accept="image/*" multiple hidden
         onChange={(e) => { pick(e.target.files, true); e.currentTarget.value = '' }} />
 
       <div className="seg4 five">

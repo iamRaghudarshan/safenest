@@ -45,13 +45,30 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
   async function uploadOne(item: Item) {
     try {
+      // Belt to the restore-time check's braces. A File handle can also go stale
+      // while the queue is running — the photo is deleted, the drive is unplugged,
+      // iOS releases the picker's reference — and sending an empty part gets a
+      // 422 whose message tells the owner nothing they can act on.
+      if (!(item.blob instanceof Blob) || item.blob.size === 0) {
+        const gone = new Error('This photo is no longer readable — pick it again')
+        ;(gone as Error & { fatal?: boolean }).fatal = true
+        throw gone
+      }
       const fd = new FormData()
-      fd.append('file', item.blob, item.name)
+      fd.append('file', item.blob, item.name || 'photo.jpg')
       const res = await fetch(ENDPOINT, { method: 'POST', headers: { Authorization: `Bearer ${tokenStore.get()}` }, body: fd })
       if (res.status === 401) { paused.current = true; throw new Error('Signed out — sign in again') }
       if (!res.ok) {
         const detail = (await res.json().catch(() => ({}))).detail
-        const err = new Error(typeof detail === 'string' && detail ? detail : `Upload failed (${res.status})`)
+        // A validation error comes back as a LIST, so the old code fell through to
+        // "Upload failed (422)" — a number, to somebody holding a phone. It means
+        // the file part did not arrive, which is worth saying in words.
+        const said = typeof detail === 'string' && detail
+          ? detail
+          : res.status === 422
+            ? 'The photo did not reach the app — pick it again'
+            : `Upload failed (${res.status})`
+        const err = new Error(said)
         // A 4xx means the server has judged this file and will judge it the same
         // way every time. Retrying six times with backoff just makes a certain
         // failure take half a minute. Only network faults and 5xx are worth a retry.
@@ -115,6 +132,17 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // queue itself survives navigation either way, and finishing 400 photos beats
     // being able to resume 40.
     let budget = 250 * 1024 * 1024
+    // A budget was not enough. Copying blobs at all is what breaks a phone
+    // backup, and 250 MB of HEIC is only sixty or so photos — so a 400-photo
+    // selection still spent its first, most fragile minute copying bytes nobody
+    // asked for, on the one device least able to spare the memory.
+    //
+    // Persisting exists for ONE thing: resuming after the page is RELOADED. The
+    // queue already survives navigation without it. For a big selection that
+    // trade is the wrong way round — finishing 400 photos matters more than being
+    // able to resume 60 — so a big batch is queued from its File handles only,
+    // which costs nothing until each file's turn comes.
+    const persist = files.length <= 30
     let seen = 0
     for (const f of Array.from(files)) {
       // Yield every so often, and start sending what is already queued. A
@@ -146,7 +174,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       items.current.push(item)
       counts.current.total++
       added++
-      if (budget - f.size >= 0) {
+      if (persist && budget - f.size >= 0) {
         budget -= f.size
         try { item.key = await uploadDB.addFile({ blob: f, name: f.name, size: f.size, sig }) }
         catch { item.key = -1 /* quota exceeded: in-memory only */ }
@@ -176,6 +204,18 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       const persisted = await uploadDB.allFiles().catch(() => [])
       if (!alive || !persisted.length) return
       for (const p of persisted) {
+        // The stored row can outlive the bytes it points at. iOS in particular
+        // reclaims IndexedDB blob storage under pressure and leaves the record
+        // behind, so this comes back as undefined or a zero-length Blob.
+        //
+        // Queuing it anyway posted a body with nothing in the file part, the
+        // server answered 422, and because a 4xx is treated as final the item sat
+        // there failed for ever — reappearing on every launch, with a Retry
+        // button that could never do anything. Reported as "upload failed (422)".
+        if (!(p.blob instanceof Blob) || p.blob.size === 0) {
+          uploadDB.deleteFile(p.id!).catch(() => {})
+          continue
+        }
         items.current.push({ key: p.id!, blob: p.blob, name: p.name, sig: p.sig, tries: 0, status: 'pending' })
         counts.current.total++
       }
