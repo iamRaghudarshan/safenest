@@ -77,6 +77,9 @@ def local_version() -> str:
 # commit CI built and the one here means the archive is stale, whatever it says
 # its version is.
 BUILD_INPUTS = ("backend/", "frontend/", "packaging/", "bundle/", "VERSION")
+# This file is the one doing the checking; it is not part of what gets built, and
+# without this exception editing the checker blocks every fetch after it.
+NOT_BUILD_INPUTS = ("packaging/fetch_mac_build.py",)
 
 
 def stale_since(sha: str) -> list:
@@ -93,7 +96,10 @@ def stale_since(sha: str) -> list:
                              cwd=ROOT, capture_output=True, text=True, check=True)
     except Exception:
         return []          # a shallow clone or an unknown sha: not worth blocking on
-    changed = {f for f in out.stdout.split() if f.startswith(BUILD_INPUTS)}
+    def counts(name: str) -> bool:
+        return name.startswith(BUILD_INPUTS) and not name.startswith(NOT_BUILD_INPUTS)
+
+    changed = {f for f in out.stdout.split() if counts(f)}
     # Uncommitted work is the same fault seen a moment earlier: CI builds what was
     # pushed, so anything still sitting in the working tree cannot be in there.
     try:
@@ -101,7 +107,7 @@ def stale_since(sha: str) -> list:
                             capture_output=True, text=True, check=True)
         for line in st.stdout.splitlines():
             name = line[3:].strip().strip('"')
-            if name.startswith(BUILD_INPUTS):
+            if counts(name):
                 changed.add(f"{name}  (not committed)")
     except Exception:
         pass
