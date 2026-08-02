@@ -272,6 +272,33 @@ entry — installs that already ran it will not re-run it.
 
 ---
 
+### A macOS .app puts the payload in Contents/Frameworks
+
+Not `Contents/MacOS/_internal`. `Contents/MacOS` holds the executable and nothing
+else, so anything that looks for `_internal` beside the executable finds nothing:
+
+```
+Contents/MacOS/     <the executable>, version.txt          <- just these
+Contents/Frameworks/   454 entries                <- the payload
+```
+
+`updates.install_root()` did exactly that and returned `None`, so `/api/update`
+reported `installable: false` and the update row **never rendered**. A customer
+reported "I clicked and there was no action" about a button that was not on the
+screen at all — and the self-update system could not deliver its own fix, because
+the broken part was the updater. That copy needed a manual reinstall.
+
+The unit an update replaces on macOS is the **whole .app**, never pieces of it: a
+bundle is signed as one thing. `install_root()` walks up to the `.app`, and the
+swap uses `ditto` (which preserves symlinks and the extended attributes the
+signature lives in) rather than `cp -R`.
+
+**Records are never inside the .app.** They live in
+`~/Library/Application Support/<Brand>/`, because writing into a bundle breaks its
+signature and anything in there is destroyed by a drag to Applications or an
+update. The licence travels read-only in `Contents/Resources/seed-data` and
+`runner.py` copies it out on first run.
+
 ### Updating a copy that is already in someone's hands
 
 **The data-safety half came first, because it was already broken.** `_migrate()`
