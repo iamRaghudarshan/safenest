@@ -25,6 +25,7 @@ export default function Gallery() {
   const { can } = useAuth()
   const toast = useToast()
   const fileRef = useRef<HTMLInputElement>(null)
+  const backupRef = useRef<HTMLInputElement>(null)
   const u = useUpload()
   const PAGE = 150
   const [photos, setPhotos] = useState<Photo[]>([])
@@ -41,6 +42,7 @@ export default function Gallery() {
   const [album, setAlbum] = useState<AlbumSummary | null>(null)    // drill-into an album
   const [trashOpen, setTrashOpen] = useState(false)
   const [dupOpen, setDupOpen] = useState(false)
+  const [backupOpen, setBackupOpen] = useState(false)
   const [dupMode, setDupMode] = useState<'exact' | 'similar'>('exact')
   const canEdit = can('gallery')
 
@@ -101,10 +103,13 @@ export default function Gallery() {
   // refresh the grid as each upload batch completes
   useEffect(() => u.onBatchDone(() => refresh()), []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function pick(files: FileList | null) {
+  async function pick(files: FileList | null, backup = false) {
     if (!files || !files.length) return
     const n = await u.enqueue(files)
-    toast(n > 0 ? `Queued ${n} photo${n === 1 ? '' : 's'} for upload` : 'Already uploaded')
+    if (n === 0) { toast('Those are already here'); return }
+    toast(backup
+      ? `Backing up ${n} photo${n === 1 ? '' : 's'} — carry on, it runs in the background`
+      : `Queued ${n} photo${n === 1 ? '' : 's'} for upload`)
   }
 
   async function toggleFav(p: Photo) {
@@ -142,7 +147,19 @@ export default function Gallery() {
         </button>
       )}
       <button className="icon-btn" onClick={() => setTrashOpen(true)} aria-label="Trash"><IcTrash className="ic" /></button>
-      {canEdit && <button className="btn sm" onClick={() => fileRef.current?.click()}>{u.uploading ? 'Backing up…' : '＋ Back up photos'}</button>}
+      {/* Two separate actions, because they are two different intentions and
+          collapsing them lost one of them. Adding a few photos you have just
+          taken is not the same job as copying a phone's whole library across,
+          and the second needs saying out loud before it starts. */}
+      {canEdit && (
+        <button className="btn sm ghost" onClick={() => setBackupOpen(true)}
+          aria-label="Back up my photos">☁ Back up</button>
+      )}
+      {canEdit && (
+        <button className="btn sm" onClick={() => fileRef.current?.click()}>
+          {u.uploading ? 'Uploading…' : '＋ Upload'}
+        </button>
+      )}
     </div>
   )
 
@@ -158,6 +175,10 @@ export default function Gallery() {
       <TopBar title="Gallery" sub={countLabel} onBack={canBack ? back : undefined} right={headerRight} />
       <input ref={fileRef} type="file" accept="image/*,.heic,.heif" multiple hidden
         onChange={(e) => { pick(e.target.files); e.currentTarget.value = '' }} />
+      {/* A second input purely so the two actions can say different things
+          afterwards. One picker cannot tell which button opened it. */}
+      <input ref={backupRef} type="file" accept="image/*,.heic,.heif" multiple hidden
+        onChange={(e) => { pick(e.target.files, true); e.currentTarget.value = '' }} />
 
       <div className="seg4 five">
         {(['all', 'fav', 'albums', 'people', 'memories'] as Tab[]).map((t) => (
@@ -223,8 +244,8 @@ export default function Gallery() {
                     ? <Empty icon="★" title="No favourites yet" hint="Tap ☆ on a photo to save it here" />
                     : (
                       <Empty icon="🖼️" title="No photos yet"
-                        hint={canEdit ? 'Back up your phone’s photos here. Select as many as you like — they keep uploading while you use the rest of the app.' : undefined}
-                        action={canEdit ? { label: '＋ Back up my photos', onClick: () => fileRef.current?.click() } : undefined} />
+                        hint={canEdit ? 'Add a few with Upload, or back up your phone’s whole gallery at once.' : undefined}
+                        action={canEdit ? { label: '☁ Back up my photos', onClick: () => setBackupOpen(true) } : undefined} />
                     )
               )
               : <>
@@ -234,6 +255,11 @@ export default function Gallery() {
                 </>}
           </PullToRefresh>
         )}
+
+      {backupOpen && (
+        <BackupSheet onClose={() => setBackupOpen(false)}
+          onStart={() => { setBackupOpen(false); backupRef.current?.click() }} />
+      )}
 
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)}
         onTrash={() => trash(view)} canEdit={canEdit} />}
@@ -454,6 +480,42 @@ function DetailsSheet({ info, onClose }: { info: PhotoInfo | null; onClose: () =
           the coordinates to open a map.
         </p>
       )}
+    </Sheet>
+  )
+}
+
+/** What a whole-gallery backup is about to do, said before it starts.
+ *
+ *  It asks first because it is not a small action: on a phone this is hundreds
+ *  of files and a long upload, and the thing that makes it bearable — that it
+ *  carries on in the background while you use the rest of the app — is not
+ *  something anyone can guess from a button.
+ *
+ *  The instruction to use Select All is not padding. A web page cannot read a
+ *  phone's photo library by itself, by design; the phone puts up its own picker
+ *  and the person has to choose there. Someone expecting the app to find their
+ *  photos on its own taps two of them and concludes the backup is broken.
+ */
+function BackupSheet({ onClose, onStart }: { onClose: () => void; onStart: () => void }) {
+  return (
+    <Sheet title="Back up my photos" onClose={onClose}>
+      <p style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.55, marginTop: 4 }}>
+        Your phone will ask which photos to allow. Choose <b>Select All</b> to
+        back up everything, or pick the ones you want.
+      </p>
+      <ul style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.7,
+                   paddingLeft: 18, margin: '12px 0 4px' }}>
+        <li>It keeps going in the background — carry on using the app.</li>
+        <li>Progress shows at the top of every screen.</li>
+        <li>Photos already here are skipped, so you can run this again any time.</li>
+        <li>Nothing leaves this computer.</li>
+      </ul>
+      <button className="btn block" style={{ marginTop: 16 }} onClick={onStart}>
+        Choose photos
+      </button>
+      <button className="btn ghost block" style={{ marginTop: 8 }} onClick={onClose}>
+        Not now
+      </button>
     </Sheet>
   )
 }
