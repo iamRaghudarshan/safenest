@@ -323,9 +323,26 @@ def main() -> int:
     # cannot leave a half-written archive that looks like a usable build.
     tmp = out.with_suffix(".part")
     tmp.write_bytes(tar_bytes)
-    if out.exists():
-        out.unlink()
-    shutil.move(str(tmp), str(out))
+    # Windows refuses to delete a file anything else has open, and something
+    # usually does -- an editor, a virus scanner, or a script checking what
+    # version is in there. Throwing away a download that took twenty minutes
+    # because of that is not acceptable, so it waits, and if it still cannot it
+    # says where the good copy is rather than deleting it.
+    for wait in (0, 1, 2, 4, 8):
+        if wait:
+            time.sleep(wait)
+        try:
+            out.unlink(missing_ok=True)
+            shutil.move(str(tmp), str(out))
+            break
+        except OSError as exc:
+            last = exc
+    else:
+        raise Stop(f"The download finished but {out.name} is open in another "
+                   f"program, so it could not be replaced ({last}).\n\n"
+                   f"The new build is here and is complete:\n  {tmp}\n\n"
+                   f"Close whatever is using it and rename that file to "
+                   f"{out.name}.")
     print(f"\n  installed  : {out}  ({out.stat().st_size / 1048576:.0f} MB)")
     print("\n  Mac copies can now be issued from the Licences screen.")
     return 0
