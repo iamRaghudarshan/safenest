@@ -879,6 +879,36 @@ The executable's suffix is chosen by the **target** platform, not by `os.name`.
 Building a Mac copy on Windows looked for `FinMate.exe` and renamed it to
 `SafeNest.exe`, inside a bundle whose launcher expects a Unix executable.
 
+### macOS symlinks: the trap that reaches the customer, not you
+
+`Python.framework` is built from symlinks — `Python` → `Versions/Current/Python`,
+`Versions/Current` → `3.13` — and the **code signature seals that structure**.
+Flatten them and macOS refuses to load the interpreter at all:
+
+    code signature ... not valid for use in process:
+    library load disallowed by system policy
+
+Nothing on the build side notices. The folder looks right, zips, sends, and dies
+on the customer's Mac with a message that names none of this. It happened: a
+customer received four identical 6.7 MB Pythons where there should have been one
+file and three links.
+
+**`shutil.copytree` dereferences by default.** That is where they were lost —
+in `build_exe.py`'s per-platform copy, *on the Mac*, before anything was packed.
+`symlinks=True` is not optional there.
+
+**A zip cannot carry them either**, nor can a Windows filesystem. So the Mac build
+travels as a **tar.gz** made on the Mac, and `bundler._mac_from_tar()` copies
+entries from it straight into the customer's archive — symlink members are
+re-added as symlinks and never materialised on a filesystem that cannot represent
+them. `build_licensed` refuses a Mac copy on Windows unless that tarball is
+present, rather than producing another broken bundle.
+
+**CI fails the build when the archive contains no symlinks.** A count of zero is
+not a warning; it is the whole defect, and the only other place it shows up is a
+customer's machine. A healthy archive has ~116 of them, and is ~45 MB smaller than
+the flattened one because the duplicates are gone.
+
 ### A copy can only be compiled on the system it is for
 
 PyInstaller freezes the interpreter it runs under. There is no cross-compiling and

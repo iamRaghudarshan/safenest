@@ -834,8 +834,17 @@ def build_licensed(platform: str, licence_token: str, out_root: Path | None = No
     if dest.exists():
         shutil.rmtree(dest, ignore_errors=True)
 
+    # A Mac copy made anywhere but a Mac is assembled straight from the tarball at
+    # the end of this function, so there is no app folder to copy here -- only a
+    # staging directory for the licence, the database and the README. Copying the
+    # app onto this filesystem is precisely what must not happen: it is where the
+    # framework symlinks would be flattened.
+    from_tar = platform == MAC and host_platform() != MAC
     progress("Copying the compiled app", 10)
-    shutil.copytree(source, dest)
+    if from_tar:
+        dest.mkdir(parents=True)
+    else:
+        shutil.copytree(source, dest)
 
     # The executable is named after the software, so the customer sees their own
     # product rather than whatever it was called when it was compiled.
