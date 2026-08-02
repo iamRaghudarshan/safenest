@@ -278,6 +278,37 @@ def _swap_script(new_root: Path, app_root: Path, exe: Path) -> Path:
             "else\n"
             f'  rm -rf "{app_root}"; mv "{app_root}.old" "{app_root}"\n'
             "fi\n"
+            # One release goes to every Mac customer, so the bundle inside it is
+            # named for the build and not for them. Copied in as-is, the folder
+            # stays <Their Name>.app but the Dock, the menu bar and the app
+            # switcher all read the build's name -- so an update quietly renames
+            # the product on their machine.
+            #
+            # Renaming the executable breaks the ad-hoc signature, which on macOS
+            # means the interpreter will not load at all, so it is re-signed. If
+            # any of that fails the rename is undone and the app is left exactly
+            # as ditto produced it: a wrong name in the Dock is a blemish, an app
+            # that will not start is not.
+            f'PL="{app_root}/Contents/Info.plist"\n'
+            'CUR=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$PL" '
+            '2>/dev/null)\n'
+            f'WANT="{exe.name}"\n'
+            'if [ -n "$CUR" ] && [ "$CUR" != "$WANT" ]; then\n'
+            f'  cp -p "$PL" "{app_root}/Contents/.Info.plist.bak"\n'
+            f'  if mv "{app_root}/Contents/MacOS/$CUR" '
+            f'"{app_root}/Contents/MacOS/$WANT" 2>/dev/null; then\n'
+            '    for k in CFBundleExecutable CFBundleName CFBundleDisplayName; do\n'
+            '      /usr/libexec/PlistBuddy -c "Set :$k $WANT" "$PL" 2>/dev/null\n'
+            '    done\n'
+            f'    if ! codesign --force --deep --sign - "{app_root}" 2>/dev/null; '
+            'then\n'
+            f'      mv "{app_root}/Contents/MacOS/$WANT" '
+            f'"{app_root}/Contents/MacOS/$CUR"\n'
+            f'      mv "{app_root}/Contents/.Info.plist.bak" "$PL"\n'
+            '    fi\n'
+            '  fi\n'
+            f'  rm -f "{app_root}/Contents/.Info.plist.bak"\n'
+            "fi\n"
             f'xattr -dr com.apple.quarantine "{app_root}" 2>/dev/null\n'
             f'open "{app_root}"\n'
             f'rm -rf "{new_root.parent}"\n'
