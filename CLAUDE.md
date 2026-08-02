@@ -894,11 +894,40 @@ platform's build so every existing script and path keeps working.
 So: compile the Mac build once per release — on a Mac, or with
 `.github/workflows/build-mac.yml` on GitHub's macOS runners, which needs **no
 secrets** because the signing key signs licences and release manifests, not the
-app. Drop the folder into `dist-app/mac/`. After that one laptop issues both, from
-one copy of the source, with the licences and the signing key never leaving it.
+app. After that one laptop issues both, from one copy of the source, with the
+licences and the signing key never leaving it.
+
+### Carrying the Mac build back — `Get Mac Build.bat`
+
+**The workflow starts itself whenever `VERSION` changes.** It used to run only on
+a tag, and this repo has never had one, so a version bump built the Windows half
+and silently left the Mac half on the previous release — visible nowhere until it
+reached a customer.
+
+Then double-click **`Get Mac Build.bat`** (or
+`python packaging/fetch_mac_build.py`). It waits out a build still in progress,
+because the natural moment to run it is straight after pushing the bump and taking
+the newest *finished* run then would fetch the release before — the same mismatch,
+arrived at by being helpful.
+
+It **refuses** an archive whose version differs from `VERSION` (`--any-version`
+overrides), and refuses one with **zero symlinks**: a flattened `Python.framework`
+looks perfectly healthy here and dies on the customer's Mac with a message naming
+none of this. The tar is never unpacked on the way through — Windows cannot
+represent those links.
+
+Needs `GITHUB_TOKEN` in `backend/.env` (fine-grained, one repository, Actions
+read-only). Deliberately **not** a `config.py` setting: the app has no business
+holding a credential for the publisher's source repository, and a setting it never
+loads is one no endpoint can ever return. `.env` is in `bundler.SKIP_FILES`, so it
+never travels — like the signing key beside it.
+
+Once per *release*, not per customer: every Mac copy is built from that one file.
 
 `ready_platforms()` is what the screen asks — which builds are *present*, not what
-this machine can compile. Verified by standing in a Mac-shaped build and issuing
+this machine can compile. It accepts the Mac **tarball** as well as an unpacked
+folder, because that is what `build_licensed()` accepts; asking only
+`compiled_available()` greyed out a button for a copy that would have built fine. Verified by standing in a Mac-shaped build and issuing
 both from Windows: the Mac bundle carries no `.exe`, its executable is unsuffixed
 and is the Mac binary; the Windows one is a `.exe` and is the Windows binary.
 
