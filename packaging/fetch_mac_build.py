@@ -73,6 +73,41 @@ def local_version() -> str:
     return f.read_text(encoding="utf-8").strip() if f.is_file() else ""
 
 
+# What a Mac build is actually made of. A change under any of these between the
+# commit CI built and the one here means the archive is stale, whatever it says
+# its version is.
+BUILD_INPUTS = ("backend/", "frontend/", "packaging/", "bundle/", "VERSION")
+
+
+def stale_since(sha: str) -> list:
+    """Which build inputs changed after the commit CI built. Empty is good.
+
+    The version check cannot see this. The workflow starts on a VERSION change,
+    so bumping first and fixing afterwards leaves CI building the bump alone --
+    and that archive says 2.3 as truthfully as the good one would. Two builds
+    with the same number and different contents is exactly the shape of thing
+    that reaches a customer unnoticed.
+    """
+    try:
+        out = subprocess.run(["git", "diff", "--name-only", f"{sha}..HEAD"],
+                             cwd=ROOT, capture_output=True, text=True, check=True)
+    except Exception:
+        return []          # a shallow clone or an unknown sha: not worth blocking on
+    changed = {f for f in out.stdout.split() if f.startswith(BUILD_INPUTS)}
+    # Uncommitted work is the same fault seen a moment earlier: CI builds what was
+    # pushed, so anything still sitting in the working tree cannot be in there.
+    try:
+        st = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
+                            capture_output=True, text=True, check=True)
+        for line in st.stdout.splitlines():
+            name = line[3:].strip().strip('"')
+            if name.startswith(BUILD_INPUTS):
+                changed.add(f"{name}  (not committed)")
+    except Exception:
+        pass
+    return sorted(changed)
+
+
 def repo() -> str:
     """owner/name, taken from the git remote so it survives a rename or a fork."""
     try:
@@ -239,6 +274,17 @@ def main() -> int:
 
     run = pick_run(token, slug, args.wait)
     print(f"  build      : {run['display_title']}  ({run['head_sha'][:7]})")
+
+    stale = stale_since(run["head_sha"])
+    if stale and not args.any_version:
+        listed = "\n".join(f"    {f}" for f in stale[:8])
+        more = f"\n    ...and {len(stale) - 8} more" if len(stale) > 8 else ""
+        raise Stop(f"That build is from {run['head_sha'][:7]}, and these have "
+                   f"changed since:\n\n{listed}{more}\n\n"
+                   "It would carry the version number but not the code. Run the "
+                   "workflow again on the current commit:\n"
+                   f"  https://github.com/{slug}/actions/workflows/{WORKFLOW}\n\n"
+                   "Or --any-version if you meant this one.")
 
     arts = api(token, f"/repos/{slug}/actions/runs/{run['id']}/artifacts")
     items = arts.get("artifacts") or []
