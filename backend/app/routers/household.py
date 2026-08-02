@@ -246,6 +246,28 @@ def check_for_update(user: User = Depends(_manager)):
     return out
 
 
+# Where an install has got to. One at a time, so a single dict is enough — and it
+# is module state rather than a database row on purpose: the download must survive
+# nothing, and the process is about to be replaced anyway.
+_INSTALL: dict = {"state": "idle"}
+
+
+def _progress(state: str, percent: int, note: str = "", **extra) -> None:
+    _INSTALL.update({"state": state, "percent": percent, "note": note, **extra})
+
+
+@updater.get("/progress")
+def install_progress(user: User = Depends(_manager)):
+    """How far the install has got.
+
+    The download is 170 MB odd. Doing it inside the POST left the browser sitting
+    on a request for several minutes with nothing to show, which reads as a hung
+    app — reported as "it says update now but there is no progress bar". The work
+    happens on a thread and this reports it.
+    """
+    return dict(_INSTALL)
+
+
 @updater.post("")
 def install_update(request: Request, user: User = Depends(_manager),
                    db: Session = Depends(get_db)):
@@ -282,38 +304,80 @@ def install_update(request: Request, user: User = Depends(_manager),
     except updates.UpdateError as exc:
         raise HTTPException(422, str(exc))
 
-    staging = updates.staging_dir()
-    staging.mkdir(parents=True, exist_ok=True)
-    blob = staging / (manifest.get("filename") or "update.zip")
-    try:
-        with requests.get(info["url"], stream=True, timeout=600) as resp:
-            resp.raise_for_status()
-            with open(blob, "wb") as fh:
-                for chunk in resp.iter_content(updates.CHUNK):
-                    fh.write(chunk)
-    except Exception as exc:
-        raise HTTPException(502, f"The download did not finish: {exc}")
-
-    got = updates.digest(blob)
-    if got != manifest["sha256"]:
-        blob.unlink(missing_ok=True)
-        raise HTTPException(
-            422, "The download does not match what your supplier signed, so it "
-                 "has been discarded. Nothing has been changed. Try again.")
-
-    try:
-        staged = updates.unpack(blob, staging / "unpacked")
-        script = updates.apply_staged(staged)
-    except updates.UpdateError as exc:
-        raise HTTPException(422, str(exc))
+    if _INSTALL.get("state") in ("downloading", "checking", "unpacking"):
+        raise HTTPException(409, "An update is already being installed.")
 
     audit(db, user.id, "update_install", "release", 0,
           {"label": manifest["version"]}, request=request)
 
-    # The helper is already waiting for this process to disappear. Stopping is the
-    # last thing this request does, after the response has been handed back.
+    version = manifest["version"]
+    url = info["url"]
+
+    def run() -> None:
+        """Fetch, check and stage — off the request, so progress can be watched.
+
+        Every failure here lands in _INSTALL rather than an HTTP status: by the
+        time this runs the browser has long since been answered. The copy is left
+        untouched on any of them; nothing is replaced until the very last step.
+        """
+        staging = updates.staging_dir()
+        blob = staging / (manifest.get("filename") or "update.zip")
+        try:
+            staging.mkdir(parents=True, exist_ok=True)
+            total = int(manifest.get("size") or 0)
+            done = 0
+            _progress("downloading", 0, "Starting the download…")
+            with requests.get(url, stream=True, timeout=600) as resp:
+                resp.raise_for_status()
+                total = int(resp.headers.get("content-length") or total or 0)
+                with open(blob, "wb") as fh:
+                    for chunk in resp.iter_content(updates.CHUNK):
+                        fh.write(chunk)
+                        done += len(chunk)
+                        # 0-80 of the bar. Downloading really is most of the wait,
+                        # and a bar that reaches 100% then sits there is worse than
+                        # one that is honest about having more to do.
+                        pct = int(done * 80 / total) if total else 0
+                        _progress("downloading", min(pct, 80),
+                                  f"Downloading — {done // 1048576} of "
+                                  f"{total // 1048576} MB")
+
+            _progress("checking", 80, "Checking the download is genuine…")
+            # 80-92. Hashing 175 MB is a couple of seconds, and a bar that stops
+            # dead for a couple of seconds is the moment someone decides it has
+            # hung and force-quits — mid-update, which is the worst time to.
+            got = updates.digest(blob, progress=lambda d, t: _progress(
+                "checking", 80 + int(d * 12 / t) if t else 80,
+                "Checking the download is genuine…"))
+            if got != manifest["sha256"]:
+                blob.unlink(missing_ok=True)
+                _progress("failed", 0, "The download does not match what your "
+                          "supplier signed, so it has been discarded. Nothing "
+                          "has been changed — please try again.")
+                return
+
+            _progress("unpacking", 92, "Unpacking…")
+            staged = updates.unpack(blob, staging / "unpacked")
+            _progress("restarting", 100,
+                      f"Installing version {version}. This window will close and "
+                      "reopen in a few seconds.", version=version)
+            script = updates.apply_staged(staged)
+            _INSTALL["script"] = str(script)
+        except updates.UpdateError as exc:
+            _progress("failed", 0, str(exc))
+            return
+        except Exception as exc:
+            _progress("failed", 0, f"The update did not finish: {exc}")
+            return
+
+        # The helper is already waiting for this process to disappear. The pause
+        # lets the browser collect the "restarting" state first, so it knows to
+        # start watching for the app to come back rather than reporting it dead.
+        import threading
+        threading.Timer(2.0, lambda: os._exit(0)).start()
+
     import threading
-    threading.Timer(1.5, lambda: os._exit(0)).start()
-    return {"installing": manifest["version"], "script": str(script),
-            "message": "Installing now — this window will close and reopen on "
-                       "the new version."}
+    _progress("downloading", 0, "Starting the download…", version=version)
+    threading.Thread(target=run, daemon=True).start()
+    return {"installing": version, "started": True,
+            "message": "Downloading now — you can watch the progress here."}

@@ -1720,10 +1720,46 @@ interface UpdateState {
  * unasked, on a machine holding somebody's financial records, is the behaviour
  * people are rightly taught to refuse. Nothing is downloaded until it is pressed.
  */
+interface InstallProgress {
+  state: 'idle' | 'downloading' | 'checking' | 'unpacking' | 'restarting' | 'failed'
+  percent: number
+  note: string
+  version?: string
+}
+
+/** Remembered across the restart, because the page it was shown on is gone.
+ *
+ *  The app replaces itself and reopens, so nothing in memory survives to say the
+ *  update worked. Without this the new version simply appears, which is
+ *  indistinguishable from having pressed the button and nothing happening.
+ */
+const INSTALLED_KEY = 'app.updated.to'
+
+/** Is the app that just answered actually the version we installed?
+ *
+ *  Straight equality is too strict — a manifest saying "2.1" against a build that
+ *  stamps "2.1.0" would never match and the bar would sit there until it gave up.
+ *  Being too loose is the worse failure though: announcing success while the old
+ *  program is still the one answering. Hence a numeric compare, where reaching the
+ *  target or passing it counts and falling short does not.
+ */
+function updatedTo(running: string, target?: string): boolean {
+  if (!target) return false
+  const parts = (v: string) => String(v || '0').split('.')
+    .map((c) => parseInt(c.replace(/\D/g, ''), 10) || 0)
+  const a = parts(running), b = parts(target)
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0, y = b[i] || 0
+    if (x !== y) return x > y
+  }
+  return true
+}
+
 function AppUpdateRow() {
   const toast = useToast()
   const [st, setSt] = useState<UpdateState | null>(null)
   const [busy, setBusy] = useState<'' | 'check' | 'install'>('')
+  const [prog, setProg] = useState<InstallProgress | null>(null)
 
   /** Check for a newer version. `announce` when a person asked, not on load.
    *
@@ -1749,23 +1785,111 @@ function AppUpdateRow() {
   }, [toast])
   useEffect(() => { look() }, [look])
 
+  // The install survived a restart, so say so on the page that came back.
+  useEffect(() => {
+    const done = localStorage.getItem(INSTALLED_KEY)
+    if (done) {
+      localStorage.removeItem(INSTALLED_KEY)
+      toast(`Updated to version ${done} — you are on the newest version`)
+    }
+  }, [toast])
+
+  /** Follow an install through to the app reopening.
+   *
+   *  Two halves, and the join between them is the awkward part: while the server
+   *  is alive it reports its own progress, but the last act of an install is to
+   *  kill that server, so from "restarting" onwards a failed request is the
+   *  expected thing rather than an error. The poll keeps going until the app
+   *  answers again on the new version.
+   */
+  useEffect(() => {
+    if (!prog || prog.state === 'idle' || prog.state === 'failed') return
+    let alive = true
+    let waited = 0
+
+    const tick = async () => {
+      if (!alive) return
+      if (prog.state === 'restarting') {
+        waited += 2
+        try {
+          const back = await api<UpdateState>('/api/update')
+          // Answering on the version we installed means the swap completed and
+          // this is the new program talking. Anything else is the old one not yet
+          // gone, so keep waiting.
+          if (!updatedTo(back.running, prog.version)) throw new Error('not yet')
+          localStorage.setItem(INSTALLED_KEY, back.running)
+          location.reload()
+          return
+        } catch {
+          if (waited > 180) {
+            setProg({ ...prog, state: 'failed', percent: 0,
+                      note: `${appName()} is taking longer than expected to reopen. `
+                          + 'If it does not come back, open it yourself — your '
+                          + 'records are safe either way.' })
+            return
+          }
+        }
+      } else {
+        try {
+          const p = await api<InstallProgress>('/api/update/progress')
+          if (alive) setProg(p)
+        } catch { /* a blip mid-download; the next tick asks again */ }
+      }
+      if (alive) setTimeout(tick, 2000)
+    }
+    const t = setTimeout(tick, 1500)
+    return () => { alive = false; clearTimeout(t) }
+  }, [prog, toast])
+
   if (!st || !st.installable) return null
 
   async function install() {
     if (!confirm(`Install version ${st!.version}?
 
-${appName()} will close and reopen. Your records are not touched.`)) return
+${appName()} will download it, then close and reopen. Your records are not touched.`)) return
     setBusy('install')
+    setProg({ state: 'downloading', percent: 0, note: 'Starting the download…',
+              version: st!.version })
     try {
       await api('/api/update', { method: 'POST' })
-      toast('Installing — this will close and reopen shortly')
-    } catch (e) { toast(errorMessage(e, 'Could not install the update')); setBusy('') }
+    } catch (e) {
+      toast(errorMessage(e, 'Could not install the update'))
+      setBusy(''); setProg(null)
+    }
+  }
+
+  if (prog && prog.state !== 'idle') {
+    const failed = prog.state === 'failed'
+    return (
+      <div className="card" style={{ padding: '14px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {!failed && <div className="upbar-spin" />}
+          <div style={{ fontWeight: 700, fontSize: 14 }}>
+            {failed ? 'Update stopped' : `Installing version ${prog.version || st.version}`}
+          </div>
+          {!failed && (
+            <div style={{ marginLeft: 'auto', fontWeight: 700, fontSize: 13,
+                          color: 'var(--brand)' }}>{prog.percent}%</div>
+          )}
+        </div>
+        {!failed && (
+          <div className="upbar-track"><i style={{ width: `${prog.percent}%` }} /></div>
+        )}
+        <div className="upbar-sub" style={failed ? { color: 'var(--danger)' } : undefined}>
+          {prog.note}
+        </div>
+        {failed && (
+          <button className="btn ghost" style={{ marginTop: 10 }}
+            onClick={() => { setProg(null); setBusy(''); look() }}>Close</button>
+        )}
+      </div>
+    )
   }
 
   if (st.available) {
     return (
       <SettingsRow icon="⬆" tint="var(--ok)"
-        label={busy === 'install' ? 'Installing…' : `Version ${st.version} is ready`}
+        label={busy === 'install' ? 'Starting…' : `Version ${st.version} is ready`}
         sub={st.notes || `${st.size_mb} MB — your records are not affected`}
         onClick={busy ? undefined : install} />
     )
