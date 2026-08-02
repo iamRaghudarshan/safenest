@@ -18,6 +18,7 @@ as 1, which is what those copies could already do.
 import os
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import ist, licensing
@@ -34,14 +35,47 @@ ALL_MODULES = ["loans", "cards", "insurance", "investments", "expenses",
                "reminders", "todo", "vault", "gallery", "documents"]
 
 
-def can_manage(user: User) -> bool:
-    """An administrator always; in a licensed copy, the person running it."""
-    return user.role == "admin" or settings.licensed_mode
+def can_manage(user: User, db: Session) -> bool:
+    """Who may add or remove sign-ins.
+
+    An administrator always. In a LICENSED copy, only the licence holder -- not
+    everyone signed in to it.
+
+    This used to be any user in a licensed copy, which handed the household's
+    membership to every member of it: a child added to the family could add more
+    people up to the seat limit, or remove a sibling. The licence is bought by one
+    person and the seats are theirs to allocate.
+    """
+    if user.role == "admin":
+        return True
+    if not settings.licensed_mode:
+        return False
+    return user.id == _owner_id(db)
 
 
-def _manager(user: User = Depends(get_current_user)) -> User:
-    if not can_manage(user):
-        raise HTTPException(403, "Only an administrator can manage sign-ins here.")
+def _owner_id(db: Session) -> int | None:
+    """The account the licence was issued to.
+
+    Matched on the licence's own email, which is what the first run creates the
+    account from. If nothing matches -- the holder changed their address, say --
+    the earliest account is the owner, because on a licensed copy that is the one
+    the licence created.
+    """
+    email = (_licence().get("email") or "").strip().lower()
+    if email:
+        row = db.query(User).filter(func.lower(User.email) == email).first()
+        if row:
+            return row.id
+    first = db.query(User).order_by(User.id).first()
+    return first.id if first else None
+
+
+def _manager(user: User = Depends(get_current_user),
+             db: Session = Depends(get_db)) -> User:
+    if not can_manage(user, db):
+        raise HTTPException(
+            403, "Only the person this copy is licensed to can add or remove "
+                 "sign-ins.")
     return user
 
 
@@ -85,6 +119,7 @@ def read(user: User = Depends(_manager), db: Session = Depends(get_db)):
                     "created_at": ist.fmt(u.created_at)} for u in people],
         **limits(db),
         "can_manage": True,
+        "owner_id": _owner_id(db),
     }
 
 

@@ -102,7 +102,31 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
   async function enqueue(files: FileList | File[]) {
     let added = 0
+    // How many bytes this batch may copy into IndexedDB before it stops.
+    //
+    // Persisting every blob up front is what breaks a big selection from a phone.
+    // 400 photos is well over a gigabyte, and the loop below used to read all of
+    // it into IndexedDB before a single upload started -- on iOS that exhausts the
+    // tab's memory and Safari discards the page, so only the handful already sent
+    // arrive. Past this budget the file is queued from its File handle instead,
+    // which costs nothing: the bytes are read when it is that file's turn.
+    //
+    // What is lost beyond the budget is only resumption after a page RELOAD. The
+    // queue itself survives navigation either way, and finishing 400 photos beats
+    // being able to resume 40.
+    let budget = 250 * 1024 * 1024
+    let seen = 0
     for (const f of Array.from(files)) {
+      // Yield every so often, and start sending what is already queued. A
+      // synchronous pass over hundreds of files freezes the page — and on a phone
+      // a frozen page is one the system may kill — while waiting for the whole
+      // selection before uploading anything means a long silence and nothing to
+      // show for it if the tab dies partway.
+      if (++seen % 25 === 0) {
+        bump()
+        pumpRef.current()
+        await new Promise((r) => setTimeout(r, 0))
+      }
       const sig = sigOf(f)
       if (doneSigs.current.has(sig) || items.current.some((i) => i.sig === sig)) continue
       // A zero-byte read is the browser saying it could not get at the file, not
@@ -122,8 +146,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       items.current.push(item)
       counts.current.total++
       added++
-      try { item.key = await uploadDB.addFile({ blob: f, name: f.name, size: f.size, sig }) }
-      catch { item.key = -1 /* quota exceeded: in-memory only */ }
+      if (budget - f.size >= 0) {
+        budget -= f.size
+        try { item.key = await uploadDB.addFile({ blob: f, name: f.name, size: f.size, sig }) }
+        catch { item.key = -1 /* quota exceeded: in-memory only */ }
+      }
     }
     bump()
     pumpRef.current()
