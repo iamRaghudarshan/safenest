@@ -27,6 +27,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 ROOT = Path(__file__).resolve().parent.parent
 BACKEND = ROOT / "backend"
+#: The product's own name and icon, committed so the macOS runner --
+#: which has no database and no secrets -- builds a branded app too.
+BRAND_SRC = ROOT / "packaging" / "brand"
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 MODELS = BACKEND / "models"
 OUT = ROOT / "dist-app"
@@ -420,22 +423,26 @@ def stamp_brand() -> dict:
     """
     import json
     sys.path.insert(0, str(BACKEND))
+    BRAND_SRC.mkdir(parents=True, exist_ok=True)
+
+    # BaseException, not Exception. config.py raises SystemExit when the secrets
+    # are missing, and `except Exception` does not catch that -- it killed the
+    # macOS build outright, on a runner that has no .env and never should.
     try:
         from app.database import SessionLocal
         from app.models import Branding
-        from app.routers.branding import BRAND_DIR, SIZES
-    except Exception as exc:
-        print(f"  ! could not read the branding ({exc.__class__.__name__});"
-              " building unbranded")
-        return {}
+        from app.routers.branding import BRAND_DIR
+    except BaseException as exc:
+        print(f"  Using the committed brand ({exc.__class__.__name__} reading the "
+              "database)")
+        return _apply_brand()
 
     try:
         db = SessionLocal()
         try:
             row = db.query(Branding).filter(Branding.id == 1).first()
             if not row:
-                print("  ! no branding set; building unbranded")
-                return {}
+                return _apply_brand()
             brand = {
                 "app_name": row.app_name or "",
                 "short_name": row.short_name or row.app_name or "",
@@ -445,29 +452,46 @@ def stamp_brand() -> dict:
             }
         finally:
             db.close()
-    except Exception as exc:
-        print(f"  ! could not read the branding ({exc.__class__.__name__});"
-              " building unbranded")
-        return {}
+    except BaseException as exc:
+        print(f"  Using the committed brand ({exc.__class__.__name__})")
+        return _apply_brand()
 
-    (FRONTEND_DIST / "brand.json").write_text(json.dumps(brand, indent=2),
-                                              encoding="utf-8")
-
-    # The icons too, or a copy with no branding row still shows the stock rupee
-    # mark: _shipped() serves these files whenever icon_version is 0, and until
-    # now they were whatever the web build happened to contain.
-    stamped = 0
+    # Refreshed into the repo, not straight into the build. The macOS build runs
+    # on a runner with no database and no secrets, so without a committed copy
+    # every Mac release would ship calling itself "App" -- which is the whole
+    # fault this exists to remove, reintroduced on one platform only.
+    (BRAND_SRC / "brand.json").write_text(json.dumps(brand, indent=2),
+                                          encoding="utf-8")
     if brand["icon_version"]:
-        pairs = [(192, "icon-192.png"), (512, "icon-512.png"),
-                 (180, "apple-touch-icon.png")]
-        for size, name in pairs:
+        for size in (180, 192, 512):
             src = Path(BRAND_DIR) / f"icon-{size}.png"
             if src.is_file():
-                shutil.copy2(src, FRONTEND_DIST / name)
-                stamped += 1
+                shutil.copy2(src, BRAND_SRC / f"icon-{size}.png")
+    return _apply_brand()
 
-    print(f"  Branded as: {brand['app_name']}"
-          + (f" ({stamped} icons stamped in)" if stamped else " (no icon uploaded)"))
+
+def _apply_brand() -> dict:
+    """Copy the committed brand into the web files about to be packaged.
+
+    _shipped() serves these icon files whenever no icon has been uploaded, so
+    stamping them here is what stops a copy falling back to the stock rupee mark.
+    """
+    import json
+    src = BRAND_SRC / "brand.json"
+    if not src.is_file():
+        print("  ! no brand recorded; building unbranded")
+        return {}
+    brand = json.loads(src.read_text(encoding="utf-8"))
+    shutil.copy2(src, FRONTEND_DIST / "brand.json")
+    stamped = 0
+    for size, name in ((192, "icon-192.png"), (512, "icon-512.png"),
+                       (180, "apple-touch-icon.png")):
+        f = BRAND_SRC / f"icon-{size}.png"
+        if f.is_file():
+            shutil.copy2(f, FRONTEND_DIST / name)
+            stamped += 1
+    print(f"  Branded as: {brand.get('app_name')}"
+          + (f" ({stamped} icons stamped in)" if stamped else " (no icon)"))
     return brand
 
 
