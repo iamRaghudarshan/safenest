@@ -299,6 +299,60 @@ async def _integrity_error(request: Request, exc: IntegrityError):
     return JSONResponse(status_code=422, content={"detail": msg})
 
 
+#: What branding._row() used to write when nothing had set a name. A row holding
+#: exactly this was created BY an older build, not chosen by anybody.
+_STOCK_BRANDING = "App"
+
+
+def _adopt_build_branding() -> None:
+    """Replace a placeholder name left by an older build with this build's own.
+
+    A customer's login screen said "App" over the stock rupee mark for days. The
+    row was written by branding._row(), which creates one the first moment
+    anything asks what the app is called, and older builds wrote a hard-coded
+    "App" there.
+
+    Three attempts to repair it failed, and they failed the same way: each copied
+    the row out of the database the bundle ships, so each depended on that bundle
+    still being beside the app. It is not, after an in-app update — a release is
+    one file for every customer and cannot carry anyone's shipped data — and the
+    repair then had nothing to read and said nothing about it.
+
+    This needs no files. The build knows its own name (branding._build_brand),
+    so a row that is still the old placeholder is simply corrected, on every
+    platform, after any update, however the copy got into that state.
+
+    A name somebody set on purpose is left alone: it only replaces a row where
+    every part is still the placeholder.
+    """
+    from .database import SessionLocal
+    from .models import Branding
+    from .routers import branding as b
+    if not b.DEFAULT_NAME or b.DEFAULT_NAME == _STOCK_BRANDING:
+        return                      # this build has no name of its own to offer
+    db = SessionLocal()
+    try:
+        row = db.query(Branding).filter(Branding.id == 1).first()
+        if row is None:
+            return                  # _row() will create it from the build's brand
+        stale = ((not row.app_name or row.app_name == _STOCK_BRANDING)
+                 and not (row.tagline or "").strip()
+                 and int(row.icon_version or 0) == 0)
+        if not stale:
+            return
+        row.app_name = b.DEFAULT_NAME
+        row.short_name = b.DEFAULT_SHORT
+        row.tagline = b.DEFAULT_TAGLINE
+        row.theme_color = b.DEFAULT_THEME
+        row.updated_at = ist.now()
+        db.commit()
+        b.forget_name()
+        print(f"[branding] this copy had no name of its own — using "
+              f"{b.DEFAULT_NAME}")
+    finally:
+        db.close()
+
+
 def _enforce_licence_role() -> None:
     """The signed licence decides the holder's role; the database may not disagree.
 
@@ -363,6 +417,10 @@ def _on_startup() -> None:
         _migrate()
     except Exception as e:  # never block boot on a migration hiccup
         print(f"[migrate] skipped: {e}")
+    try:
+        _adopt_build_branding()
+    except Exception as e:
+        print(f"[branding] name check skipped: {e}")
     try:
         _enforce_licence_role()
     except Exception as e:

@@ -37,8 +37,39 @@ from ..storage import PRIVATE_ROOT
 router = APIRouter(prefix="/api/branding", tags=["branding"])
 files = APIRouter(tags=["branding"])          # no /api prefix — browser-facing
 
-DEFAULT_NAME = "App"
-DEFAULT_THEME = "#5b3df5"
+def _build_brand() -> dict:
+    """What this build calls itself, written into it at build time.
+
+    WHY THE DEFAULT IS NOT A CONSTANT ANY MORE
+    _row() creates a branding row the first time anything asks for the name, and
+    it used the literal "App". So any copy running on a database it made for
+    itself -- a records folder that never received the shipped one, an account
+    created before the seed was copied out -- called itself "App" over the stock
+    rupee mark, on a customer's machine, for ever. Three separate attempts to
+    repair that row after the fact each missed a case, because they were all
+    fixing the symptom: a build that did not know its own name.
+
+    It knows now. packaging/build_exe.py writes brand.json beside the web files
+    and stamps the icons into them, so the fallback IS the product rather than a
+    placeholder. Nothing has to be restored for a copy to look right.
+
+    A name set deliberately still wins: this is only ever the default.
+    """
+    import json
+    from pathlib import Path
+    try:
+        base = os.environ.get("FRONTEND_DIST")
+        root = Path(base) if base else Path(__file__).resolve().parents[3] / "frontend" / "dist"
+        return json.loads((root / "brand.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+_BUILD = _build_brand()
+DEFAULT_NAME = (_BUILD.get("app_name") or "App").strip() or "App"
+DEFAULT_SHORT = (_BUILD.get("short_name") or DEFAULT_NAME).strip()
+DEFAULT_TAGLINE = (_BUILD.get("tagline") or "").strip()
+DEFAULT_THEME = (_BUILD.get("theme_color") or "#5b3df5").strip()
 MAX_UPLOAD = 6 * 1024 * 1024                  # 6 MB; a launcher icon is never bigger
 
 # Every size a browser or home screen asks for. 32 is the favicon, 180 is what
@@ -62,9 +93,9 @@ def _row(db: Session) -> Branding:
     if row:
         return row
     try:
-        row = Branding(id=1, app_name=DEFAULT_NAME, short_name=DEFAULT_NAME,
-                       tagline="", theme_color=DEFAULT_THEME, icon_version=0,
-                       updated_at=ist.now())
+        row = Branding(id=1, app_name=DEFAULT_NAME, short_name=DEFAULT_SHORT,
+                       tagline=DEFAULT_TAGLINE, theme_color=DEFAULT_THEME,
+                       icon_version=0, updated_at=ist.now())
         db.add(row)
         db.commit()
         db.refresh(row)

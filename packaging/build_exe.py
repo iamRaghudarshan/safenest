@@ -398,8 +398,84 @@ coll = COLLECT(
 '''
 
 
+def stamp_brand() -> dict:
+    """Write this installation's name and icon into the web files being packaged.
+
+    WHY THE BUILD HAS TO KNOW ITS OWN NAME
+    branding._row() creates a row the first moment anything asks what the app is
+    called, and it used a hard-coded "App". Any copy running on a database it
+    made for itself -- a records folder that never received the shipped one, an
+    account created before the seed was copied out -- therefore called itself
+    "App" over the stock rupee mark, on a customer's machine, permanently. Three
+    attempts to repair that row after the event each missed a case, because each
+    was treating the symptom.
+
+    So the product name, tagline, colour and rendered icons are stamped into the
+    build itself. A fresh database now falls back to the product rather than to a
+    placeholder, and nothing needs restoring for a copy to look right.
+
+    Reads the publisher's own branding row, which is where the name and the
+    uploaded icon already live (see CLAUDE.md 9). Returns {} and changes nothing
+    when there is none -- a build machine without a database still builds.
+    """
+    import json
+    sys.path.insert(0, str(BACKEND))
+    try:
+        from app.database import SessionLocal
+        from app.models import Branding
+        from app.routers.branding import BRAND_DIR, SIZES
+    except Exception as exc:
+        print(f"  ! could not read the branding ({exc.__class__.__name__});"
+              " building unbranded")
+        return {}
+
+    try:
+        db = SessionLocal()
+        try:
+            row = db.query(Branding).filter(Branding.id == 1).first()
+            if not row:
+                print("  ! no branding set; building unbranded")
+                return {}
+            brand = {
+                "app_name": row.app_name or "",
+                "short_name": row.short_name or row.app_name or "",
+                "tagline": row.tagline or "",
+                "theme_color": row.theme_color or "",
+                "icon_version": int(row.icon_version or 0),
+            }
+        finally:
+            db.close()
+    except Exception as exc:
+        print(f"  ! could not read the branding ({exc.__class__.__name__});"
+              " building unbranded")
+        return {}
+
+    (FRONTEND_DIST / "brand.json").write_text(json.dumps(brand, indent=2),
+                                              encoding="utf-8")
+
+    # The icons too, or a copy with no branding row still shows the stock rupee
+    # mark: _shipped() serves these files whenever icon_version is 0, and until
+    # now they were whatever the web build happened to contain.
+    stamped = 0
+    if brand["icon_version"]:
+        pairs = [(192, "icon-192.png"), (512, "icon-512.png"),
+                 (180, "apple-touch-icon.png")]
+        for size, name in pairs:
+            src = Path(BRAND_DIR) / f"icon-{size}.png"
+            if src.is_file():
+                shutil.copy2(src, FRONTEND_DIST / name)
+                stamped += 1
+
+    print(f"  Branded as: {brand['app_name']}"
+          + (f" ({stamped} icons stamped in)" if stamped else " (no icon uploaded)"))
+    return brand
+
+
 def build(with_models: bool, native: bool = False) -> Path:
     check_prerequisites(with_models)
+    # Before PyInstaller copies frontend/dist: the name and icons have to be in
+    # those files by the time they are packaged.
+    stamp_brand()
     native_mod = compile_native() if native else None
     WORK.mkdir(parents=True, exist_ok=True)
     spec = WORK / f"{APP_NAME}.spec"
