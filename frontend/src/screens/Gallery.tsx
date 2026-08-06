@@ -33,6 +33,24 @@ const IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|tiff?|heic|heif|avif|dng)$/i
 const looksLikeImage = (f: File) =>
   f.type.startsWith('image/') || (!f.type && IMAGE_EXT.test(f.name)) || IMAGE_EXT.test(f.name)
 
+// How many photos to ask an iPhone for at once.
+//
+// Measured on a real device: about 20 come through fine, 100+ leaves the system
+// picker spinning and it never closes — identically in a Safari tab and in the
+// Home-Screen app, so this is not the standalone copy's smaller memory budget.
+// It is how many files iOS will prepare for a web page at all.
+//
+// Nothing in a web page can raise that ceiling or cap the picker's selection:
+// there is no API for either. So the honest thing is to ask for a number that
+// works and make repeating it painless, rather than offer a "select all" that
+// hangs the phone. 50 sits well under where it failed without making a large
+// library take all day.
+const IOS_BATCH = 50
+const isIOS = typeof navigator !== 'undefined'
+  && (/iPad|iPhone|iPod/.test(navigator.userAgent)
+      // iPadOS reports itself as a Mac; the touch points give it away.
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
+
 export default function Gallery() {
   const { back, canBack, takeIntent } = useNav()
   const { can } = useAuth()
@@ -59,6 +77,8 @@ export default function Gallery() {
   const [trashOpen, setTrashOpen] = useState(false)
   const [dupOpen, setDupOpen] = useState(false)
   const [backupOpen, setBackupOpen] = useState(false)
+  // A backup in progress across several picks — see IOS_BATCH.
+  const [backupRun, setBackupRun] = useState<{ rounds: number; photos: number } | null>(null)
   // What the queue is doing while it is being built. The UploadBar owns progress
   // once there is a queue to report on, but walking a 500-photo selection takes
   // seconds before the first item exists, and that silence is what people read
@@ -165,6 +185,12 @@ export default function Gallery() {
       toast(backup
         ? `Backing up ${queued.toLocaleString()} photo${queued === 1 ? '' : 's'}${also} — carry on, it runs in the background`
         : `Queued ${queued.toLocaleString()} photo${queued === 1 ? '' : 's'} for upload${also}`)
+      // A backup is a series of picks, not one. Keeping a running total is what
+      // makes doing it in batches feel like one job rather than starting over.
+      if (backup) {
+        setBackupRun((r) => ({ rounds: (r?.rounds ?? 0) + 1,
+                               photos: (r?.photos ?? 0) + queued }))
+      }
     } finally {
       setQueueStatus(null)
     }
@@ -248,6 +274,27 @@ export default function Gallery() {
         </div>
       )}
       {queueStatus && <div className="upload-inline" aria-live="polite">{queueStatus}</div>}
+      {/* The next batch is one tap away and the running total is kept, so a
+          library that has to arrive in fifties still reads as one job. */}
+      {backupRun && !queueStatus && (
+        <div className="upload-inline backup-run" aria-live="polite">
+          <div>
+            <b>{backupRun.photos.toLocaleString()} photo{backupRun.photos === 1 ? '' : 's'}</b>
+            {' '}sent in {backupRun.rounds} batch{backupRun.rounds === 1 ? '' : 'es'}.
+            {' '}Photos you have already sent are skipped, so it is safe to overlap.
+          </div>
+          <div className="backup-run-actions">
+            <label className="btn sm" htmlFor={FILE_INPUT_ID} role="button" tabIndex={0}
+              onClick={() => { backupIntent.current = true }}
+              onKeyDown={pickerKeys(true)}>
+              Choose the next {IOS_BATCH}
+            </label>
+            <button className="btn sm ghost" onClick={() => setBackupRun(null)}>
+              Finished
+            </button>
+          </div>
+        </div>
+      )}
       {/* NO `accept` ATTRIBUTE. That is the whole point of this element.
 
           iPhone photos are HEIC. Given accept="image/*", iOS decides it must hand
@@ -374,7 +421,8 @@ export default function Gallery() {
         <BackupSheet onClose={() => setBackupOpen(false)}
           inputId={FILE_INPUT_ID}
           onArm={() => { backupIntent.current = true }}
-          onKeys={pickerKeys(true)} />
+          onKeys={pickerKeys(true)}
+          onPhone={isIOS} />
       )}
 
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)}
@@ -612,24 +660,41 @@ function DetailsSheet({ info, onClose }: { info: PhotoInfo | null; onClose: () =
  *  and the person has to choose there. Someone expecting the app to find their
  *  photos on its own taps two of them and concludes the backup is broken.
  */
-function BackupSheet({ onClose, inputId, onArm, onKeys }: {
+function BackupSheet({ onClose, inputId, onArm, onKeys, onPhone }: {
   onClose: () => void; inputId: string
   onArm: () => void; onKeys: (e: React.KeyboardEvent) => void
+  onPhone: boolean
 }) {
   return (
     <Sheet title="Back up my photos" onClose={onClose}>
       <p style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.55, marginTop: 4 }}>
-        Your phone will ask which photos to allow. Choose <b>Select All</b> to
-        back up everything, or pick the ones you want.
+        {onPhone ? (
+          <>Your phone will ask which photos to allow. Choose{' '}
+            <b>about {IOS_BATCH} at a time</b> — then I&rsquo;ll ask again for the next
+            batch, and keep count for you.</>
+        ) : (
+          <>Your device will ask which photos to allow. Choose <b>Select All</b> to
+            back up everything, or pick the ones you want.</>
+        )}
       </p>
+      {/* Said plainly, because the obvious action is the one that fails. Someone
+          who taps Select All on an iPhone gets a picker that never closes, and
+          nothing on screen would otherwise explain why. */}
+      {onPhone && (
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
+                    margin: '10px 0 0' }}>
+          Please don&rsquo;t use <b>Select All</b> on an iPhone. Above roughly a
+          hundred photos, iOS stops partway through preparing them and the picker
+          never closes — that is the phone, not this app, and nothing here can
+          hurry it along.
+        </p>
+      )}
       <ul style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.7,
                    paddingLeft: 18, margin: '12px 0 4px' }}>
         <li>It keeps going in the background — carry on using the app.</li>
         <li>Progress shows at the top of every screen.</li>
-        <li>A big selection takes a moment to read before it starts moving.</li>
-        <li>If your phone struggles with a very large selection, take it a few
-            hundred at a time — anything already sent is skipped.</li>
-        <li>Photos already here are skipped, so you can run this again any time.</li>
+        <li>Photos already here are skipped, so batches may safely overlap.</li>
+        <li>You can stop after any batch and pick up later.</li>
         <li>Nothing leaves this computer.</li>
       </ul>
       {/* Deliberately does NOT close the sheet on click. Closing it here would

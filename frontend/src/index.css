@@ -972,6 +972,10 @@ button.set-row:active { background: var(--bg); }
 }
 /* A label styled as a button still has to behave like one. */
 label.btn { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+/* The running total and "next batch" prompt during a phone backup. */
+.backup-run { display: flex; flex-direction: column; gap: 10px; }
+.backup-run-actions { display: flex; gap: 8px; }
+.backup-run-actions .btn { flex: 1 1 0; min-width: 0; }
 .upbar.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 .upbar.err { border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
 .upbar-top { display: flex; align-items: center; gap: 10px; }
