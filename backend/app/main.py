@@ -12,10 +12,10 @@ from sqlalchemy.exc import IntegrityError
 from .config import BACKEND_DIR, settings
 from .crypto import reencrypt_legacy_items
 from .database import Base, engine
-from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, BroadcastReceipt, Document, Hosting, License, Release,
+from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, BroadcastReceipt, DeviceToken, Document, Hosting, License, Release,
                      Master, Notification, NotificationPref, PhotoVector, PushSubscription,
                      UserModule, User)
-from .routers import (activity, admin, auth, branding, dashboard, documents, hosting, household, masters, briefing, cards, releases,
+from .routers import (activity, admin, auth, branding, dashboard, devices, documents, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, notifications, people, reminders,
                       resources, search, system, todos, vault)
 from . import autostart, hosts, indexer, ist, licensing, scheduler, tunnelrun
@@ -242,6 +242,8 @@ def _migrate() -> None:
     Branding.__table__.create(bind=engine, checkfirst=True)
     # The public web address, editable from inside the app (added July 2026).
     Hosting.__table__.create(bind=engine, checkfirst=True)
+    # Phone upload credentials for the Shortcuts route (added August 2026).
+    DeviceToken.__table__.create(bind=engine, checkfirst=True)
     _seed_module_grants()
 
 
@@ -686,7 +688,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases):
+for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices):
     app.include_router(r.router)
 app.include_router(licences.public)   # /api/licence/... — customer-facing, separate prefix
 app.include_router(releases.public)   # /api/licence/update, /download

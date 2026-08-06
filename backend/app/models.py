@@ -631,6 +631,46 @@ class Hosting(Base):
     updated_by = Column(Integer)
 
 
+class DeviceToken(Base):
+    """A credential that can send a photo in, and do nothing else at all.
+
+    WHY THIS EXISTS
+    A web page cannot read an iPhone's photo library — the file picker is the only
+    door, and it stops closing somewhere above a hundred photos. The Shortcuts app
+    has the access the browser does not, so a shortcut can take the whole library
+    and post it here. But a shortcut has to carry a credential, and it lives in an
+    automation the owner may share, export, or simply forget about.
+
+    So it is not a session. A JWT would let whatever holds it read the vault, the
+    documents and every record in the app; this reaches exactly one endpoint, which
+    accepts nothing but an image. That is enforced by there being no other route
+    that will look at one — not by a scope field someone has to remember to check.
+
+    STORED AS A HASH, like a password. SHA-256 rather than bcrypt, deliberately:
+    bcrypt is slow on purpose to make low-entropy passwords expensive to guess, and
+    this is 32 random bytes, where guessing is hopeless anyway. A bulk backup sends
+    thousands of photos, and a deliberately slow hash on every one of them would be
+    a self-inflicted denial of service.
+
+    The plaintext is shown once, at creation, and never again — there is nowhere it
+    could be read back from, which is the point.
+    """
+    __tablename__ = "device_tokens"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    # What the owner calls it, so revoking the right one is possible later.
+    name = Column(String(60))
+    token_hash = Column(String(64), index=True)   # sha256 hex of the secret
+    # First few characters, to tell two tokens apart in a list without holding one.
+    prefix = Column(String(12))
+    uploads = Column(Integer, default=0)
+    created_at = Column(FlexDateTime)
+    last_used_at = Column(FlexDateTime)
+    # Revoking keeps the row: "this phone stopped working on Tuesday" is worth
+    # being able to answer, and a deleted row answers nothing.
+    revoked_at = Column(FlexDateTime)
+
+
 class BroadcastReceipt(Base):
     """Proof that one licensed copy actually collected one message.
 

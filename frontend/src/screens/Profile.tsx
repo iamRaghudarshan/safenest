@@ -108,6 +108,7 @@ export default function Profile() {
       {webOpen && <WebAddress onClose={() => setWebOpen(false)} />}
 
       <WebAddressSection onOpen={() => setWebOpen(true)} />
+      <PhoneBackupSection />
       <HouseholdSection />
       <AlwaysOnSection onOpenWeb={() => setWebOpen(true)} />
       <LocalNetworkSection />
@@ -1692,6 +1693,206 @@ function WebAddressSection({ onOpen }: { onOpen: () => void }) {
       <SettingsRow icon="🌐" tint="var(--c-insurance)" label="Web address"
         sub={state.hostname || 'Not published yet'} onClick={onOpen} />
     </SettingsGroup>
+  )
+}
+
+interface DeviceRow {
+  id: number; name: string; prefix: string; uploads: number
+  created_at: string; last_used_at: string | null; revoked: boolean
+}
+
+/** Backing up an iPhone's photos without going through the iPhone's browser.
+ *
+ *  A web page cannot read the photo library. The file picker is the only door,
+ *  and above roughly a hundred photos iOS stops closing it — measured on a real
+ *  phone, the same in a Safari tab and in the Home-Screen copy, with local photos
+ *  and no format conversion involved. So the whole-library backup people actually
+ *  want cannot be built out of a file input, however it is presented.
+ *
+ *  The Shortcuts app has the access the browser is denied. This screen hands over
+ *  the two things a shortcut needs — an address and a token — and says, in order,
+ *  which buttons to press on the phone.
+ */
+function PhoneBackupSection() {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState<DeviceRow[]>([])
+
+  const load = useCallback(() => {
+    api<{ devices: DeviceRow[] }>('/api/devices')
+      .then((d) => setRows(d.devices || []))
+      .catch(() => setRows([]))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const live = rows.filter((r) => !r.revoked)
+  return (
+    <>
+      <SettingsGroup title="Photos from your phone"
+        footer="A web page cannot read an iPhone's photo library, so a whole-gallery backup has to come from the phone's own Shortcuts app. This sets that up.">
+        <SettingsRow icon="📲" tint="var(--c-gallery, var(--c-investments))"
+          label="Back up from an iPhone"
+          sub={live.length
+            ? `${live.length} phone${live.length === 1 ? '' : 's'} set up`
+            : 'Not set up yet'}
+          onClick={() => setOpen(true)} />
+      </SettingsGroup>
+      {open && <PhoneBackupSheet rows={rows} reload={load} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+function PhoneBackupSheet({ rows, reload, onClose }: {
+  rows: DeviceRow[]; reload: () => void; onClose: () => void
+}) {
+  const toast = useToast()
+  const [secret, setSecret] = useState('')
+  const [name, setName] = useState('My iPhone')
+  const [busy, setBusy] = useState(false)
+  const [host, setHost] = useState('')
+
+  useEffect(() => {
+    api<{ hostname?: string }>('/api/hosting')
+      .then((d) => setHost(d.hostname || ''))
+      .catch(() => setHost(''))
+  }, [])
+
+  // The address the PHONE must call, which is not necessarily the one this
+  // browser is using: setting this up on the computer itself means the origin is
+  // 127.0.0.1, and a phone typing that reaches only itself.
+  const base = host
+    ? (host.startsWith('http') ? host : `https://${host}`)
+    : window.location.origin
+  const localOnly = /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(base)
+
+  async function create() {
+    setBusy(true)
+    try {
+      const made = await api<{ token: string }>('/api/devices', {
+        method: 'POST', body: JSON.stringify({ name: name.trim() || 'My iPhone' }),
+      })
+      setSecret(made.token)
+      reload()
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  async function revoke(id: number) {
+    try {
+      await api(`/api/devices/${id}`, { method: 'DELETE' })
+      toast('That phone can no longer send photos')
+      reload()
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  return (
+    <Sheet title="Back up from an iPhone" onClose={onClose}>
+      <p style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.55, marginTop: 4 }}>
+        Your iPhone will not let a web page read its photo library, and its file
+        picker gives up somewhere above a hundred photos. The Shortcuts app on the
+        phone has no such limit — this gives it somewhere to send them.
+      </p>
+
+      {localOnly && (
+        <p style={{ color: 'var(--danger)', fontSize: 13, lineHeight: 1.55, marginTop: 12 }}>
+          This computer has no web address yet, so the only address available is
+          this one — which on your phone would mean the phone itself. Set one up
+          under <b>Reaching this app</b> first, or use the computer&rsquo;s address
+          on your Wi-Fi.
+        </p>
+      )}
+
+      <Step n={1} title="Make a token for this phone">
+        <Field label="What is this phone called?">
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="My iPhone" maxLength={60} />
+        </Field>
+        {!secret ? (
+          <button className="btn block" style={{ marginTop: 10 }} onClick={create} disabled={busy}>
+            {busy ? 'Creating…' : 'Create a token'}
+          </button>
+        ) : (
+          <>
+            <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '10px 0 6px' }}>
+              Copy this now — it is shown once and cannot be read back. If you lose
+              it, make another and revoke this one.
+            </p>
+            <Cmd text={secret} />
+          </>
+        )}
+      </Step>
+
+      <Step n={2} title="On the iPhone, open Shortcuts and make a new one">
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6 }}>
+          Tap <b>+</b>, then <b>Add Action</b>. Search for <b>Find Photos</b> and add
+          it. Leave it with no filters to take everything, or add
+          {' '}<b>Limit</b> while you try it out.
+        </p>
+      </Step>
+
+      <Step n={3} title="Add “Repeat with Each”">
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6 }}>
+          Search for <b>Repeat with Each</b> and add it below. It should say
+          {' '}<i>Repeat with each item in Photos</i>. Everything next goes
+          {' '}<b>inside</b> the repeat.
+        </p>
+      </Step>
+
+      <Step n={4} title="Add “Get Contents of URL”">
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6, marginBottom: 8 }}>
+          Add it inside the repeat, then tap <b>Show More</b> and set it up exactly
+          like this. The address:
+        </p>
+        <Cmd text={`${base.replace(/\/$/, '')}/api/devices/upload`} />
+        <ul style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.8,
+                     paddingLeft: 18, margin: '10px 0 0' }}>
+          <li><b>Method:</b> POST</li>
+          <li><b>Headers:</b> one header, key <code>Authorization</code>, value
+            {' '}<code>Bearer </code> followed by the token from step 1.</li>
+          <li><b>Request Body:</b> Form</li>
+          <li>One field — key <code>file</code>, type <b>File</b>, value
+            {' '}<b>Repeat Item</b>.</li>
+        </ul>
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6, marginTop: 10 }}>
+          The word <b>Bearer</b>, then a space, then the token — the space matters.
+        </p>
+      </Step>
+
+      <Step n={5} title="Name it and run it">
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6 }}>
+          Call it <b>Back up to {appName()}</b> and run it. Photos already here are
+          skipped, so it is safe to run again whenever you like — and under
+          {' '}<b>Automation</b> you can have it run nightly on Wi-Fi while the
+          phone charges.
+        </p>
+      </Step>
+
+      {rows.length > 0 && (
+        <>
+          <h4 style={{ margin: '18px 0 8px', fontSize: 14 }}>Phones set up</h4>
+          {rows.map((r) => (
+            <div key={r.id} className="set-row" style={{ alignItems: 'center' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14 }}>
+                  {r.name} <code style={{ opacity: 0.6 }}>{r.prefix}…</code>
+                </div>
+                <div style={{ color: 'var(--ink-soft)', fontSize: 12 }}>
+                  {r.revoked ? 'Revoked' : `${r.uploads.toLocaleString()} photo${r.uploads === 1 ? '' : 's'} sent`}
+                  {r.last_used_at ? ` · last ${r.last_used_at}` : ' · never used'}
+                </div>
+              </div>
+              {!r.revoked && (
+                <button className="btn sm ghost" onClick={() => revoke(r.id)}>Revoke</button>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+
+      <p style={{ color: 'var(--ink-soft)', fontSize: 12, lineHeight: 1.6, marginTop: 16 }}>
+        A token can only send a photo in. It cannot read your photos, your vault or
+        anything else in {appName()}, and revoking it stops it at once.
+      </p>
+    </Sheet>
   )
 }
 

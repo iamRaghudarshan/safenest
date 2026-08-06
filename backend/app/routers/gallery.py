@@ -757,6 +757,17 @@ def upload(file: UploadFile = File(...), faces: int = 1,
     not just tidier queueing.
     """
     raw = _read_capped(file, MAX_BYTES)
+    return store_photo(db, user, raw, file.filename or "")
+
+
+def store_photo(db: Session, user: User, raw: bytes, filename: str) -> dict:
+    """Decode, de-duplicate, store and thumbnail one photo. The whole of upload.
+
+    Shared with the device-token route so a photo arriving from an iPhone shortcut
+    is the same photo as one dragged in here — same de-duplication, same EXIF, same
+    thumbnail. Two copies of this would drift, and the half that drifted would be
+    the one nobody is looking at.
+    """
     if not raw:
         raise HTTPException(400, "Empty file")
 
@@ -816,8 +827,8 @@ def upload(file: UploadFile = File(...), faces: int = 1,
     tbuf = io.BytesIO(); thumb.save(tbuf, format="JPEG", quality=80)
     storage.save(storage.GALLERY, user.id, storage.THUMB, fname, tbuf.getvalue())
 
-    orig_name = (file.filename or "")[-255:] or None
-    caption = os.path.splitext(file.filename or "")[0] or None
+    orig_name = (filename or "")[-255:] or None
+    caption = os.path.splitext(filename or "")[0] or None
     shot_at = meta.get("shot_at")
     now = ist.now()
     photo = GalleryPhoto(user_id=user.id, filename=fname, caption=caption,
