@@ -681,13 +681,28 @@ function BackupSheet({ onClose, inputId, onArm, onKeys, onPhone }: {
           who taps Select All on an iPhone gets a picker that never closes, and
           nothing on screen would otherwise explain why. */}
       {onPhone && (
-        <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
-                    margin: '10px 0 0' }}>
-          Please don&rsquo;t use <b>Select All</b> on an iPhone. Above roughly a
-          hundred photos, iOS stops partway through preparing them and the picker
-          never closes — that is the phone, not this app, and nothing here can
-          hurry it along.
-        </p>
+        <>
+          <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
+                      margin: '10px 0 0' }}>
+            Please don&rsquo;t use <b>Select All</b> on an iPhone. Above roughly a
+            hundred photos, iOS stops partway through preparing them and the picker
+            never closes — that is the phone, not this app, and nothing here can
+            hurry it along.
+          </p>
+          {/* The likeliest reason picking is slow, and it is not something this
+              app can see, let alone speed up. Worth saying where someone is
+              standing when they hit it, because from the outside a picker waiting
+              on an iCloud download and a picker that has crashed look identical. */}
+          <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
+                      margin: '10px 0 0' }}>
+            <b>If choosing photos is slow:</b> check{' '}
+            <b>Settings → Photos</b> on your phone. With{' '}
+            <b>Optimise iPhone Storage</b> switched on, your originals live in
+            iCloud, and iOS quietly downloads every photo you tick before it will
+            hand them over. Choosing <b>Download and Keep Originals</b>, or staying
+            on Wi-Fi and picking smaller batches, is the difference.
+          </p>
+        </>
       )}
       <ul style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.7,
                    paddingLeft: 18, margin: '12px 0 4px' }}>
