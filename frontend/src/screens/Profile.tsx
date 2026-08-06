@@ -1786,10 +1786,26 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
 
   return (
     <Sheet title="Back up from an iPhone" onClose={onClose}>
-      <p style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.55, marginTop: 4 }}>
-        Your iPhone will not let a web page read its photo library, and its file
-        picker gives up somewhere above a hundred photos. The Shortcuts app on the
-        phone has no such limit — this gives it somewhere to send them.
+      <p style={{ color: 'var(--ink)', fontSize: 14, lineHeight: 1.6, marginTop: 4 }}>
+        <b>Set this up once and you never pick photos again.</b> It takes your whole
+        gallery — all of it, however many — and it can run by itself every night
+        while the phone charges. No selecting, no fifty at a time, no picker.
+      </p>
+      <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55, marginTop: 10 }}>
+        It has to work this way because Safari is not allowed to read your photo
+        library at all, and its file picker gives up somewhere above a hundred
+        photos. The phone&rsquo;s own Shortcuts app has neither limit.
+      </p>
+      {/* Said before step 1, because a 43-character token typed by hand from
+          another screen is where this stops being worth doing. */}
+      <p style={{ color: 'var(--ink)', fontSize: 13, lineHeight: 1.55, marginTop: 10,
+                  background: 'var(--bg)', border: '1px solid var(--line)',
+                  borderRadius: 12, padding: '10px 12px' }}>
+        📱 <b>Do this on the iPhone itself.</b> Open {appName()} on the phone and
+        come back to this screen there — then the Copy buttons put the address and
+        the token straight on the phone&rsquo;s clipboard, ready to paste into
+        Shortcuts. Setting it up here on the computer means copying them across by
+        hand.
       </p>
 
       {localOnly && (
@@ -1824,8 +1840,9 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
       <Step n={2} title="On the iPhone, open Shortcuts and make a new one">
         <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6 }}>
           Tap <b>+</b>, then <b>Add Action</b>. Search for <b>Find Photos</b> and add
-          it. Leave it with no filters to take everything, or add
-          {' '}<b>Limit</b> while you try it out.
+          it. <b>Leave it with no filter and no limit</b> — that is what makes it
+          take the entire gallery rather than a selection. If you would rather
+          check it works first, add <b>Limit</b> and set it to 5, then remove it.
         </p>
       </Step>
 
@@ -1859,10 +1876,23 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
 
       <Step n={5} title="Name it and run it">
         <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6 }}>
-          Call it <b>Back up to {appName()}</b> and run it. Photos already here are
-          skipped, so it is safe to run again whenever you like — and under
-          {' '}<b>Automation</b> you can have it run nightly on Wi-Fi while the
-          phone charges.
+          Call it <b>Back up to {appName()}</b> and tap play. It will work through
+          the whole library on its own — leave the phone alone while it does. The
+          count on this screen goes up as they land.
+        </p>
+      </Step>
+
+      <Step n={6} title="Make it automatic — this is the part that matters">
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6 }}>
+          In Shortcuts open the <b>Automation</b> tab, tap <b>+</b>, choose
+          {' '}<b>Charger</b> (or <b>Time of Day</b>), pick <b>Run Immediately</b>
+          {' '}and turn <b>Notify When Run</b> off. Point it at the shortcut you
+          just made.
+        </p>
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6, marginTop: 8 }}>
+          From then on every new photo arrives on its own, and you never open this
+          again. Ones already here are skipped, so running it nightly costs almost
+          nothing.
         </p>
       </Step>
 
