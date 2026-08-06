@@ -25,7 +25,10 @@ export default function Gallery() {
   const { can } = useAuth()
   const toast = useToast()
   const fileRef = useRef<HTMLInputElement>(null)
-  const backupRef = useRef<HTMLInputElement>(null)
+  // One picker, two intentions. There used to be a second hidden input purely so
+  // the two could say different things afterwards; remembering which button was
+  // pressed does the same job without a duplicate control to keep in step.
+  const backupIntent = useRef(false)
   const u = useUpload()
   const PAGE = 150
   const [photos, setPhotos] = useState<Photo[]>([])
@@ -43,6 +46,11 @@ export default function Gallery() {
   const [trashOpen, setTrashOpen] = useState(false)
   const [dupOpen, setDupOpen] = useState(false)
   const [backupOpen, setBackupOpen] = useState(false)
+  // What the queue is doing while it is being built. The UploadBar owns progress
+  // once there is a queue to report on, but walking a 500-photo selection takes
+  // seconds before the first item exists, and that silence is what people read
+  // as the button having failed.
+  const [queueStatus, setQueueStatus] = useState<string | null>(null)
   const [dupMode, setDupMode] = useState<'exact' | 'similar'>('exact')
   const canEdit = can('gallery')
 
@@ -103,13 +111,39 @@ export default function Gallery() {
   // refresh the grid as each upload batch completes
   useEffect(() => u.onBatchDone(() => refresh()), []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function pick(files: FileList | null, backup = false) {
-    if (!files || !files.length) return
-    const n = await u.enqueue(files)
-    if (n === 0) { toast('Those are already here'); return }
-    toast(backup
-      ? `Backing up ${n} photo${n === 1 ? '' : 's'} — carry on, it runs in the background`
-      : `Queued ${n} photo${n === 1 ? '' : 's'} for upload`)
+  async function pick(files: FileList | File[] | null, backup = false) {
+    const arr = files ? Array.from(files) : []
+    if (!arr.length) return   // the picker was dismissed; nothing happened, say nothing
+    const n = arr.length
+    const plural = n === 1 ? '' : 's'
+    setQueueStatus(`Reading ${n.toLocaleString()} photo${plural}…`)
+    try {
+      // Handed over in chunks so the upload manager starts sending — and the
+      // progress bar appears — while the rest of the selection is still being
+      // walked. `persist` is decided here from the WHOLE selection, because each
+      // chunk on its own looks small enough to be worth persisting and the point
+      // of the budget is that a big backup persists nothing.
+      const CHUNK = 30
+      const persist = n <= CHUNK
+      let queued = 0
+      for (let i = 0; i < arr.length; i += CHUNK) {
+        queued += await u.enqueue(arr.slice(i, i + CHUNK), { persist })
+        setQueueStatus(`${queued.toLocaleString()} of ${n.toLocaleString()} photo${plural} queued…`)
+      }
+      const skipped = n - queued
+      if (queued === 0) {
+        toast(`Already here — all ${n.toLocaleString()} photo${plural} had been uploaded before`)
+        return
+      }
+      // One sentence, because four toasts in a row for one tap is not four times
+      // the reassurance.
+      const also = skipped > 0 ? `; ${skipped.toLocaleString()} already here` : ''
+      toast(backup
+        ? `Backing up ${queued.toLocaleString()} photo${queued === 1 ? '' : 's'}${also} — carry on, it runs in the background`
+        : `Queued ${queued.toLocaleString()} photo${queued === 1 ? '' : 's'} for upload${also}`)
+    } finally {
+      setQueueStatus(null)
+    }
   }
 
   async function toggleFav(p: Photo) {
@@ -147,21 +181,13 @@ export default function Gallery() {
         </button>
       )}
       <button className="icon-btn" onClick={() => setTrashOpen(true)} aria-label="Trash"><IcTrash className="ic" /></button>
-      {/* Two separate actions, because they are two different intentions and
-          collapsing them lost one of them. Adding a few photos you have just
-          taken is not the same job as copying a phone's whole library across,
-          and the second needs saying out loud before it starts. */}
-      {canEdit && (
-        <button className="btn sm ghost" onClick={() => setBackupOpen(true)}
-          aria-label="Back up my photos">☁ Back up</button>
-      )}
-      {canEdit && (
-        <button className="btn sm" onClick={() => fileRef.current?.click()}>
-          {u.uploading ? 'Uploading…' : '＋ Upload'}
-        </button>
-      )}
     </div>
   )
+
+  function openPicker(backup: boolean) {
+    backupIntent.current = backup
+    fileRef.current?.click()
+  }
 
   const countLabel = query
     ? `${total.toLocaleString()} match${total === 1 ? '' : 'es'}`
@@ -173,16 +199,40 @@ export default function Gallery() {
   return (
     <div className="screen">
       <TopBar title="Gallery" sub={countLabel} onBack={canBack ? back : undefined} right={headerRight} />
+      {/* Two separate actions, because they are two different intentions and
+          collapsing them lost one of them. Adding a few photos you have just
+          taken is not the same job as copying a phone's whole library across,
+          and the second needs saying out loud before it starts.
+
+          They sit here rather than in the TopBar because on a phone the header
+          had to shrink them to a size that was easy to miss and hard to hit. */}
+      {canEdit && (
+        <div className="gallery-actions">
+          <button className="btn sm" onClick={() => openPicker(false)}>
+            {u.uploading ? 'Uploading…' : '＋ Add photos'}
+          </button>
+          <button className="btn sm ghost" onClick={() => setBackupOpen(true)}
+            aria-label="Back up my photos">☁ Back up</button>
+        </div>
+      )}
+      {queueStatus && <div className="upload-inline" aria-live="polite">{queueStatus}</div>}
       {/* accept is the wildcard alone. Listing .heic/.heif beside it makes iOS
           treat the control as an extension filter rather than "photos", and its
           picker then hands back a fraction of a large selection. HEIC files are
-          image/heic, so the wildcard already covers them. */}
-      <input ref={fileRef} type="file" accept="image/*" multiple hidden
-        onChange={(e) => { pick(e.target.files); e.currentTarget.value = '' }} />
-      {/* A second input purely so the two actions can say different things
-          afterwards. One picker cannot tell which button opened it. */}
-      <input ref={backupRef} type="file" accept="image/*" multiple hidden
-        onChange={(e) => { pick(e.target.files, true); e.currentTarget.value = '' }} />
+          image/heic, so the wildcard already covers them.
+
+          Positioned off-screen rather than `hidden`: iOS Safari will not open the
+          picker for an input in a subtree it considers non-rendered, so the
+          button silently did nothing on exactly the device this matters on. */}
+      <input ref={fileRef} type="file" accept="image/*" multiple className="file-offscreen"
+        onChange={(e) => {
+          // Snapshot before resetting the input: clearing `value` empties its
+          // FileList, so reading it afterwards hands `pick` nothing at all.
+          const files = Array.from(e.target.files ?? [])
+          const backup = backupIntent.current
+          e.currentTarget.value = ''   // so picking the same photo again re-fires change
+          pick(files, backup).catch(() => toast('Those photos could not be queued'))
+        }} />
 
       <div className="seg4 five">
         {(['all', 'fav', 'albums', 'people', 'memories'] as Tab[]).map((t) => (
@@ -248,7 +298,7 @@ export default function Gallery() {
                     ? <Empty icon="★" title="No favourites yet" hint="Tap ☆ on a photo to save it here" />
                     : (
                       <Empty icon="🖼️" title="No photos yet"
-                        hint={canEdit ? 'Add a few with Upload, or back up your phone’s whole gallery at once.' : undefined}
+                        hint={canEdit ? 'Add a few with Add photos, or back up your phone’s whole gallery at once.' : undefined}
                         action={canEdit ? { label: '☁ Back up my photos', onClick: () => setBackupOpen(true) } : undefined} />
                     )
               )
@@ -262,7 +312,7 @@ export default function Gallery() {
 
       {backupOpen && (
         <BackupSheet onClose={() => setBackupOpen(false)}
-          onStart={() => { setBackupOpen(false); backupRef.current?.click() }} />
+          onStart={() => { setBackupOpen(false); openPicker(true) }} />
       )}
 
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)}
@@ -511,6 +561,7 @@ function BackupSheet({ onClose, onStart }: { onClose: () => void; onStart: () =>
                    paddingLeft: 18, margin: '12px 0 4px' }}>
         <li>It keeps going in the background — carry on using the app.</li>
         <li>Progress shows at the top of every screen.</li>
+        <li>A big selection takes a moment to read before it starts moving.</li>
         <li>Photos already here are skipped, so you can run this again any time.</li>
         <li>Nothing leaves this computer.</li>
       </ul>

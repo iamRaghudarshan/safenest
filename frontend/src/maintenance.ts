@@ -7,14 +7,23 @@
 // do from inside the app rather than through browser settings.
 import { uploadDB } from './uploadDB'
 
+// Safari answers storage.estimate() with a rounded, capped figure that bears no
+// relation to what this app is actually holding — it reported the same number
+// before and after clearing everything. A frank "not reported" is worth more
+// than a confident wrong one on a row people read to decide whether to clear.
+const isSafari = typeof navigator !== 'undefined'
+  && /^(?:(?!chrome|android).)*safari/i.test(navigator.userAgent)
+
 declare const __BUILD_ID__: string
 export const BUILD_ID = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'
 
-export interface StorageInfo { usedBytes: number; caches: number; hasWorker: boolean }
+export interface StorageInfo { usedBytes: number | null; caches: number; hasWorker: boolean }
 
 export async function storageInfo(): Promise<StorageInfo> {
-  let usedBytes = 0
-  try { usedBytes = (await navigator.storage?.estimate?.())?.usage ?? 0 } catch { /* unsupported */ }
+  let usedBytes: number | null = null
+  if (!isSafari) {
+    try { usedBytes = (await navigator.storage?.estimate?.())?.usage ?? null } catch { /* unsupported */ }
+  }
   let count = 0
   try { count = 'caches' in window ? (await caches.keys()).length : 0 } catch { /* unsupported */ }
   let hasWorker = false

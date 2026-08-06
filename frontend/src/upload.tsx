@@ -8,6 +8,13 @@ import { tokenStore } from './api'
 import { uploadDB } from './uploadDB'
 
 const CONCURRENCY = 4
+// WebKit reclaims IndexedDB blob storage under memory pressure and leaves the
+// record behind (see the restore loop below, which has to defend against it), so
+// on Safari persisting costs the memory a phone backup most needs and buys back
+// a resume that frequently does not work. iOS Chrome is WebKit too and its user
+// agent says CriOS, not chrome, so this catches it deliberately.
+const isWebKit = typeof navigator !== 'undefined'
+  && /^(?:(?!chrome|android).)*safari/i.test(navigator.userAgent)
 const MAX_TRIES = 6
 const ENDPOINT = '/api/gallery/upload?faces=0' // skip slow face detection during bulk
 
@@ -21,7 +28,7 @@ interface Item {
 interface UploadState {
   total: number; done: number; failed: number; dupes: number; pending: number; active: number
   uploading: boolean; paused: boolean; offline: boolean
-  enqueue: (files: FileList | File[]) => Promise<number>
+  enqueue: (files: FileList | File[], opts?: { persist?: boolean }) => Promise<number>
   /** Distinct reasons the failed uploads gave, for showing the user. */
   reasons: string[]
   pause: () => void; resume: () => void; cancelAll: () => void; retryFailed: () => void
@@ -34,6 +41,11 @@ const sigOf = (f: File) => `${f.name}|${f.size}|${f.lastModified || 0}`
 export function UploadProvider({ children }: { children: ReactNode }) {
   const items = useRef<Item[]>([])
   const doneSigs = useRef<Set<string>>(new Set())
+  // Signatures currently in `items`, kept as a Set purely so enqueue can ask
+  // "is this already queued?" in constant time. Scanning `items` per file made a
+  // 500-photo selection quadratic, and that walk happens on the main thread
+  // while the phone is trying to render the picker closing.
+  const queuedSigs = useRef<Set<string>>(new Set())
   const active = useRef(0)
   const paused = useRef(false)
   const counts = useRef({ total: 0, done: 0, failed: 0, dupes: 0 })
@@ -81,6 +93,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       counts.current.done++
       if (out && out.duplicate) counts.current.dupes++ // server already had this image
       doneSigs.current.add(item.sig)
+      queuedSigs.current.delete(item.sig)
       uploadDB.addSig(item.sig)
       if (item.key >= 0) uploadDB.deleteFile(item.key).catch(() => {})
       items.current = items.current.filter((i) => i !== item)
@@ -117,7 +130,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   }
   pumpRef.current = pump
 
-  async function enqueue(files: FileList | File[]) {
+  async function enqueue(files: FileList | File[], opts?: { persist?: boolean }) {
     let added = 0
     // How many bytes this batch may copy into IndexedDB before it stops.
     //
@@ -142,21 +155,44 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // trade is the wrong way round — finishing 400 photos matters more than being
     // able to resume 60 — so a big batch is queued from its File handles only,
     // which costs nothing until each file's turn comes.
-    const persist = files.length <= 30
+    //
+    // `opts.persist` exists because the caller may be feeding this a big
+    // selection in small chunks. Judging by `files.length` alone would then see
+    // thirty files, decide the batch is small, and persist every one of them —
+    // the exact behaviour the budget above was written to avoid.
+    const persist = isWebKit
+      ? false
+      : typeof opts?.persist === 'boolean'
+        ? opts.persist
+        : files.length <= 30
     let seen = 0
     for (const f of Array.from(files)) {
-      // Yield every so often, and start sending what is already queued. A
+      // Yield periodically and start sending what is already queued. A
       // synchronous pass over hundreds of files freezes the page — and on a phone
       // a frozen page is one the system may kill — while waiting for the whole
       // selection before uploading anything means a long silence and nothing to
       // show for it if the tab dies partway.
-      if (++seen % 25 === 0) {
+      if (++seen % 15 === 0) {
         bump()
         pumpRef.current()
         await new Promise((r) => setTimeout(r, 0))
       }
       const sig = sigOf(f)
-      if (doneSigs.current.has(sig) || items.current.some((i) => i.sig === sig)) continue
+      if (doneSigs.current.has(sig)) continue
+      // Picking a photo again after it failed means "try this one again", not
+      // "ignore me". Skipping it because its signature is still in the queue is
+      // indistinguishable, to the person holding the phone, from the app doing
+      // nothing at all — which is the complaint this whole path exists to answer.
+      if (queuedSigs.current.has(sig)) {
+        const stuck = items.current.find((i) => i.sig === sig && i.status === 'error')
+        if (stuck) {
+          stuck.status = 'pending'; stuck.tries = 0; stuck.reason = undefined
+          stuck.blob = f // the old handle is what failed; this one was just picked
+          counts.current.failed = Math.max(0, counts.current.failed - 1)
+          added++
+        }
+        continue
+      }
       // A zero-byte read is the browser saying it could not get at the file, not
       // that the file is empty. On a Mac that is almost always iCloud Drive with
       // "Optimise Storage" on: the photo is listed, but its bytes are still in the
@@ -167,11 +203,13 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           key: -1, blob: f, name: f.name, sig, tries: MAX_TRIES, status: 'error',
           reason: 'This file reads as empty — if it is in iCloud, open it once so it downloads',
         })
+        queuedSigs.current.add(sig)
         counts.current.total++; counts.current.failed++; added++
         continue
       }
       const item: Item = { key: -1, blob: f, name: f.name, sig, tries: 0, status: 'pending' }
       items.current.push(item)
+      queuedSigs.current.add(sig)
       counts.current.total++
       added++
       if (persist && budget - f.size >= 0) {
@@ -187,7 +225,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
   function cancelAll() {
     items.current = items.current.filter((i) => i.status === 'uploading') // let in-flight finish
-    counts.current = { total: 0, done: 0, failed: 0, dupes: 0 }
+    queuedSigs.current = new Set(items.current.map((i) => i.sig))
+    // Not zero. The requests already in flight still land, and each one increments
+    // `done` when it does — against a total of nothing, so a cancelled batch
+    // finished by reporting "2 of 0 uploaded". The kept items are the honest total.
+    counts.current = { total: items.current.length, done: 0, failed: 0, dupes: 0 }
     uploadDB.clearFiles().catch(() => {})
     bump()
   }
@@ -217,6 +259,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           continue
         }
         items.current.push({ key: p.id!, blob: p.blob, name: p.name, sig: p.sig, tries: 0, status: 'pending' })
+        queuedSigs.current.add(p.sig)
         counts.current.total++
       }
       bump()

@@ -855,7 +855,7 @@ function AppStorage() {
         footer="If the app looks out of date or a new feature is missing, clear the cached data — it reloads the latest version without signing you out.">
         <SettingsRow icon="●" tint="var(--ink-faint)" label="Build" value={BUILD_ID} />
         <SettingsRow icon="▤" tint="var(--ink-faint)" label="Cached on this phone"
-          value={info ? formatBytes(info.usedBytes) : '…'} />
+          value={info ? (info.usedBytes === null ? 'Not reported by this browser' : formatBytes(info.usedBytes)) : '…'} />
         <SettingsRow icon="☁" tint={info?.hasWorker ? 'var(--ok)' : 'var(--ink-faint)'}
           label="Offline mode" value={info?.hasWorker ? 'Active' : 'Off'} />
         <SettingsRow icon="⟳" tint="var(--c-insurance)"
