@@ -20,6 +20,19 @@ import { appName } from '../branding'
 
 type Tab = 'all' | 'fav' | 'albums' | 'people' | 'memories'
 
+// Both buttons are <label for> pointing here, so the tap opens the picker as the
+// click's own default action rather than through a scripted .click().
+const FILE_INPUT_ID = 'gallery-file-input'
+
+// Stands in for the `accept` attribute the input deliberately does not have.
+//
+// Type first, extension second: iOS often reports an empty type for HEIC picked
+// out of the photo library, so trusting `type` alone would throw away exactly the
+// files a phone backup is made of.
+const IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|tiff?|heic|heif|avif|dng)$/i
+const looksLikeImage = (f: File) =>
+  f.type.startsWith('image/') || (!f.type && IMAGE_EXT.test(f.name)) || IMAGE_EXT.test(f.name)
+
 export default function Gallery() {
   const { back, canBack, takeIntent } = useNav()
   const { can } = useAuth()
@@ -112,8 +125,19 @@ export default function Gallery() {
   useEffect(() => u.onBatchDone(() => refresh()), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function pick(files: FileList | File[] | null, backup = false) {
-    const arr = files ? Array.from(files) : []
-    if (!arr.length) return   // the picker was dismissed; nothing happened, say nothing
+    const all = files ? Array.from(files) : []
+    if (!all.length) return   // the picker was dismissed; nothing happened, say nothing
+    // The input carries no `accept`, deliberately — see the note on it — so the
+    // filtering it would have done happens here instead.
+    const arr = all.filter(looksLikeImage)
+    const notPhotos = all.length - arr.length
+    if (!arr.length) {
+      toast(notPhotos === 1 ? 'That is not a photo' : 'None of those are photos')
+      return
+    }
+    if (notPhotos > 0) {
+      toast(`Skipped ${notPhotos} item${notPhotos === 1 ? '' : 's'} that ${notPhotos === 1 ? 'is' : 'are'} not a photo`)
+    }
     const n = arr.length
     const plural = n === 1 ? '' : 's'
     setQueueStatus(`Reading ${n.toLocaleString()} photo${plural}…`)
@@ -184,9 +208,15 @@ export default function Gallery() {
     </div>
   )
 
+  // Keyboard fallback only. A pointer tap goes to the <label>, which hands the
+  // browser the activation directly — see the note on the input.
   function openPicker(backup: boolean) {
     backupIntent.current = backup
     fileRef.current?.click()
+  }
+
+  const pickerKeys = (backup: boolean) => (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(backup) }
   }
 
   const countLabel = query
@@ -208,29 +238,59 @@ export default function Gallery() {
           had to shrink them to a size that was easy to miss and hard to hit. */}
       {canEdit && (
         <div className="gallery-actions">
-          <button className="btn sm" onClick={() => openPicker(false)}>
+          <label className="btn sm" htmlFor={FILE_INPUT_ID} role="button" tabIndex={0}
+            onClick={() => { backupIntent.current = false }}
+            onKeyDown={pickerKeys(false)}>
             {u.uploading ? 'Uploading…' : '＋ Add photos'}
-          </button>
+          </label>
           <button className="btn sm ghost" onClick={() => setBackupOpen(true)}
             aria-label="Back up my photos">☁ Back up</button>
         </div>
       )}
       {queueStatus && <div className="upload-inline" aria-live="polite">{queueStatus}</div>}
-      {/* accept is the wildcard alone. Listing .heic/.heif beside it makes iOS
-          treat the control as an extension filter rather than "photos", and its
-          picker then hands back a fraction of a large selection. HEIC files are
-          image/heic, so the wildcard already covers them.
+      {/* NO `accept` ATTRIBUTE. That is the whole point of this element.
 
-          Positioned off-screen rather than `hidden`: iOS Safari will not open the
-          picker for an input in a subtree it considers non-rendered, so the
-          button silently did nothing on exactly the device this matters on. */}
-      <input ref={fileRef} type="file" accept="image/*" multiple className="file-offscreen"
+          iPhone photos are HEIC. Given accept="image/*", iOS decides it must hand
+          over something the web "understands" and transcodes every selected photo
+          to JPEG before the picker will close. For a handful that is a pause; for
+          the 200+ of a phone backup it is minutes of work inside the system
+          picker, and in a Home-Screen app — which gets a tighter memory budget
+          than a Safari tab — the picker simply never closes and the app is gone
+          when you force-quit it. Reported exactly that way, and no amount of
+          batching in here can touch it: this happens BEFORE the page is given the
+          files, so none of our code has run yet.
+
+          With no accept, iOS hands back the original HEIC untouched and closes
+          immediately. The server decodes HEIC already (pillow-heif), so the
+          conversion was being paid for on the one device least able to afford it,
+          to produce something the backend re-encodes anyway.
+
+          The cost is that the picker also offers files that are not photos, so
+          `pick` filters them out. That is a cheap check on names we already hold,
+          not minutes of transcoding on a phone.
+
+          Do not "tidy" accept back in. Listing .heic/.heif explicitly is worse
+          again — iOS then treats the control as an extension filter rather than
+          "photos" and hands back a fraction of a large selection.
+
+          THE BUTTONS ARE <label for> — the tap reaches this input itself and the
+          browser opens the picker as the click's own default action. Calling
+          .click() from JavaScript asks the browser to treat a synthetic event as
+          a user gesture, and Safari is the strictest about when it will; a real
+          label needs no such judgement. Keyboard activation still goes through
+          openPicker, where a synthetic click is all there is.
+
+          Off-screen rather than `hidden`/display:none, because a label cannot
+          forward activation to a control the browser considers non-rendered. */}
+      <input ref={fileRef} id={FILE_INPUT_ID} type="file" multiple
+        className="file-offscreen"
         onChange={(e) => {
           // Snapshot before resetting the input: clearing `value` empties its
           // FileList, so reading it afterwards hands `pick` nothing at all.
           const files = Array.from(e.target.files ?? [])
           const backup = backupIntent.current
           e.currentTarget.value = ''   // so picking the same photo again re-fires change
+          if (files.length) setBackupOpen(false)
           pick(files, backup).catch(() => toast('Those photos could not be queued'))
         }} />
 
@@ -312,7 +372,9 @@ export default function Gallery() {
 
       {backupOpen && (
         <BackupSheet onClose={() => setBackupOpen(false)}
-          onStart={() => { setBackupOpen(false); openPicker(true) }} />
+          inputId={FILE_INPUT_ID}
+          onArm={() => { backupIntent.current = true }}
+          onKeys={pickerKeys(true)} />
       )}
 
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)}
@@ -550,7 +612,10 @@ function DetailsSheet({ info, onClose }: { info: PhotoInfo | null; onClose: () =
  *  and the person has to choose there. Someone expecting the app to find their
  *  photos on its own taps two of them and concludes the backup is broken.
  */
-function BackupSheet({ onClose, onStart }: { onClose: () => void; onStart: () => void }) {
+function BackupSheet({ onClose, inputId, onArm, onKeys }: {
+  onClose: () => void; inputId: string
+  onArm: () => void; onKeys: (e: React.KeyboardEvent) => void
+}) {
   return (
     <Sheet title="Back up my photos" onClose={onClose}>
       <p style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.55, marginTop: 4 }}>
@@ -562,12 +627,19 @@ function BackupSheet({ onClose, onStart }: { onClose: () => void; onStart: () =>
         <li>It keeps going in the background — carry on using the app.</li>
         <li>Progress shows at the top of every screen.</li>
         <li>A big selection takes a moment to read before it starts moving.</li>
+        <li>If your phone struggles with a very large selection, take it a few
+            hundred at a time — anything already sent is skipped.</li>
         <li>Photos already here are skipped, so you can run this again any time.</li>
         <li>Nothing leaves this computer.</li>
       </ul>
-      <button className="btn block" style={{ marginTop: 16 }} onClick={onStart}>
+      {/* Deliberately does NOT close the sheet on click. Closing it here would
+          unmount this label while the browser is still acting on the tap, and the
+          picker would never open. The sheet closes when photos actually arrive;
+          cancelling the picker leaves it up, which is also the honest outcome. */}
+      <label className="btn block" style={{ marginTop: 16 }} htmlFor={inputId}
+        role="button" tabIndex={0} onClick={onArm} onKeyDown={onKeys}>
         Choose photos
-      </button>
+      </label>
       <button className="btn ghost block" style={{ marginTop: 8 }} onClick={onClose}>
         Not now
       </button>

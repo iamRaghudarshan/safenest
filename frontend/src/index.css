@@ -963,12 +963,15 @@ button.set-row:active { background: var(--bg); }
 }
 .gallery-actions { display: flex; gap: 8px; padding: 10px 14px 0; }
 .gallery-actions .btn { flex: 1 1 0; min-width: 0; }
-/* Off-screen rather than `hidden`: iOS Safari refuses to open the picker for an
-   input it treats as non-rendered, so the button did nothing at all there. */
+/* Off-screen rather than display:none — a <label for> cannot forward activation
+   to a control the browser considers non-rendered. No `pointer-events: none`
+   here for the same reason: nothing must stand between the label and it. */
 .file-offscreen {
   position: absolute; left: -9999px; top: -9999px;
-  width: 1px; height: 1px; opacity: 0; pointer-events: none;
+  width: 1px; height: 1px; opacity: 0;
 }
+/* A label styled as a button still has to behave like one. */
+label.btn { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .upbar.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 .upbar.err { border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
 .upbar-top { display: flex; align-items: center; gap: 10px; }
