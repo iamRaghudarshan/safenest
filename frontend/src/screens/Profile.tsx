@@ -1832,7 +1832,6 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
 }) {
   const toast = useToast()
   const [secret, setSecret] = useState('')
-  const [ready, setReady] = useState('')     // the built shortcut, if there is one
   const [name, setName] = useState('My iPhone')
   const [busy, setBusy] = useState(false)
   const [host, setHost] = useState('')
@@ -1854,11 +1853,10 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
   async function create() {
     setBusy(true)
     try {
-      const made = await api<{ token: string; shortcut_url?: string }>('/api/devices', {
+      const made = await api<{ token: string }>('/api/devices', {
         method: 'POST', body: { name: name.trim() || 'My iPhone' },
       })
       setSecret(made.token)
-      setReady(made.shortcut_url || '')
       reload()
     } catch (e) { toast(errorMessage(e)) }
     finally { setBusy(false) }
@@ -1916,55 +1914,21 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
           </button>
         ) : (
           <>
-            {ready && (
-              <>
-                {/* TWO WAYS IN, because which one works depends on the iOS
-                    version and there is no way to ask from here. The plain link
-                    is the more reliable of the two: Safari downloads the file and
-                    offers it to Shortcuts. The URL scheme is tidier when it is
-                    allowed, and is refused outright on some versions. */}
-                {/* Said BEFORE the button, not after it. iOS refuses a shortcut
-                    it did not get from Apple unless this is on, and the refusal
-                    says only "Import failed" — which reads as a broken file
-                    rather than as a setting. Worse, the toggle does not exist
-                    until Shortcuts has run something once, so the obvious
-                    instruction sends people to a screen where it is absent. */}
-                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 12,
-                              background: 'var(--bg)', border: '1px solid var(--line)',
-                              fontSize: 13, lineHeight: 1.6, color: 'var(--ink)' }}>
-                  <b>Do this first, or the import will fail.</b>
-                  <ol style={{ paddingLeft: 18, margin: '8px 0 0' }}>
-                    <li>Open <b>Shortcuts</b> and run any shortcut once — anything
-                        at all. Until you have, the setting below is not there.</li>
-                    <li>Go to <b>Settings → Shortcuts</b> and turn on
-                        {' '}<b>Allow Untrusted Shortcuts</b>.</li>
-                  </ol>
-                  <p style={{ margin: '8px 0 0', color: 'var(--ink-soft)', fontSize: 12 }}>
-                    This one is built by your own computer rather than downloaded
-                    from Apple, which is what iOS means by untrusted.
-                  </p>
-                </div>
-                <a className="btn block" style={{ marginTop: 10 }} href={ready}>
-                  ⚡ Add the shortcut to this iPhone
-                </a>
-                <p style={{ color: 'var(--ink-soft)', fontSize: 12, lineHeight: 1.55,
-                            margin: '8px 0 0' }}>
-                  Tap that <b>on the iPhone</b>. Safari downloads it and offers to
-                  open it in Shortcuts, already built, with your token in it.
-                </p>
-                <a className="btn ghost block" style={{ marginTop: 8 }}
-                   href={`shortcuts://import-shortcut?url=${encodeURIComponent(ready)}&name=${encodeURIComponent('Back up to ' + appName())}`}>
-                  Open Shortcuts directly instead
-                </a>
-                <p style={{ color: 'var(--ink-soft)', fontSize: 12, lineHeight: 1.55,
-                            margin: '8px 0 0' }}>
-                  If either says the shortcut cannot be opened, turn on
-                  {' '}<b>Settings → Shortcuts → Allow Untrusted Shortcuts</b> and
-                  tap again. Both links last fifteen minutes; after that, make a
-                  new token. The steps below always work.
-                </p>
-              </>
-            )}
+            {/* A generated .shortcut file was offered here, and is deliberately
+                gone.
+
+                It was unsigned — Apple signs the ones shared through iCloud
+                links — so iOS refused it unless the owner first turned ON
+                "Allow Untrusted Shortcuts". Asking someone to lower a security
+                setting in order to use the backup feature of an app that holds
+                their financial records is not a trade this product can make. It
+                would have been the one instruction in the whole app that left a
+                careful person less safe, and it would have gone to every
+                customer.
+
+                Building the shortcut yourself needs no such setting: a shortcut
+                you assembled on your own phone is trusted because you made it.
+                That is the route below. */}
             <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '12px 0 6px' }}>
               Your token, if you are building it by hand. Shown once and never
               again — if you lose it, make another and revoke this one.
@@ -1974,11 +1938,6 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
         )}
       </Step>
 
-      <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
-                  margin: '16px 0 0' }}>
-        The steps below build the same thing by hand. Skip them if the button
-        above worked.
-      </p>
 
       <Step n={2} title="On the iPhone, open Shortcuts and make a new one">
         <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6 }}>

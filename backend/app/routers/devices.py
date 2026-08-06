@@ -35,13 +35,11 @@ having to remember it exists.
 """
 import hashlib
 import secrets
-import time
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
-from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from .. import indexer, ist, shortcutfile, weburl
+from .. import indexer, ist, weburl
 from ..database import get_db
 from ..helpers import audit
 from ..models import DeviceToken, User, UserModule
@@ -97,75 +95,15 @@ def issue(request: Request, body: dict | None = None,
     audit(db, user.id, "device_token_issue", "device", row.id,
           {"label": name}, request=request)
 
-    # Build the shortcut here, while the secret still exists in memory. There is
-    # no later moment when this is possible: the token is stored hashed, so a
-    # "make me the shortcut" endpoint called tomorrow would have nothing to put
-    # in it.
+    # No shortcut file is generated. It could only be unsigned, and iOS will
+    # not import one of those unless the owner turns off Allow Untrusted
+    # Shortcuts — a security setting this app has no business asking anyone to
+    # weaken, least of all to use a backup feature. The screen gives them the
+    # address and this token, and they assemble it themselves in three actions;
+    # a shortcut you built on your own phone needs no such permission.
     base = (weburl.public_url(db) or "").rstrip("/")
-    ready = None
-    if base:
-        try:
-            from .branding import app_name
-            _sweep()
-            nonce = secrets.token_urlsafe(24)
-            _PENDING[nonce] = (time.time() + SHORTCUT_TTL,
-                               shortcutfile.build(f"{base}/api/devices/upload",
-                                                  secret, app_name(db)))
-            # .shortcut on the end is load-bearing — see shortcut_file().
-            ready = f"{base}/api/devices/shortcut/{nonce}.shortcut"
-        except Exception as exc:
-            # A shortcut that could not be built must not cost them the token —
-            # the manual steps work with it either way.
-            print(f"[devices] could not build the shortcut: {exc}")
-    return {**_row(row), "token": secret, "shortcut_url": ready,
+    return {**_row(row), "token": secret,
             "upload_url": f"{base}/api/devices/upload" if base else ""}
-
-
-# A built shortcut, waiting to be collected. In memory, one use, minutes long.
-#
-# It has to be fetched by the Shortcuts app, which carries no sign-in of ours, so
-# the link cannot be behind the session — and the file contains the token in
-# plain text, because that is what the shortcut needs to work. So: an unguessable
-# name, one collection only, and a short life. It is the same secret going to the
-# same person's phone that the screen already showed them; this is a delivery
-# mechanism, not a second place it lives.
-_PENDING: dict[str, tuple[float, bytes]] = {}
-SHORTCUT_TTL = 900          # seconds
-
-
-def _sweep() -> None:
-    now = time.time()
-    for k in [k for k, (exp, _) in _PENDING.items() if exp < now]:
-        _PENDING.pop(k, None)
-
-
-@router.get("/shortcut/{nonce}")
-def shortcut_file(nonce: str):
-    """Hand the built shortcut to the Shortcuts app.
-
-    THE NAME HAS TO END IN .shortcut. iOS decides what a link is from its
-    extension before it has fetched anything, and answered a URL without one with
-    "the shortcut URL provided was invalid" — a message about the URL, which sent
-    me looking at the address rather than at its last eight characters.
-
-    READABLE MORE THAN ONCE, within its fifteen minutes. It was single-use
-    originally, on the reasoning that a collected credential is a spent one. But
-    iOS fetches this more than once — a look before the import, then the import —
-    so the second read got the 404 meant for a stranger, and the honest reading of
-    that failure was "this link is broken". The protection that matters is the
-    unguessable name and the short life, neither of which this weakens.
-    """
-    _sweep()
-    found = _PENDING.get(nonce.removesuffix(".shortcut"))
-    if not found:
-        raise HTTPException(404, "This link has expired — make a new token")
-    # octet-stream, not x-plist: given a type it thinks it can render, Safari
-    # shows the file instead of handing it to Shortcuts.
-    return Response(content=found[1],
-                    media_type="application/octet-stream",
-                    headers={"Content-Disposition":
-                             'attachment; filename="Back up my photos.shortcut"',
-                             "Cache-Control": "no-store"})
 
 
 @router.delete("/{tid}")
