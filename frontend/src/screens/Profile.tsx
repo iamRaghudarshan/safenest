@@ -1832,6 +1832,7 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
 }) {
   const toast = useToast()
   const [secret, setSecret] = useState('')
+  const [ready, setReady] = useState('')     // the built shortcut, if there is one
   const [name, setName] = useState('My iPhone')
   const [busy, setBusy] = useState(false)
   const [host, setHost] = useState('')
@@ -1853,10 +1854,11 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
   async function create() {
     setBusy(true)
     try {
-      const made = await api<{ token: string }>('/api/devices', {
+      const made = await api<{ token: string; shortcut_url?: string }>('/api/devices', {
         method: 'POST', body: JSON.stringify({ name: name.trim() || 'My iPhone' }),
       })
       setSecret(made.token)
+      setReady(made.shortcut_url || '')
       reload()
     } catch (e) { toast(errorMessage(e)) }
     finally { setBusy(false) }
@@ -1914,14 +1916,43 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
           </button>
         ) : (
           <>
-            <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '10px 0 6px' }}>
-              Copy this now — it is shown once and cannot be read back. If you lose
-              it, make another and revoke this one.
+            {ready && (
+              <>
+                {/* The one-tap route. Unsigned, so iOS may want Settings ->
+                    Shortcuts -> Allow Untrusted Shortcuts, and some versions
+                    refuse outright — which is why the steps below stay. */}
+                <a className="btn block" style={{ marginTop: 10 }}
+                   href={`shortcuts://import-shortcut?url=${encodeURIComponent(ready)}&name=${encodeURIComponent('Back up to ' + appName())}`}>
+                  ⚡ Add the shortcut to this iPhone
+                </a>
+                <p style={{ color: 'var(--ink-soft)', fontSize: 12, lineHeight: 1.55,
+                            margin: '8px 0 0' }}>
+                  Tap that <b>on the iPhone</b> and Shortcuts opens with the whole
+                  thing already built — your token is in it. The link works once
+                  and lasts fifteen minutes.
+                </p>
+                <p style={{ color: 'var(--ink-soft)', fontSize: 12, lineHeight: 1.55,
+                            margin: '8px 0 0' }}>
+                  If iOS refuses it, turn on <b>Settings → Shortcuts → Allow
+                  Untrusted Shortcuts</b> and tap again — or just follow the steps
+                  below, which always work.
+                </p>
+              </>
+            )}
+            <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '12px 0 6px' }}>
+              Your token, if you are building it by hand. Shown once and never
+              again — if you lose it, make another and revoke this one.
             </p>
             <Cmd text={secret} />
           </>
         )}
       </Step>
+
+      <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
+                  margin: '16px 0 0' }}>
+        The steps below build the same thing by hand. Skip them if the button
+        above worked.
+      </p>
 
       <Step n={2} title="On the iPhone, open Shortcuts and make a new one">
         <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.6 }}>
