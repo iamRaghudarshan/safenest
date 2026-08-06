@@ -1918,24 +1918,29 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
           <>
             {ready && (
               <>
-                {/* The one-tap route. Unsigned, so iOS may want Settings ->
-                    Shortcuts -> Allow Untrusted Shortcuts, and some versions
-                    refuse outright — which is why the steps below stay. */}
-                <a className="btn block" style={{ marginTop: 10 }}
-                   href={`shortcuts://import-shortcut?url=${encodeURIComponent(ready)}&name=${encodeURIComponent('Back up to ' + appName())}`}>
+                {/* TWO WAYS IN, because which one works depends on the iOS
+                    version and there is no way to ask from here. The plain link
+                    is the more reliable of the two: Safari downloads the file and
+                    offers it to Shortcuts. The URL scheme is tidier when it is
+                    allowed, and is refused outright on some versions. */}
+                <a className="btn block" style={{ marginTop: 10 }} href={ready}>
                   ⚡ Add the shortcut to this iPhone
                 </a>
                 <p style={{ color: 'var(--ink-soft)', fontSize: 12, lineHeight: 1.55,
                             margin: '8px 0 0' }}>
-                  Tap that <b>on the iPhone</b> and Shortcuts opens with the whole
-                  thing already built — your token is in it. The link works once
-                  and lasts fifteen minutes.
+                  Tap that <b>on the iPhone</b>. Safari downloads it and offers to
+                  open it in Shortcuts, already built, with your token in it.
                 </p>
+                <a className="btn ghost block" style={{ marginTop: 8 }}
+                   href={`shortcuts://import-shortcut?url=${encodeURIComponent(ready)}&name=${encodeURIComponent('Back up to ' + appName())}`}>
+                  Open Shortcuts directly instead
+                </a>
                 <p style={{ color: 'var(--ink-soft)', fontSize: 12, lineHeight: 1.55,
                             margin: '8px 0 0' }}>
-                  If iOS refuses it, turn on <b>Settings → Shortcuts → Allow
-                  Untrusted Shortcuts</b> and tap again — or just follow the steps
-                  below, which always work.
+                  If either says the shortcut cannot be opened, turn on
+                  {' '}<b>Settings → Shortcuts → Allow Untrusted Shortcuts</b> and
+                  tap again. Both links last fifteen minutes; after that, make a
+                  new token. The steps below always work.
                 </p>
               </>
             )}

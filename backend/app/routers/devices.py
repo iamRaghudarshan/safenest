@@ -111,7 +111,8 @@ def issue(request: Request, body: dict | None = None,
             _PENDING[nonce] = (time.time() + SHORTCUT_TTL,
                                shortcutfile.build(f"{base}/api/devices/upload",
                                                   secret, app_name(db)))
-            ready = f"{base}/api/devices/shortcut/{nonce}"
+            # .shortcut on the end is load-bearing — see shortcut_file().
+            ready = f"{base}/api/devices/shortcut/{nonce}.shortcut"
         except Exception as exc:
             # A shortcut that could not be built must not cost them the token —
             # the manual steps work with it either way.
@@ -140,13 +141,28 @@ def _sweep() -> None:
 
 @router.get("/shortcut/{nonce}")
 def shortcut_file(nonce: str):
-    """Hand the built shortcut to the Shortcuts app. Once."""
+    """Hand the built shortcut to the Shortcuts app.
+
+    THE NAME HAS TO END IN .shortcut. iOS decides what a link is from its
+    extension before it has fetched anything, and answered a URL without one with
+    "the shortcut URL provided was invalid" — a message about the URL, which sent
+    me looking at the address rather than at its last eight characters.
+
+    READABLE MORE THAN ONCE, within its fifteen minutes. It was single-use
+    originally, on the reasoning that a collected credential is a spent one. But
+    iOS fetches this more than once — a look before the import, then the import —
+    so the second read got the 404 meant for a stranger, and the honest reading of
+    that failure was "this link is broken". The protection that matters is the
+    unguessable name and the short life, neither of which this weakens.
+    """
     _sweep()
-    found = _PENDING.pop(nonce, None)          # pop: collected means spent
+    found = _PENDING.get(nonce.removesuffix(".shortcut"))
     if not found:
-        raise HTTPException(404, "This link has already been used or has expired")
+        raise HTTPException(404, "This link has expired — make a new token")
+    # octet-stream, not x-plist: given a type it thinks it can render, Safari
+    # shows the file instead of handing it to Shortcuts.
     return Response(content=found[1],
-                    media_type="application/x-plist",
+                    media_type="application/octet-stream",
                     headers={"Content-Disposition":
                              'attachment; filename="Back up my photos.shortcut"',
                              "Cache-Control": "no-store"})
