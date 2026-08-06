@@ -710,12 +710,15 @@ def untag(id: int, body: dict = Body(...), user: User = Depends(guard("gallery",
     return {"ok": True}
 
 
-async def _read_capped(file: UploadFile, limit: int) -> bytes:
+def _read_capped(file: UploadFile, limit: int) -> bytes:
     """Read an upload into memory, aborting as soon as it exceeds `limit` — so an
-    oversized (or endless) body can't exhaust RAM before we get to check it."""
+    oversized (or endless) body can't exhaust RAM before we get to check it.
+
+    Reads the spooled file directly rather than awaiting UploadFile.read, because
+    the endpoint below is deliberately synchronous. See the note on it."""
     chunks, total = [], 0
     while True:
-        chunk = await file.read(1024 * 1024)
+        chunk = file.file.read(1024 * 1024)
         if not chunk:
             break
         total += len(chunk)
@@ -726,10 +729,34 @@ async def _read_capped(file: UploadFile, limit: int) -> bytes:
 
 
 @router.post("/upload")
-async def upload(file: UploadFile = File(...), faces: int = 1,
-                 user: User = Depends(guard("gallery", "create")),
-                 db: Session = Depends(get_db)):
-    raw = await _read_capped(file, MAX_BYTES)
+def upload(file: UploadFile = File(...), faces: int = 1,
+           user: User = Depends(guard("gallery", "create")),
+           db: Session = Depends(get_db)):
+    """Take one photo in, normalise it, store it, thumbnail it.
+
+    SYNCHRONOUS ON PURPOSE — do not put `async` back on this.
+
+    Everything below is blocking CPU work: decoding HEIC, two full-size JPEG
+    encodes, a thumbnail and a perceptual hash, roughly three quarters of a second
+    per 12MP photo. As `async def` that ran ON the event loop, which had two
+    consequences, both measured rather than assumed:
+
+      * uploads could not overlap. Sending four at once took 6.71s for eight
+        photos against 6.02s one at a time — client concurrency was not merely
+        useless, it was slightly negative, because four requests contending for
+        one thread is worse than a queue. A phone backing up 500 photos was
+        paying 0.75s each, in series, however clever the client was.
+      * every OTHER request stalled behind it. /api/health, which touches nothing
+        and should answer in about two milliseconds, had a median of 102ms and a
+        worst case of 527ms while a single upload ran. The whole app froze —
+        which is what "it doesn't feel like a native app" actually was.
+
+    Declared `def`, FastAPI runs it in the threadpool instead, so photos are
+    processed in parallel and the event loop stays free to serve everything else.
+    Pillow releases the GIL for encode and decode, so this is real parallelism and
+    not just tidier queueing.
+    """
+    raw = _read_capped(file, MAX_BYTES)
     if not raw:
         raise HTTPException(400, "Empty file")
 
@@ -737,6 +764,7 @@ async def upload(file: UploadFile = File(...), faces: int = 1,
     # so the content hash is stable regardless of the original container/encoding.
     try:
         pil = Image.open(io.BytesIO(raw))
+        src_format = pil.format          # convert() clears it, and it decides the store below
         meta = _read_exif(pil)  # read before convert(), which drops the EXIF block
         exif_blob = pil.info.get("exif")
         pil = pil.convert("RGB") if pil.mode not in ("RGB", "L") else pil
@@ -765,13 +793,24 @@ async def upload(file: UploadFile = File(...), faces: int = 1,
     fname = f"{uuid.uuid4().hex}.jpg"
     # The file on disk keeps its EXIF so a download really is the user's original;
     # only the hashing copy above is stripped.
-    stored = jpg
-    if exif_blob:
+    #
+    # When they sent us a JPEG, the original bytes ARE that file — so store them.
+    # Re-encoding them was a second full-size encode per photo, the most expensive
+    # thing on this path, spent on re-compressing an image at quality 90 that was
+    # already compressed. It degraded the photo it was there to preserve, and on a
+    # phone backup it doubled the cost of every single JPEG.
+    #
+    # HEIC still has to be encoded — there is no JPEG in the box to keep.
+    if src_format == "JPEG":
+        stored = raw
+    elif exif_blob:
         try:
             ebuf = io.BytesIO(); pil.save(ebuf, format="JPEG", quality=90, exif=exif_blob)
             stored = ebuf.getvalue()
         except Exception:
-            pass  # malformed EXIF — store the clean encoding instead
+            stored = jpg  # malformed EXIF — store the clean encoding instead
+    else:
+        stored = jpg
     storage.save(storage.GALLERY, user.id, storage.ORIGINAL, fname, stored)
     thumb = pil.copy(); thumb.thumbnail((THUMB_MAX, THUMB_MAX))
     tbuf = io.BytesIO(); thumb.save(tbuf, format="JPEG", quality=80)
@@ -805,7 +844,12 @@ async def upload(file: UploadFile = File(...), faces: int = 1,
     # anyone pressing anything. A no-op when a pass is already running, and the
     # running pass re-queries for work, so a 500-photo upload is picked up as it
     # arrives rather than starting 500 threads.
+    #
+    # note_upload() first: it tells that pass to stand aside while photos are
+    # still landing. Indexing has no deadline; the person watching the upload bar
+    # does. See indexer.UPLOAD_QUIET_SECONDS.
     try:
+        indexer.note_upload()
         indexer.start()
     except Exception as exc:
         print(f"[gallery] could not nudge the indexer: {exc}")

@@ -44,6 +44,22 @@ MIN_FACE_SCORE = 0.80
 # Breathing room between photos so indexing never starves the web server.
 REST_SECONDS = 0.02
 
+# How long after the last upload before indexing picks up again.
+#
+# REST_SECONDS was not enough during a bulk upload. Indexing a photo means a CLIP
+# embedding, OCR and face detection — seconds of CPU each — and every upload nudges
+# a pass, so backing up a phone had the machine racing to index the first photos
+# while the other 499 were still arriving. Measured on this machine, at the app's
+# own concurrency of 4: 4.19 photos/sec uploaded with the indexer working against
+# it, 6.57 with it out of the way. Over half the throughput of the one operation
+# the person is sitting and watching, spent on work that has no deadline at all.
+#
+# So indexing yields while photos are arriving and resumes shortly after they stop.
+# Nothing is skipped — the pass re-queries for pending work, so everything queued
+# during the burst is picked up once it is over.
+UPLOAD_QUIET_SECONDS = 3.0
+_last_upload = 0.0
+
 _state = {
     "running": False, "job": "", "done": 0, "total": 0,
     "started_at": None, "finished_at": None, "error": None,
@@ -291,6 +307,11 @@ def _run(jobs: tuple[str, ...]):
                     for row in batch:
                         if _stop.is_set():
                             break
+                        # Per row, not per batch: twenty CLIP runs before yielding
+                        # is most of a bulk upload's worth of contention.
+                        _wait_for_quiet()
+                        if _stop.is_set():
+                            break
                         try:
                             do_one(db, row)
                         except Exception as exc:
@@ -323,6 +344,29 @@ def start(jobs: tuple[str, ...] = ("clip", "faces", "ocr")) -> dict:
 
 def stop():
     _stop.set()
+
+
+def note_upload() -> None:
+    """Tell the indexer a photo has just arrived, so it stands aside.
+
+    Called on every upload. Cheap by design — a timestamp, no lock: the worst a
+    race can do is re-read a value that is about to be written again anyway.
+    """
+    global _last_upload
+    _last_upload = time.time()
+
+
+def _wait_for_quiet() -> None:
+    """Hold indexing while uploads are still coming in.
+
+    Waits on the stop event rather than sleeping, so a stop during a long upload
+    burst is acted on immediately instead of after the remaining wait.
+    """
+    while not _stop.is_set():
+        quiet_for = time.time() - _last_upload
+        if quiet_for >= UPLOAD_QUIET_SECONDS:
+            return
+        _stop.wait(min(UPLOAD_QUIET_SECONDS - quiet_for, 1.0))
 
 
 def start_if_idle_work() -> None:
