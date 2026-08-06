@@ -1923,6 +1923,27 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
                     is the more reliable of the two: Safari downloads the file and
                     offers it to Shortcuts. The URL scheme is tidier when it is
                     allowed, and is refused outright on some versions. */}
+                {/* Said BEFORE the button, not after it. iOS refuses a shortcut
+                    it did not get from Apple unless this is on, and the refusal
+                    says only "Import failed" — which reads as a broken file
+                    rather than as a setting. Worse, the toggle does not exist
+                    until Shortcuts has run something once, so the obvious
+                    instruction sends people to a screen where it is absent. */}
+                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 12,
+                              background: 'var(--bg)', border: '1px solid var(--line)',
+                              fontSize: 13, lineHeight: 1.6, color: 'var(--ink)' }}>
+                  <b>Do this first, or the import will fail.</b>
+                  <ol style={{ paddingLeft: 18, margin: '8px 0 0' }}>
+                    <li>Open <b>Shortcuts</b> and run any shortcut once — anything
+                        at all. Until you have, the setting below is not there.</li>
+                    <li>Go to <b>Settings → Shortcuts</b> and turn on
+                        {' '}<b>Allow Untrusted Shortcuts</b>.</li>
+                  </ol>
+                  <p style={{ margin: '8px 0 0', color: 'var(--ink-soft)', fontSize: 12 }}>
+                    This one is built by your own computer rather than downloaded
+                    from Apple, which is what iOS means by untrusted.
+                  </p>
+                </div>
                 <a className="btn block" style={{ marginTop: 10 }} href={ready}>
                   ⚡ Add the shortcut to this iPhone
                 </a>
