@@ -1732,14 +1732,14 @@ function WatchFolderSection() {
     try {
       if (enabled && folder.trim()) {
         const c = await api<{ photos: number }>('/api/autoimport/check', {
-          method: 'POST', body: JSON.stringify({ folder }),
+          method: 'POST', body: { folder },
         })
         toast(c.photos
           ? `Found ${c.photos.toLocaleString()} photo${c.photos === 1 ? '' : 's'} — importing them now`
           : 'That folder has no photos in it yet — anything added later will come in')
       }
       const d = await api<NonNullable<typeof st>>('/api/autoimport', {
-        method: 'POST', body: JSON.stringify({ folder, enabled }),
+        method: 'POST', body: { folder, enabled },
       })
       setSt(d)
       if (!enabled) toast('Stopped watching that folder')
@@ -1855,7 +1855,7 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
     setBusy(true)
     try {
       const made = await api<{ token: string; shortcut_url?: string }>('/api/devices', {
-        method: 'POST', body: JSON.stringify({ name: name.trim() || 'My iPhone' }),
+        method: 'POST', body: { name: name.trim() || 'My iPhone' },
       })
       setSecret(made.token)
       setReady(made.shortcut_url || '')

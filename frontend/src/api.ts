@@ -97,9 +97,46 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
     const detail =
       (data && typeof data === 'object' && 'detail' in data && (data as { detail: unknown }).detail) ||
       res.statusText
-    throw new ApiError(res.status, String(detail))
+    throw new ApiError(res.status, readableDetail(detail, res.status))
   }
   return data as T
+}
+
+/** Turn whatever came back in `detail` into a sentence a person can read.
+ *
+ *  A validation failure answers with a LIST of objects, not a string, and
+ *  String() on that is the literal text "[object Object]" — which is what a
+ *  customer was shown when a screen posted a malformed body. It says nothing,
+ *  looks like a crash, and hides the one thing that would explain it.
+ *
+ *  upload.tsx already had to work around the same shape for photo uploads. That
+ *  fix belonged here, in the one place every screen goes through.
+ */
+function readableDetail(detail: unknown, status: number): string {
+  if (typeof detail === 'string' && detail) return detail
+  const say = (v: unknown): string => {
+    if (typeof v === 'string') return v
+    if (v && typeof v === 'object') {
+      const o = v as { msg?: unknown; loc?: unknown[] }
+      if (typeof o.msg === 'string') {
+        // loc is ["body", "name"] — the last part is the field that upset it,
+        // and naming it is the difference between "invalid" and "which one?".
+        const field = Array.isArray(o.loc) ? o.loc[o.loc.length - 1] : undefined
+        return field && field !== 'body' ? `${field}: ${o.msg}` : o.msg
+      }
+    }
+    return ''
+  }
+  if (Array.isArray(detail)) {
+    const parts = detail.map(say).filter(Boolean)
+    if (parts.length) return parts.join('; ')
+  }
+  const one = say(detail)
+  if (one) return one
+  // Never fall through to String(object). A status code is not much, but it is
+  // honest, and "[object Object]" is not even that.
+  return status === 422 ? 'The app sent something this screen could not accept'
+                        : `Request failed (${status})`
 }
 
 /** Cheap reachability probe used by the reconnect banner. */
