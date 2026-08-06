@@ -631,6 +631,46 @@ class Hosting(Base):
     updated_by = Column(Integer)
 
 
+class AutoImport(Base):
+    """A folder the app watches, so photos arrive without anyone doing anything.
+
+    WHY THIS EXISTS
+    Everything else that gets photos in needs a person: the file picker needs a
+    selection (and an iPhone stops closing it above a hundred), and the Shortcuts
+    route needs five minutes of setting up on the phone. Asked for something
+    simple that "backs up the gallery automatically", both are the wrong shape —
+    they are things you have to keep doing, or keep having done.
+
+    A watched folder is the one that is genuinely set-and-forget: choose it once,
+    and anything that ever appears in it is imported. What puts photos there is
+    then somebody else's problem in the good sense — iCloud for Windows dropping
+    them in, Windows importing them when the phone is plugged in, or a copy from
+    the phone's DCIM folder. All of those already exist and none of them are ours
+    to build or to break.
+
+    ONE FOLDER PER USER. Not a list: two people's photos going to one library is a
+    mistake you cannot see happening and cannot easily undo.
+
+    `seen_key` in the scanner is path+size+mtime, which is cheap. The real
+    duplicate check is still the content hash in store_photo — this only decides
+    whether a file is worth opening at all, so re-scanning a folder of 20,000
+    photos costs a directory walk rather than 20,000 decodes.
+    """
+    __tablename__ = "auto_imports"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    folder = Column(String(500), default="")
+    enabled = Column(Integer, default=0)
+    # Counters are for the screen: "is this doing anything?" is the only question
+    # people ask of a background job, and it must be answerable at a glance.
+    imported = Column(Integer, default=0)
+    skipped = Column(Integer, default=0)
+    last_scan_at = Column(FlexDateTime)
+    last_error = Column(String(300), default="")
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
 class DeviceToken(Base):
     """A credential that can send a photo in, and do nothing else at all.
 

@@ -109,6 +109,7 @@ export default function Profile() {
 
       <WebAddressSection onOpen={() => setWebOpen(true)} />
       <PhoneBackupSection />
+      <WatchFolderSection />
       <HouseholdSection />
       <AlwaysOnSection onOpenWeb={() => setWebOpen(true)} />
       <LocalNetworkSection />
@@ -1692,6 +1693,91 @@ function WebAddressSection({ onOpen }: { onOpen: () => void }) {
       footer={`Set your own domain so you can open ${appName()} from anywhere, not just on this computer. Step-by-step, including what to do in Cloudflare.`}>
       <SettingsRow icon="🌐" tint="var(--c-insurance)" label="Web address"
         sub={state.hostname || 'Not published yet'} onClick={onOpen} />
+    </SettingsGroup>
+  )
+}
+
+/** Watch a folder, and import whatever appears in it.
+ *
+ *  Not the iPhone answer on its own — something still has to put photos in the
+ *  folder — but it is the whole answer for photos that are already on this
+ *  computer, for plugging the phone in, and for anything that syncs into a folder
+ *  later. It sits below the phone route because that is the question people
+ *  arrive with.
+ */
+function WatchFolderSection() {
+  const toast = useToast()
+  const [st, setSt] = useState<{
+    folder: string; enabled: boolean; imported: number; skipped: number
+    last_scan_at: string | null; last_error: string
+  } | null>(null)
+  const [folder, setFolder] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(() => {
+    api<NonNullable<typeof st>>('/api/autoimport')
+      .then((d) => { setSt(d); setFolder(d.folder || '') })
+      .catch(() => setSt(null))
+  }, [])
+  useEffect(() => { load() }, [load])
+  // While it is on, the count is the only sign it is working.
+  useEffect(() => {
+    if (!st?.enabled) return
+    const t = window.setInterval(load, 10000)
+    return () => window.clearInterval(t)
+  }, [st?.enabled, load])
+
+  async function save(enabled: boolean) {
+    setBusy(true)
+    try {
+      if (enabled && folder.trim()) {
+        const c = await api<{ photos: number }>('/api/autoimport/check', {
+          method: 'POST', body: JSON.stringify({ folder }),
+        })
+        toast(c.photos
+          ? `Found ${c.photos.toLocaleString()} photo${c.photos === 1 ? '' : 's'} — importing them now`
+          : 'That folder has no photos in it yet — anything added later will come in')
+      }
+      const d = await api<NonNullable<typeof st>>('/api/autoimport', {
+        method: 'POST', body: JSON.stringify({ folder, enabled }),
+      })
+      setSt(d)
+      if (!enabled) toast('Stopped watching that folder')
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  if (!st) return null
+  return (
+    <SettingsGroup title="Import from a folder"
+      footer="Anything that appears in this folder is added to your gallery, on its own, for as long as it is switched on. Photos already here are skipped.">
+      <SettingsBlock>
+        <Field label="Folder on this computer">
+          <input className="input" value={folder} onChange={(e) => setFolder(e.target.value)}
+            placeholder="D:\Photos\iPhone" spellCheck={false} />
+        </Field>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button className="btn sm" style={{ flex: 1 }} disabled={busy || !folder.trim()}
+            onClick={() => save(true)}>
+            {st.enabled ? 'Save' : 'Start watching'}
+          </button>
+          {st.enabled && (
+            <button className="btn sm ghost" disabled={busy} onClick={() => save(false)}>
+              Stop
+            </button>
+          )}
+        </div>
+        {st.enabled && (
+          <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '10px 0 0' }}>
+            {st.imported.toLocaleString()} imported
+            {st.skipped ? `, ${st.skipped.toLocaleString()} already here or unreadable` : ''}
+            {st.last_scan_at ? ` · last looked ${st.last_scan_at}` : ' · not looked yet'}
+          </p>
+        )}
+        {!!st.last_error && (
+          <p style={{ color: 'var(--danger)', fontSize: 13, margin: '8px 0 0' }}>{st.last_error}</p>
+        )}
+      </SettingsBlock>
     </SettingsGroup>
   )
 }

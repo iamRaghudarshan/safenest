@@ -356,6 +356,15 @@ def note_upload() -> None:
     _last_upload = time.time()
 
 
+def uploading_now() -> bool:
+    """True while photos are still landing.
+
+    Read by anything else with no deadline — the folder watcher, for one — so a
+    person watching an upload bar is never competing with background work.
+    """
+    return (time.time() - _last_upload) < UPLOAD_QUIET_SECONDS
+
+
 def _wait_for_quiet() -> None:
     """Hold indexing while uploads are still coming in.
 

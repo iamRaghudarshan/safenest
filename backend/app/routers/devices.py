@@ -39,7 +39,7 @@ import secrets
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
-from .. import ist
+from .. import indexer, ist
 from ..database import get_db
 from ..helpers import audit
 from ..models import DeviceToken, User, UserModule
@@ -175,6 +175,9 @@ def device_upload(request: Request, file: UploadFile = File(...),
             raise HTTPException(413, f"Photo too large (max {MAX_BYTES // (1024 * 1024)} MB)")
         chunks.append(chunk)
 
+    # A shortcut emptying a phone is a bulk upload like any other, so the indexer
+    # and the folder watcher stand aside for it too.
+    indexer.note_upload()
     out = store_photo(db, user, b"".join(chunks), file.filename or "photo.jpg")
 
     row.uploads = int(row.uploads or 0) + 1

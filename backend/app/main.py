@@ -12,13 +12,13 @@ from sqlalchemy.exc import IntegrityError
 from .config import BACKEND_DIR, settings
 from .crypto import reencrypt_legacy_items
 from .database import Base, engine
-from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, BroadcastReceipt, DeviceToken, Document, Hosting, License, Release,
+from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Hosting, License, Release,
                      Master, Notification, NotificationPref, PhotoVector, PushSubscription,
                      UserModule, User)
-from .routers import (activity, admin, auth, branding, dashboard, devices, documents, hosting, household, masters, briefing, cards, releases,
+from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, notifications, people, reminders,
                       resources, search, system, todos, vault)
-from . import autostart, hosts, indexer, ist, licensing, scheduler, tunnelrun
+from . import autoimport, autostart, hosts, indexer, ist, licensing, scheduler, tunnelrun
 
 
 def _sqlite_topup() -> int:
@@ -244,6 +244,8 @@ def _migrate() -> None:
     Hosting.__table__.create(bind=engine, checkfirst=True)
     # Phone upload credentials for the Shortcuts route (added August 2026).
     DeviceToken.__table__.create(bind=engine, checkfirst=True)
+    # A folder the app watches for new photos (added August 2026).
+    AutoImport.__table__.create(bind=engine, checkfirst=True)
     _seed_module_grants()
 
 
@@ -515,6 +517,14 @@ def _on_startup() -> None:
     except Exception as e:
         print(f"[indexer] could not start: {e}")
 
+    # The watched folder, if anyone has set one. Started unconditionally: the
+    # thread checks for enabled rows itself, and a backup that only resumes when
+    # somebody opens the settings screen is not a backup.
+    try:
+        autoimport.start()
+    except Exception as e:
+        print(f"[autoimport] could not start: {e}")
+
     # Keep the tunnel up alongside the app. The promise is that the owner's
     # records are reachable while their computer is on, and that needs the
     # connector alive too — not just this process. Inside the startup hook, not
@@ -688,7 +698,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices):
+for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports):
     app.include_router(r.router)
 app.include_router(licences.public)   # /api/licence/... — customer-facing, separate prefix
 app.include_router(releases.public)   # /api/licence/update, /download
