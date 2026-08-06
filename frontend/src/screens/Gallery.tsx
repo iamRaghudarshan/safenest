@@ -23,6 +23,7 @@ type Tab = 'all' | 'fav' | 'albums' | 'people' | 'memories'
 // Both buttons are <label for> pointing here, so the tap opens the picker as the
 // click's own default action rather than through a scripted .click().
 const FILE_INPUT_ID = 'gallery-file-input'
+const DIR_INPUT_ID = 'gallery-folder-input'
 
 // Stands in for the `accept` attribute the input deliberately does not have.
 //
@@ -60,6 +61,7 @@ export default function Gallery() {
   // the two could say different things afterwards; remembering which button was
   // pressed does the same job without a duplicate control to keep in step.
   const backupIntent = useRef(false)
+  const dirRef = useRef<HTMLInputElement>(null)
   const u = useUpload()
   const PAGE = 150
   const [photos, setPhotos] = useState<Photo[]>([])
@@ -271,6 +273,14 @@ export default function Gallery() {
           </label>
           <button className="btn sm ghost" onClick={() => setBackupOpen(true)}
             aria-label="Back up my photos">☁ Back up</button>
+          {!isIOS && (
+            <label className="btn sm ghost" htmlFor={DIR_INPUT_ID} role="button" tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dirRef.current?.click() }
+              }}>
+              🗂 Import a folder
+            </label>
+          )}
         </div>
       )}
       {queueStatus && <div className="upload-inline" aria-live="polite">{queueStatus}</div>}
@@ -329,6 +339,35 @@ export default function Gallery() {
 
           Off-screen rather than `hidden`/display:none, because a label cannot
           forward activation to a control the browser considers non-rendered. */}
+      {/* A WHOLE FOLDER AT ONCE — the way round the iPhone picker rather than
+          through it.
+
+          iOS exports every selected photo to a temporary file before it hands the
+          page anything, and that cost scales with the number picked: about twenty
+          is fine, a hundred or more leaves the picker never closing. Local photos,
+          no iCloud, no format conversion — measured on the reporter's phone. No
+          web API raises that ceiling.
+
+          But a phone plugged into a computer is just a folder, and this input asks
+          for a folder rather than files, so the iOS picker is not involved at all.
+          Thousands come through in one action, which is what "back up my whole
+          gallery" actually needs.
+
+          Not offered on iOS: Safari there has no webkitdirectory, and a button
+          that silently does nothing is worse than one that is absent. */}
+      {!isIOS && (
+        <input ref={dirRef} id={DIR_INPUT_ID} type="file" multiple
+          className="file-offscreen"
+          // Not in React's typings; it is a real attribute on every browser that
+          // matters here, and `directory` is the standards-track spelling.
+          {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? [])
+            e.currentTarget.value = ''
+            backupIntent.current = true
+            pick(files, true).catch(() => toast('That folder could not be read'))
+          }} />
+      )}
       <input ref={fileRef} id={FILE_INPUT_ID} type="file" multiple
         className="file-offscreen"
         onChange={(e) => {
@@ -695,12 +734,17 @@ function BackupSheet({ onClose, inputId, onArm, onKeys, onPhone }: {
               on an iCloud download and a picker that has crashed look identical. */}
           <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
                       margin: '10px 0 0' }}>
-            <b>If choosing photos is slow:</b> check{' '}
-            <b>Settings → Photos</b> on your phone. With{' '}
-            <b>Optimise iPhone Storage</b> switched on, your originals live in
-            iCloud, and iOS quietly downloads every photo you tick before it will
-            hand them over. Choosing <b>Download and Keep Originals</b>, or staying
-            on Wi-Fi and picking smaller batches, is the difference.
+            <b>Backing up your whole gallery?</b> Doing it from the phone means
+            waiting on iOS to prepare every photo, fifty at a time. Plug this phone
+            into the computer running {appName()} instead, open the Gallery there
+            and choose <b>🗂 Import a folder</b> — the phone appears as a folder,
+            the iPhone picker is never involved, and thousands go in one action.
+          </p>
+          <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
+                      margin: '10px 0 0' }}>
+            If picking is slow even in small batches, check{' '}
+            <b>Settings → Photos</b>: with <b>Optimise iPhone Storage</b> on, the
+            originals live in iCloud and are fetched as you tick them.
           </p>
         </>
       )}
