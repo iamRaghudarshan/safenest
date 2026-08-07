@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 
 from .. import ist
@@ -33,8 +34,17 @@ def _present(t: Todo) -> dict:
 
 @router.get("")
 def index(user: User = Depends(guard("todo", "view")), db: Session = Depends(get_db)):
+    # Ordered by a CASE, not by the column.
+    #
+    # `status` is an ENUM on MySQL, where ASC means declaration order and puts
+    # 'pending' first — and a plain string on SQLite, where ASC is alphabetical
+    # and 'done' comes first. So the same code put finished tasks at the top on
+    # exactly the copies we do not run: every customer's. With the limit below
+    # that is not only untidy, it hides things — a long history of completed
+    # tasks fills the 500 and pushes the outstanding ones off the end.
     rows = db.query(Todo).filter(Todo.user_id == user.id).order_by(
-        Todo.status.asc(), Todo.due_date.asc()).limit(500).all()
+        case((Todo.status == "done", 1), else_=0),
+        Todo.due_date.asc()).limit(500).all()
     return {"items": [_present(r) for r in rows]}
 
 
