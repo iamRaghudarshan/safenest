@@ -261,6 +261,37 @@ class GalleryPhoto(Base):
     updated_at = Column(FlexDateTime)
 
 
+class MasterList(Base):
+    """A lookup LIST, as opposed to a value in one.
+
+    The four original lists lived only as a dict in masters.py, so a person could
+    add a bank but not a list of their own — no "Insurers", no "Landlords", no
+    "Payment methods". The dict is now the seed for this table rather than the
+    whole story, and `masters.py` validates against these rows.
+
+    `type` stays the identity and is NEVER editable, including for a list
+    somebody added themselves: the app's own code refers to `expense_category`
+    and `document_category` by that string, and every Master row points at its
+    list through it. The LABEL is what a person renames.
+
+    `is_builtin` marks the four that the product itself reads. They can be
+    renamed and their contents changed like any other, and they cannot be
+    deleted, because a form that asks for `expense_category` would have nothing
+    to ask.
+    """
+    __tablename__ = "master_lists"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    type = Column(String(40), index=True)
+    label = Column(String(80))
+    field = Column(String(10), default="emoji")   # 'emoji' or 'color'
+    icon = Column(String(16))                     # emoji shown for the list itself
+    is_builtin = Column(Integer, default=0)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
 class Master(Base):
     """User-managed lookup lists ('masters') — e.g. document categories, banks,
     expense categories. One row per value, keyed by (user_id, type, key)."""

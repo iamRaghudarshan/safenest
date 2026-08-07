@@ -13,7 +13,7 @@ from .config import BACKEND_DIR, settings
 from .crypto import reencrypt_legacy_items
 from .database import Base, engine
 from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Hosting, License, Release,
-                     Master, Notification, NotificationPref, PhotoVector, PushSubscription,
+                     Master, MasterList, Notification, NotificationPref, PhotoVector, PushSubscription,
                      UserModule, User)
 from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, notifications, people, reminders,
@@ -223,6 +223,10 @@ def _migrate() -> None:
     # existing non-admin user who doesn't have it yet (admins bypass RBAC).
     Document.__table__.create(bind=engine, checkfirst=True)
     Master.__table__.create(bind=engine, checkfirst=True)  # user-managed lookup lists
+    # Lists people define themselves, beyond the four the product ships with
+    # (added August 2026). Seeded from masters.py's dict on first read, so an
+    # installation that never opens the screen behaves exactly as it always did.
+    MasterList.__table__.create(bind=engine, checkfirst=True)
     # Push notifications (added July 2026).
     PushSubscription.__table__.create(bind=engine, checkfirst=True)
     NotificationPref.__table__.create(bind=engine, checkfirst=True)

@@ -50,9 +50,18 @@ export interface MasterItem {
 }
 
 export interface MasterTypeMeta {
+  /// Row id. These are rows now, not entries in a dict on the server — a
+  /// person can add lists of their own, so the four built-ins are simply the
+  /// ones marked is_builtin.
+  id: number
+  /// The identity, and never editable: values point at their list through it
+  /// and the record forms name `expense_category` and `bank` in code.
   type: string
   label: string
   field: 'emoji' | 'color'
+  icon?: string | null
+  is_builtin?: number
+  count?: number
 }
 
 export interface User {

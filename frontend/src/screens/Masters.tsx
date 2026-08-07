@@ -15,12 +15,28 @@ export default function Masters() {
   const [items, setItems] = useState<MasterItem[] | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [edit, setEdit] = useState<MasterItem | null>(null)
+  const [listOpen, setListOpen] = useState<'new' | 'rename' | null>(null)
 
-  useEffect(() => {
-    api<{ types: MasterTypeMeta[] }>('/api/masters/types')
-      .then((d) => { setTypes(d.types); setType(d.types[0] || null) })
-      .catch(() => setTypes([]))
+  // Keeps the same list selected across a reload, so renaming one or adding a
+  // value does not bounce you back to the first tab.
+  const loadTypes = useCallback(async (keep?: string) => {
+    try {
+      const d = await api<{ types: MasterTypeMeta[] }>('/api/masters/types')
+      setTypes(d.types)
+      setType(d.types.find((t) => t.type === keep) || d.types[0] || null)
+    } catch { setTypes([]) }
   }, [])
+
+  useEffect(() => { loadTypes() }, [loadTypes])
+
+  async function removeList(t: MasterTypeMeta) {
+    if (!confirm(`Delete the “${t.label}” list${t.count ? ` and its ${t.count} entries` : ''}?\n\nRecords already filed under those names keep them.`)) return
+    try {
+      await api(`/api/masters/types/${t.id}`, { method: 'DELETE' })
+      toast('List deleted')
+      loadTypes()
+    } catch { toast('Could not delete that list') }
+  }
 
   const load = useCallback(async () => {
     if (!type) return
@@ -53,11 +69,27 @@ export default function Masters() {
         <>
           <div className="doc-cats">
             {types.map((t) => (
-              <button key={t.type} className={`chip${type?.type === t.type ? ' on' : ''}`} onClick={() => setType(t)}>{t.label}</button>
+              <button key={t.type} className={`chip${type?.type === t.type ? ' on' : ''}`} onClick={() => setType(t)}>
+                {t.icon ? `${t.icon} ` : ''}{t.label}
+              </button>
             ))}
+            {/* The lists themselves are editable now, not just their contents. */}
+            <button className="chip" onClick={() => setListOpen('new')} title="Add a list of your own">＋ New list</button>
           </div>
 
-          <p className="muted" style={{ fontSize: 12.5, margin: '2px 2px 12px' }}>
+          {type && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 2px 4px' }}>
+              <button className="btn ghost sm" onClick={() => setListOpen('rename')}>✏️ Rename this list</button>
+              {/* A built-in is renameable but not removable — the expense form
+                  asks for `expense_category` by name, so deleting it would
+                  leave a field with nothing to offer and no way back. */}
+              {type.is_builtin
+                ? <span className="muted" style={{ fontSize: 12 }}>🔒 Built in — rename it, but it can’t be removed</span>
+                : <button className="btn danger sm" onClick={() => removeList(type)}>Delete this list</button>}
+            </div>
+          )}
+
+          <p className="muted" style={{ fontSize: 12.5, margin: '8px 2px 12px' }}>
             Add your own {type?.label.toLowerCase()}, rename or hide ones you don’t use. Hidden values stay off the pickers but keep past records intact.
           </p>
 
@@ -90,7 +122,82 @@ export default function Masters() {
         onSaved={() => { setAddOpen(false); load() }} />}
       {edit && type && <MasterForm typeMeta={type} item={edit} onClose={() => setEdit(null)}
         onSaved={() => { setEdit(null); load() }} />}
+      {listOpen && <ListForm
+        existing={listOpen === 'rename' ? type : null}
+        onClose={() => setListOpen(null)}
+        onSaved={(keep) => { setListOpen(null); loadTypes(keep) }} />}
     </div>
+  )
+}
+
+/** Add or rename a LIST — not a value in one.
+ *
+ *  `type` is never editable, for a list somebody added as much as for a
+ *  built-in: every value points at its list through that string, and the app's
+ *  own forms name `expense_category` and `bank` in code. The label is what a
+ *  person renames, and calling their bank list "Lenders" costs the product
+ *  nothing. */
+function ListForm({ existing, onClose, onSaved }: {
+  existing: MasterTypeMeta | null; onClose: () => void; onSaved: (keep?: string) => void
+}) {
+  const toast = useToast()
+  const [label, setLabel] = useState(existing?.label || '')
+  const [icon, setIcon] = useState(existing?.icon || '')
+  const [field, setField] = useState<'emoji' | 'color'>(existing?.field || 'emoji')
+  const [busy, setBusy] = useState(false)
+  const builtin = !!existing?.is_builtin
+
+  async function submit() {
+    if (!label.trim()) return
+    setBusy(true)
+    try {
+      const body: Record<string, unknown> = { label: label.trim(), icon }
+      // Not sent for a built-in: flipping it from emoji to colour would strip
+      // the glyphs off values the product ships with. The server refuses it
+      // anyway; not sending it keeps both halves saying the same thing.
+      if (!builtin) body.field = field
+      if (existing) {
+        const d = await api<{ item: MasterTypeMeta }>(`/api/masters/types/${existing.id}`, { method: 'PUT', body })
+        toast('Renamed'); onSaved(d.item.type)
+      } else {
+        const d = await api<{ item: MasterTypeMeta }>('/api/masters/types', { method: 'POST', body })
+        toast('List created'); onSaved(d.item.type)
+      }
+    } catch { toast('Could not save that list') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Sheet title={existing ? 'Rename this list' : 'Add a list'} onClose={onClose}>
+      <p className="muted" style={{ fontSize: 12.5, marginTop: -4 }}>
+        {existing
+          ? 'Only the name changes. Everything in the list stays where it is.'
+          : 'A list of your own — insurers, landlords, payment methods, whatever you keep track of.'}
+      </p>
+      <Field label="Name of the list">
+        <input className="input" value={label} onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Insurers" autoFocus />
+      </Field>
+      {!builtin && (
+        <Field label="What its entries carry">
+          <select className="select" value={field} onChange={(e) => setField(e.target.value as 'emoji' | 'color')}>
+            <option value="emoji">A symbol</option>
+            <option value="color">A colour</option>
+          </select>
+        </Field>
+      )}
+      <Field label="Icon for the list itself (optional)">
+        <div className="mst-emoji-suggest">
+          {EMOJI_SUGGEST.map((e) => (
+            <button key={e} type="button" className={`mst-emoji${icon === e ? ' on' : ''}`}
+              onClick={() => setIcon(icon === e ? '' : e)}>{e}</button>
+          ))}
+        </div>
+      </Field>
+      <button className="btn block" disabled={busy || !label.trim()} onClick={submit}>
+        {busy ? 'Saving…' : existing ? 'Save changes' : 'Create the list'}
+      </button>
+    </Sheet>
   )
 }
 
