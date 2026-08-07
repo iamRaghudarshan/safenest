@@ -1089,6 +1089,40 @@ folders look empty of Python. That check alone cost 35 of the 57 packages.
   pass rebuilt the engine, failed identically, and printed again — a customer's
   console scrolling past itself every two seconds. One attempt, one message, and
   `available()` goes false so nothing keeps queueing work that cannot run.
+- **A client's dropdown must offer values the ENUM accepts.** Several columns are
+  MySQL ENUMs — `todos.priority` is `(low,medium,high)`, `todos.status` is
+  `(pending,done)`, `insurance.frequency` is `half_yearly` with an underscore,
+  `credit_cards.status` is `(paid,unpaid)`. The phone app's field table was
+  written from memory and got four of them wrong; each looked fine in the form
+  and was refused by the database on save. `SELECT column_type FROM
+  information_schema.columns WHERE data_type='enum'` before writing one, and note
+  that SQLite does not enforce them — so a customer copy accepts what this
+  installation rejects. `safenest-mobile/test/record_form_test.dart` pins them.
+- **A field a router does not list is silently dropped, not refused.** Every
+  record router filters the body through its own `FIELDS` (or `CONFIG[...]
+  ["fields"]` in `resources.py`). Anything else is ignored without an error, so a
+  form offering it looks like it saved and the value is simply gone. `cards.py`
+  accepts neither `statement_amount` nor `status`, and the phone offered both.
+  Nothing in the product writes `statement_amount` at all.
+- **`paid_this_month` is what says a card or a loan is paid.** Not `is_paid`, not
+  `paid` — neither is a field of anything, and a client reading them shows
+  "unpaid" for ever however often the button is pressed. The state lives in
+  `CardPayment` / `LoanPayment` rows keyed by period, not on the card itself.
+- **Reminders carry a `due_time`, and it is a `VARCHAR(5)` holding "HH:MM".**
+  Every other date here goes through `FlexDate` because MySQL and SQLite
+  disagree; a short string agrees with both and compares to the current minute
+  exactly. `scheduler.run_reminders()` rings it — today's only, `now >= target`
+  so a PC asleep at 18:30 still fires once when it wakes, and `notified_on`
+  stops it firing again every minute for the rest of the evening. Editing the
+  time or reopening the reminder clears `notified_on`, or the alarm you just set
+  stays silent. An unreadable time is refused by the router rather than stored:
+  a reminder that sits in the list looking set and never arrives is worse than
+  one that was never accepted.
+- **`scheduler.start()` no longer requires push to be configured.** It used to
+  return early without VAPID keys, so on those installations the whole thread
+  never ran. `push.notify()` writes the in-app row before it tries any device, so
+  a timed reminder reaches the bell either way; only the daily digest half is
+  still gated.
 - **Native DLLs in a subfolder need their directory registered.**
   `onnxruntime_pybind11_state.pyd` lives in `_internal/onnxruntime/capi/` and
   needs the Microsoft C++ runtime, which PyInstaller puts in `_internal/`. Since

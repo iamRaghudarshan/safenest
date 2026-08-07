@@ -133,12 +133,16 @@ export interface Expense {
 
 export interface Reminder {
   id: number; title: string; module_ref: string | null; due_date: string | null
+  // "18:30", or null for one that is simply due that day. time_fmt is the same
+  // value read aloud ("6:30 pm") and is only present when due_time is.
+  due_time: string | null; time_fmt?: string | null
   recurrence: string | null; is_done: number; days: number | null; due_fmt: string | null
 }
 
 export interface Todo {
   id: number; title: string; priority: 'low' | 'medium' | 'high'
   due_date: string | null; status: 'pending' | 'done'
+  recurrence: string | null
 }
 
 export interface VaultItem {

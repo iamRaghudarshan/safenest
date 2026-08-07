@@ -185,6 +185,12 @@ def _migrate() -> None:
         ("gallery_photos", "ocr_at", "ALTER TABLE gallery_photos ADD COLUMN ocr_at DATETIME NULL"),
         # Links a resent message back to the original (added July 2026).
         ("broadcasts", "resend_of", "ALTER TABLE broadcasts ADD COLUMN resend_of INT NULL"),
+        # A reminder can now name an hour, not just a day (added August 2026).
+        # NULL on every existing row, which is exactly right: those were set
+        # before there was a time to give, and they keep arriving with the daily
+        # summary as they always did.
+        ("reminders", "due_time", "ALTER TABLE reminders ADD COLUMN due_time VARCHAR(5) NULL"),
+        ("reminders", "notified_on", "ALTER TABLE reminders ADD COLUMN notified_on DATE NULL"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).

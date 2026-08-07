@@ -199,6 +199,18 @@ class Reminder(Base):
     title = Column(String(160))
     module_ref = Column(String(40))
     due_date = Column(FlexDate)
+    # "HH:MM", or NULL for a reminder that is simply due that day.
+    #
+    # A string rather than a TIME column, deliberately. Every other date here goes
+    # through FlexDate because MySQL and SQLite disagree; a five-character string
+    # agrees with both, survives JSON untouched in either direction, and compares
+    # to the current minute exactly — no parsing, no timezone, no dialect. The one
+    # thing it gives up is date arithmetic in SQL, and nothing here does any.
+    due_time = Column(String(5))
+    # The last day this reminder's own alarm fired. The scheduler wakes every
+    # minute, so without it a reminder due at 18:30 would fire at 18:30, 18:31,
+    # 18:32 … for the rest of the evening.
+    notified_on = Column(FlexDate)
     recurrence = Column(String(10), default="none")
     is_done = Column(Integer, default=0)
     notify_push = Column(Integer, default=1)

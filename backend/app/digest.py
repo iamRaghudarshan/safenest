@@ -21,6 +21,20 @@ def _due_on(day: int, y: int, m: int) -> date:
     return date(y, m, min(day, calendar.monthrange(y, m)[1]))
 
 
+def pretty_time(hhmm: str) -> str:
+    """18:30 -> 6:30 pm. The stored form stays 24-hour; only the reading changes.
+
+    Public because both the reminders router and the scheduler word the same time
+    for the same person, and two copies of this drift the moment one is touched.
+    """
+    try:
+        hh, mm = (int(x) for x in str(hhmm).split(":")[:2])
+    except (ValueError, IndexError):
+        return str(hhmm)
+    suffix = "am" if hh < 12 else "pm"
+    return f"{hh % 12 or 12}:{mm:02d} {suffix}"
+
+
 def _money(n) -> str:
     """Compact rupee formatting — notifications have very little room."""
     v = float(n or 0)
@@ -81,7 +95,14 @@ def build(db: Session, user_id: int, pref: NotificationPref | None = None) -> di
             if days > SOON_DAYS:
                 continue
             count += 1
-            (overdue if days < 0 else due_today if days == 0 else soon).append(r.title or "Reminder")
+            label = r.title or "Reminder"
+            # The morning summary is read hours before the reminder's own alarm.
+            # Saying "Take the tablets" when the person set it for 9pm invites
+            # them to do it now and again later; "Take the tablets (9:00 pm)" is
+            # the same line doing its job.
+            if r.due_time and days == 0:
+                label = f"{label} ({pretty_time(r.due_time)})"
+            (overdue if days < 0 else due_today if days == 0 else soon).append(label)
         for t in db.query(Todo).filter(Todo.user_id == user_id, Todo.status == "pending",
                                        Todo.due_date.isnot(None)):
             days = (t.due_date - today).days
