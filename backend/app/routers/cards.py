@@ -88,8 +88,18 @@ def update(id: int, body: dict = Body(...), user: User = Depends(guard("cards", 
         if f in body and body[f] not in ("", None):
             setattr(c, f, body[f])
     c.updated_at = ist.now(); db.commit(); db.refresh(c)
+    # `c.card_name` was here, and CreditCard has no such column — so EVERY edit
+    # raised AttributeError and returned 500. Worse than a plain crash, because
+    # the commit above had already run: the change was saved, no audit row was
+    # written, and the person was told the server had failed. They then edit it
+    # again, and the log shows nothing either time.
+    #
+    # The same shape as the licence-issue bug this project already recorded —
+    # a 500 from the AUDIT line, after the row was written. Anything between
+    # commit() and return is on that footing and has to be attribute-safe.
     audit(db, user.id, "update", "card", id,
-          {"label": (c.card_name or c.bank), "changes": changes(before, snapshot(c))})
+          {"label": f"{c.bank} ••{c.last4}" if c.last4 else (c.bank or f"card {id}"),
+           "changes": changes(before, snapshot(c))})
     return {"item": to_dict(c)}
 
 
