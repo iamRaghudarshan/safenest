@@ -475,6 +475,74 @@ export default function Gallery() {
 // Watches a sentinel near the end of the grid; when it scrolls into view it asks
 // for the next page. Shows a spinner while loading and a footer once every photo
 // is loaded.
+/**
+ * A collection that pages, for the drill-downs.
+ *
+ * Both of them used to ask once and render whatever came back. AlbumView sent
+ * `limit=300` and PersonView sent no limit at all, so each showed a prefix of a
+ * larger collection and presented it as the whole thing — the header even read
+ * "150 photos" off the array it had, which is the count of what was fetched and
+ * not the count of what exists. A truncation nobody is told about is worse than
+ * an error: there is nothing to notice.
+ *
+ * `total` comes from the server rather than from `items.length`, so the header
+ * is right from the first page.
+ */
+const COLLECTION_PAGE = 150
+
+function usePagedPhotos(path: string) {
+  const [items, setItems] = useState<Photo[] | null>(null)
+  const [total, setTotal] = useState(0)
+  const [more, setMore] = useState(false)
+  const offsetRef = useRef(0)
+  const doneRef = useRef(false)
+  const busyRef = useRef(false)
+
+  const load = useCallback(async (reset: boolean) => {
+    if (busyRef.current) return
+    if (!reset && doneRef.current) return
+    busyRef.current = true
+    const off = reset ? 0 : offsetRef.current
+    if (!reset) setMore(true)
+    try {
+      // These paths carry a query string as often as not (`?album=3`), so the
+      // separator is worked out rather than assumed.
+      const sep = path.includes('?') ? '&' : '?'
+      const d = await api<{ items: Photo[]; total?: number }>(
+        `${path}${sep}offset=${off}&limit=${COLLECTION_PAGE}`)
+      setTotal(typeof d.total === 'number' ? d.total : (off + d.items.length))
+      setItems((prev) => (reset || !prev ? d.items : [...prev, ...d.items]))
+      offsetRef.current = off + d.items.length
+      doneRef.current = d.items.length < COLLECTION_PAGE
+    } catch {
+      if (reset) setItems([])
+      doneRef.current = true
+    } finally { setMore(false); busyRef.current = false }
+  }, [path])
+
+  const reload = useCallback(() => {
+    offsetRef.current = 0; doneRef.current = false; load(true)
+  }, [load])
+  useEffect(() => { reload() }, [reload])
+
+  return {
+    items, total, more, reload,
+    done: doneRef.current,
+    loadMore: () => load(false),
+    // Removing one from the album should not cost a round trip, but the total
+    // has to come down with it or the footer keeps promising a photo that is
+    // no longer there.
+    drop: (id: number) => {
+      setItems((xs) => xs?.filter((x) => x.id !== id) ?? null)
+      setTotal((t) => Math.max(0, t - 1))
+      offsetRef.current = Math.max(0, offsetRef.current - 1)
+    },
+    // For changes that do not alter the count — favouriting, mostly.
+    patch: (id: number, f: (p: Photo) => Photo) =>
+      setItems((xs) => xs?.map((x) => (x.id === id ? f(x) : x)) ?? null),
+  }
+}
+
 function InfiniteSentinel({ onHit, done, loading, shown, total }: {
   onHit: () => void; done: boolean; loading: boolean; shown: number; total: number
 }) {
@@ -937,14 +1005,11 @@ function PersonView({ person, onBack, onOpen, view, setView, toggleFav, trash, c
   toggleFav: (p: Photo) => void; trash: (p: Photo) => void; canEdit: boolean
 }) {
   const toast = useToast()
-  const [items, setItems] = useState<Photo[] | null>(null)
   const [name, setName] = useState(person.name)
   const [renaming, setRenaming] = useState(false)
-
-  const load = useCallback(() => {
-    api<{ items: Photo[] }>(`/api/people/${person.id}/photos`).then((d) => setItems(d.items)).catch(() => setItems([]))
-  }, [person.id])
-  useEffect(() => { load() }, [load])
+  const { items, total, more, done, loadMore, reload } =
+    usePagedPhotos(`/api/people/${person.id}/photos`)
+  const load = reload
 
   async function rename(v: string) {
     await api(`/api/people/${person.id}`, { method: 'PUT', body: { name: v } })
@@ -953,9 +1018,18 @@ function PersonView({ person, onBack, onOpen, view, setView, toggleFav, trash, c
 
   return (
     <div className="screen">
-      <TopBar title={name} sub={`${items?.length ?? person.count} photos`} onBack={onBack}
+      {/* The server's total, not items.length — that was the length of the page
+          that happened to be fetched, so a person with more photos than one
+          page had their count quietly understated on their own screen. */}
+      <TopBar title={name} sub={`${(total || person.count).toLocaleString()} photos`} onBack={onBack}
         right={canEdit ? <button className="btn ghost sm" onClick={() => setRenaming(true)}>Rename</button> : undefined} />
-      {!items ? <Spinner /> : items.length === 0 ? <Empty icon="🙂" title="No photos" /> : <PhotoGrid photos={items} onOpen={onOpen} />}
+      {!items ? <Spinner /> : items.length === 0 ? <Empty icon="🙂" title="No photos" /> : (
+        <>
+          <PhotoGrid photos={items} onOpen={onOpen} />
+          <InfiniteSentinel onHit={loadMore} done={done} loading={more}
+            shown={items.length} total={total} />
+        </>
+      )}
       {renaming && <RenameSheet initial={name} onClose={() => setRenaming(false)} onSave={rename} />}
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)} onTrash={() => { trash(view); load() }} canEdit={canEdit} />}
     </div>
@@ -1057,18 +1131,17 @@ function AlbumView({ album, onBack, canEdit }: {
   album: AlbumSummary; onBack: () => void; canEdit: boolean
 }) {
   const toast = useToast()
-  const [items, setItems] = useState<Photo[] | null>(null)
   const [name, setName] = useState(album.name)
   const [view, setView] = useState<Photo | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [adding, setAdding] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
 
-  const load = useCallback(() => {
-    api<{ items: Photo[] }>(`/api/gallery?album=${album.id}&limit=300`)
-      .then((d) => setItems(d.items)).catch(() => setItems([]))
-  }, [album.id])
-  useEffect(() => { load() }, [load])
+  // Was a single `limit=300`. An album past 300 photos showed 300 of them and
+  // said nothing, which is the same silent truncation the person view had.
+  const { items, total, more, done, loadMore, reload, drop, patch } =
+    usePagedPhotos(`/api/gallery?album=${album.id}`)
+  const load = reload
 
   async function rename(v: string) {
     try {
@@ -1098,24 +1171,24 @@ function AlbumView({ album, onBack, canEdit }: {
   async function removeFromAlbum(p: Photo) {
     try {
       await api(`/api/gallery/albums/${album.id}/remove`, { method: 'POST', body: { photo_ids: [p.id] } })
-      setItems((xs) => xs?.filter((x) => x.id !== p.id) ?? null)
+      drop(p.id)
       setView(null); toast('Removed from album')
     } catch (e) { toast(errorMessage(e, 'Could not remove it')) }
   }
 
   async function toggleFav(p: Photo) {
     await api(`/api/gallery/${p.id}/favourite`, { method: 'POST' })
-    setItems((xs) => xs?.map((x) => x.id === p.id ? { ...x, is_favourite: x.is_favourite ? 0 : 1 } : x) ?? null)
+    patch(p.id, (x) => ({ ...x, is_favourite: x.is_favourite ? 0 : 1 }))
     setView((v) => v && v.id === p.id ? { ...v, is_favourite: v.is_favourite ? 0 : 1 } : v)
   }
 
   async function trash(p: Photo) {
     await api(`/api/gallery/${p.id}`, { method: 'DELETE' })
-    setItems((xs) => xs?.filter((x) => x.id !== p.id) ?? null)
+    drop(p.id)
     setView(null); toast('Moved to trash')
   }
 
-  const count = items?.length ?? album.count
+  const count = total || album.count
   return (
     <div className="screen">
       <TopBar title={name} sub={`${count} photo${count === 1 ? '' : 's'}`} onBack={onBack}
@@ -1130,7 +1203,13 @@ function AlbumView({ album, onBack, canEdit }: {
         : items.length === 0
           ? <Empty icon="🗂️" title="This album is empty"
               hint={canEdit ? 'Tap ＋ Add to put photos in it.' : undefined} />
-          : <PhotoGrid photos={items} onOpen={setView} />}
+          : (
+            <>
+              <PhotoGrid photos={items} onOpen={setView} />
+              <InfiniteSentinel onHit={loadMore} done={done} loading={more}
+                shown={items.length} total={total} />
+            </>
+          )}
 
       {canEdit && (
         <button className="btn danger block" style={{ marginTop: 24 }} onClick={() => setConfirmDel(true)}>
