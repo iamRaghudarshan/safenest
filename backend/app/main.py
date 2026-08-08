@@ -198,6 +198,11 @@ def _migrate() -> None:
          "ALTER TABLE gallery_photos ADD COLUMN kind VARCHAR(8) NOT NULL DEFAULT 'photo'"),
         ("gallery_photos", "duration_ms",
          "ALTER TABLE gallery_photos ADD COLUMN duration_ms INT NULL"),
+        # Two-factor. two_factor_enabled was already on the model and used by
+        # nothing; these are what make it mean something.
+        ("users", "totp_secret_enc", "ALTER TABLE users ADD COLUMN totp_secret_enc TEXT NULL"),
+        ("users", "recovery_codes", "ALTER TABLE users ADD COLUMN recovery_codes TEXT NULL"),
+        ("users", "two_factor_at", "ALTER TABLE users ADD COLUMN two_factor_at DATETIME NULL"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).
@@ -576,12 +581,25 @@ _CSP = "; ".join([
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' blob: data:",
+    # media-src, added when the gallery learned to hold video. Without it a
+    # <video> falls back to default-src, which happens to allow 'self' — so it
+    # worked, by accident, and would have broken the day default-src tightened.
+    "media-src 'self' blob:",
     "font-src 'self' data:",
     "connect-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
+    # Named rather than left to default-src, so each says what it means and a
+    # future change to the default cannot quietly widen one of them.
+    "frame-src 'none'",
+    "worker-src 'self'",          # the service worker, and nothing else
+    "manifest-src 'self'",
+    # Anything that slipped through as http:// is fetched over https instead of
+    # being blocked outright. On a customer's own domain this is the difference
+    # between a mixed-content failure they cannot diagnose and it simply working.
+    "upgrade-insecure-requests",
 ])
 
 
@@ -677,8 +695,23 @@ async def security_headers(request: Request, call_next):
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
-    resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    # Every capability this app never uses, refused up front. A browser will not
+    # even prompt, so a page that somehow ran here could not ask for the
+    # microphone, the location, or a payment sheet.
+    resp.headers.setdefault(
+        "Permissions-Policy",
+        "geolocation=(), microphone=(), camera=(), payment=(), usb=(), "
+        "magnetometer=(), gyroscope=(), accelerometer=(), midi=(), "
+        "serial=(), bluetooth=(), display-capture=(), "
+        "interest-cohort=(), browsing-topics=()")
     resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    # Nobody else's page may fetch a photo, a document or an API response from
+    # here, even with a URL. The signed media links are already owner-bound and
+    # expiring; this stops a leaked one being embedded elsewhere at all.
+    resp.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    # The Flash-era crossdomain.xml family. Long dead, still checked by scanners,
+    # and free to close.
+    resp.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
     # Naming the server and its version tells a scanner which exploits to try
     # first. It buys an attacker time and buys us nothing.
     # _cached: a database round-trip per response for a header would be absurd.

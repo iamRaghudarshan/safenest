@@ -65,7 +65,22 @@ class User(Base):
     status = Column(String(12), default="active")
     phone = Column(String(20))
     avatar = Column(String(255))
+    # --- two-factor ---
+    # two_factor_enabled existed on its own for a long time, referenced by
+    # nothing: a column that made the app look as though it had a second factor
+    # while a password was the only thing between the internet and someone's
+    # financial records. These are the parts that make it real.
     two_factor_enabled = Column(Integer, default=0)
+    # The TOTP secret, encrypted at rest with the same vault key as saved
+    # passwords. In the clear it is equivalent to the second factor itself —
+    # anyone reading the database could generate valid codes for ever.
+    totp_secret_enc = Column(Text)
+    # SHA-256 of each unused recovery code, JSON. Hashed because they are
+    # passwords that happen to be used once; kept because a licensed copy has
+    # no administrator anywhere in it, so a lost phone would otherwise mean
+    # losing every record permanently. See totp.py.
+    recovery_codes = Column(Text)
+    two_factor_at = Column(FlexDateTime)   # when it was turned on
     vault_recovery_hash = Column(String(255))
     # Bumped whenever every existing session must die (password change, admin reset).
     # Tokens carry the value they were minted with and are rejected once it moves on.

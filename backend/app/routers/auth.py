@@ -1,22 +1,27 @@
+import hmac
 import io
+import json
 import os
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import (APIRouter, Body, Depends, File, HTTPException, Request,
+                     UploadFile, status)
 from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import ist
+from .. import crypto, ist, totp
 from .. import storage
 from ..database import get_db
 from ..helpers import audit
 from ..models import User, UserModule
 from ..ratelimit import rate_limit
-from ..security import (check_password_strength, create_token, get_current_user,
-                        hash_password, licence_grants_admin, verify_password)
+from ..security import (check_password_strength, create_2fa_challenge,
+                        create_token, get_current_user, hash_password,
+                        licence_grants_admin, read_2fa_challenge,
+                        verify_password)
 from ..signing import sign, verify
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -98,12 +103,98 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
         audit(db, user.id, "login_suspended", "user", user.id, request=request)
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is suspended. Contact your administrator.")
 
+    # THE SECOND FACTOR, if this account has one.
+    #
+    # No session token is issued here — only a short-lived challenge that says
+    # "this password was right, now prove the other thing". Handing out the real
+    # token and checking the code afterwards would make the second factor
+    # decorative: anyone who could read the response already had the session.
+    if user.two_factor_enabled and user.totp_secret_enc:
+        user.failed_logins = 0
+        user.locked_until = None
+        db.commit()
+        audit(db, user.id, "login_2fa_challenge", "user", user.id, request=request)
+        return {
+            "two_factor": True,
+            "challenge": create_2fa_challenge(user),
+            # Named so the screen can offer the right thing, and so somebody
+            # who has lost their phone is not left guessing that a recovery
+            # code goes in the same box.
+            "methods": ["totp", "recovery"],
+        }
+
     user.failed_logins = 0
     user.locked_until = None
     user.last_login_at = ist.now()
     db.commit()
     audit(db, user.id, "login", "user", user.id, request=request)
     return {"token": create_token(user), "user": public_user(user), "modules": modules_for(user, db)}
+
+
+@router.post("/login/2fa")
+def login_2fa(body: dict = Body(...), request: Request = None,
+              db: Session = Depends(get_db)):
+    """Finish a sign-in that asked for a code.
+
+    Rate limited harder than the password step: six digits is 1,000,000
+    possibilities, and an unthrottled endpoint turns that into an afternoon's
+    work. The challenge is single-use and short-lived, so an attacker cannot
+    keep one and grind at it either.
+    """
+    rate_limit(request, "login-2fa", limit=8, window=300)
+    challenge = str(body.get("challenge") or "")
+    code = str(body.get("code") or "")
+    invalid = HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            "That code is not right. Try the next one.")
+
+    uid = read_2fa_challenge(challenge)
+    if not uid:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            "That sign-in expired. Enter your password again.")
+    user = db.query(User).filter(User.id == uid).first()
+    if not user or not user.two_factor_enabled or not user.totp_secret_enc:
+        raise invalid
+
+    if _consume_second_factor(db, user, code):
+        user.last_login_at = ist.now()
+        user.failed_logins = 0
+        db.commit()
+        audit(db, user.id, "login", "user", user.id, request=request)
+        return {"token": create_token(user), "user": public_user(user),
+                "modules": modules_for(user, db)}
+
+    # A wrong code counts towards the same lockout the password uses. Otherwise
+    # the second factor would be the one door with no limit behind it.
+    user.failed_logins = (user.failed_logins or 0) + 1
+    if user.failed_logins >= MAX_ATTEMPTS:
+        user.locked_until = ist.now() + timedelta(minutes=LOCK_MINUTES)
+        user.failed_logins = 0
+    db.commit()
+    audit(db, user.id, "login_2fa_failed", "user", user.id, request=request)
+    raise invalid
+
+
+def _consume_second_factor(db: Session, user: User, code: str) -> bool:
+    """True if `code` is a valid TOTP or an unused recovery code.
+
+    A recovery code is REMOVED as it is accepted — that is what makes it single
+    use, and it is the difference between a spare key and a copied one.
+    """
+    secret = crypto.decrypt(user.totp_secret_enc) if user.totp_secret_enc else ""
+    if secret and totp.verify(secret, code):
+        return True
+
+    stored = json.loads(user.recovery_codes or "[]")
+    wanted = totp.hash_recovery(code)
+    # compare_digest against each, rather than `in`, so the check does not leak
+    # timing about how many codes remain or how close one was.
+    for i, h in enumerate(stored):
+        if hmac.compare_digest(h, wanted):
+            stored.pop(i)
+            user.recovery_codes = json.dumps(stored)
+            db.commit()
+            return True
+    return False
 
 
 @router.get("/me")
@@ -213,3 +304,116 @@ def change_password(body: ChangePwIn, request: Request,
     audit(db, user.id, "password_change", "user", user.id, request=request)
     # Hand back a fresh token so the caller isn't logged out by its own change.
     return {"ok": True, "token": create_token(user)}
+
+
+# ------------------------------------------------------------ two-factor ---
+#
+# Turned on by the account holder, for their own account, and never by an
+# administrator for somebody else: a second factor somebody else set up is a
+# second factor somebody else holds.
+
+
+@router.get("/2fa")
+def two_factor_status(user: User = Depends(get_current_user)):
+    """Whether it is on, and how many recovery codes are left."""
+    left = len(json.loads(user.recovery_codes or "[]"))
+    return {
+        "enabled": bool(user.two_factor_enabled),
+        "recovery_left": left,
+        "since": user.two_factor_at.isoformat() if user.two_factor_at else None,
+    }
+
+
+@router.post("/2fa/setup")
+def two_factor_setup(request: Request, user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Make a secret and hand back what an authenticator app needs.
+
+    NOT enabled yet. The secret is stored so the code they type next can be
+    checked against it, but two_factor_enabled stays 0 until they prove the app
+    is actually working — otherwise a mistyped setup locks somebody out of
+    their own records with no way back in.
+    """
+    rate_limit(request, f"2fa-setup:{user.id}", limit=10, window=600)
+    if user.two_factor_enabled:
+        raise HTTPException(409, "Two-step sign-in is already on for this account.")
+
+    secret = totp.new_secret()
+    user.totp_secret_enc = crypto.encrypt(secret)
+    db.commit()
+
+    from .branding import app_name
+    return {
+        "secret": secret,                     # shown once, for typing by hand
+        "uri": totp.provisioning_uri(secret, user.email, app_name(db)),
+        "digits": totp.DIGITS,
+        "period": totp.STEP,
+    }
+
+
+@router.post("/2fa/enable")
+def two_factor_enable(body: dict = Body(...), request: Request = None,
+                      user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """Prove the app works, then turn it on and hand over the recovery codes."""
+    rate_limit(request, f"2fa-enable:{user.id}", limit=10, window=600)
+    if not user.totp_secret_enc:
+        raise HTTPException(409, "Start the setup first.")
+    secret = crypto.decrypt(user.totp_secret_enc)
+    if not totp.verify(secret, str(body.get("code") or "")):
+        raise HTTPException(422, "That code is not right. Check the time on your "
+                                 "phone is set automatically, then try the next one.")
+
+    codes = totp.new_recovery_codes()
+    user.recovery_codes = json.dumps([totp.hash_recovery(c) for c in codes])
+    user.two_factor_enabled = 1
+    user.two_factor_at = ist.now()
+    db.commit()
+    audit(db, user.id, "2fa_enabled", "user", user.id, request=request)
+    # The ONLY time these are readable. They are stored hashed, so this response
+    # is the one chance to write them down — which the screen has to say.
+    return {"enabled": True, "recovery_codes": codes}
+
+
+@router.post("/2fa/disable")
+def two_factor_disable(body: dict = Body(...), request: Request = None,
+                       user: User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """Turn it off — and ask for the PASSWORD to do it.
+
+    A session token is enough for most things and deliberately not for this: an
+    unlocked phone left on a table should not be able to remove the second
+    factor from an account.
+    """
+    rate_limit(request, f"2fa-disable:{user.id}", limit=6, window=600)
+    if not verify_password(str(body.get("password") or ""), user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "That password is not right.")
+    user.two_factor_enabled = 0
+    user.totp_secret_enc = None
+    user.recovery_codes = None
+    user.two_factor_at = None
+    db.commit()
+    audit(db, user.id, "2fa_disabled", "user", user.id, request=request)
+    return {"enabled": False}
+
+
+@router.post("/2fa/recovery/new")
+def two_factor_new_recovery(body: dict = Body(...), request: Request = None,
+                            user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """A fresh set, when the old ones are used up or were seen by somebody.
+
+    Also password-guarded, and it REPLACES the old set — leaving the previous
+    codes valid would mean "regenerate" quietly added spare keys instead of
+    changing the lock.
+    """
+    rate_limit(request, f"2fa-recovery:{user.id}", limit=6, window=600)
+    if not user.two_factor_enabled:
+        raise HTTPException(409, "Two-step sign-in is not on for this account.")
+    if not verify_password(str(body.get("password") or ""), user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "That password is not right.")
+    codes = totp.new_recovery_codes()
+    user.recovery_codes = json.dumps([totp.hash_recovery(c) for c in codes])
+    db.commit()
+    audit(db, user.id, "2fa_recovery_replaced", "user", user.id, request=request)
+    return {"recovery_codes": codes}

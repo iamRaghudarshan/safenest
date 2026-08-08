@@ -57,12 +57,53 @@ def create_token(user: User) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+# How long somebody has to type a six-digit code after their password is
+# accepted. Long enough to unlock a phone and open an app; short enough that a
+# challenge left on a screen is not a way in later.
+TWOFA_CHALLENGE_MINUTES = 5
+
+
+def create_2fa_challenge(user: User) -> str:
+    """A token that proves the PASSWORD step passed, and nothing else.
+
+    Deliberately not a session token with a flag on it. `typ` is checked on the
+    way back in, and get_current_user rejects anything carrying it — so if this
+    ever leaked into an Authorization header it would open nothing. A flag on a
+    real token would have been one missing check away from skipping the second
+    factor entirely.
+    """
+    payload = {
+        "sub": str(user.id),
+        "typ": "2fa",
+        "ver": int(user.token_version or 0),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=TWOFA_CHALLENGE_MINUTES),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def read_2fa_challenge(token: str) -> int | None:
+    """The user id inside a challenge, or None if it is not one."""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret,
+                             algorithms=[settings.jwt_algorithm])
+        if payload.get("typ") != "2fa":
+            return None
+        return int(payload.get("sub"))
+    except (PyJWTError, TypeError, ValueError):
+        return None
+
+
 def get_current_user(token: str = Depends(oauth2), db: Session = Depends(get_db)) -> User:
     cred_exc = HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
     if not token:
         raise cred_exc
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        # A half-finished sign-in is NOT a session. Without this, the challenge
+        # handed out after a correct password would work as a bearer token and
+        # the second factor could simply be skipped by using it directly.
+        if payload.get("typ") == "2fa":
+            raise cred_exc
         uid = int(payload.get("sub"))
         ver = int(payload.get("ver", -1))
     except (PyJWTError, TypeError, ValueError):
