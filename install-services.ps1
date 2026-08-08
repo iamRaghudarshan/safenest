@@ -124,11 +124,18 @@ Write-Host "[2/3] App API task ($API_TASK, port 8080)... " -ForegroundColor Cyan
 if (Get-ScheduledTask -TaskName $API_TASK -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $API_TASK -Confirm:$false
 }
+# --no-server-header matters too, and was missing here while every hand-started
+# copy had it: without it uvicorn adds its OWN `Server: uvicorn` beside the
+# app's, so a service-installed machine quietly advertises the framework — and
+# on a version bump, the version — to anyone who asks. It is the one difference
+# between the documented start command and what this registered, and it was
+# found by an audit noticing two Server headers rather than one.
+#
 # --no-access-log matters: a per-request log line written to a console nobody
 # drains will eventually fill its buffer and block every request, which looks
 # exactly like the app hanging while using no CPU.
 $action = New-ScheduledTaskAction -Execute $python `
-    -Argument "-m uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-access-log" `
+    -Argument "-m uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-access-log --no-server-header" `
     -WorkingDirectory $backendDir
 $trigger = New-ScheduledTaskTrigger -AtStartup
 # SYSTEM avoids storing a password and starts without anyone logging in.
@@ -153,6 +160,29 @@ Write-Host "[3/3] cloudflared service... " -ForegroundColor Cyan -NoNewline
 # config (tunnel id + ingress -> 127.0.0.1:8080) where it will be found.
 if (-not (Test-Path $cfHome)) { New-Item -ItemType Directory -Path $cfHome | Out-Null }
 Copy-Item (Join-Path $root "cloudflared\config.yml") (Join-Path $cfHome "config.yml") -Force
+
+# AND into the SYSTEM profile, which is the one that actually matters.
+#
+# `cloudflared service install` registers the service as LocalSystem. LocalSystem's
+# %USERPROFILE% is C:\Windows\System32\config\systemprofile — NOT the person's
+# folder — so a config written only to $cfHome above is somewhere the running
+# service never looks. It starts, finds no ingress, and the public address
+# answers Cloudflare error 1033 while everything local is perfectly healthy.
+#
+# That is exactly what happened on the first real install here: MySQL and the
+# API came up as services, the tunnel service showed Running, and the site was
+# down. "Service is running" and "tunnel is connected" are not the same fact.
+#
+# The credentials JSON is referenced by ABSOLUTE path from inside config.yml so
+# it does not need moving, but cert.pem is looked up beside the config, so it is
+# copied too.
+$sysHome = Join-Path $env:SystemRoot "System32\config\systemprofile\.cloudflared"
+if (-not (Test-Path $sysHome)) { New-Item -ItemType Directory -Path $sysHome -Force | Out-Null }
+Copy-Item (Join-Path $root "cloudflared\config.yml") (Join-Path $sysHome "config.yml") -Force
+foreach ($extra in @("cert.pem")) {
+    $src = Join-Path $cfHome $extra
+    if (Test-Path $src) { Copy-Item $src (Join-Path $sysHome $extra) -Force }
+}
 
 if (Get-Service -Name "cloudflared" -ErrorAction SilentlyContinue) {
     Write-Host "already installed - reinstalling to pick up the config." -ForegroundColor Yellow
