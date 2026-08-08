@@ -72,6 +72,7 @@ $cfHome     = Join-Path $env:USERPROFILE ".cloudflared"
 
 $MYSQL_SVC  = "AppMySQL"
 $API_TASK   = "AppAPI"
+$TUNNEL_TASK = "AppTunnel"
 
 function Test-Port($port) {
     [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
@@ -184,14 +185,42 @@ foreach ($extra in @("cert.pem")) {
     if (Test-Path $src) { Copy-Item $src (Join-Path $sysHome $extra) -Force }
 }
 
+# A TASK, NOT `cloudflared service install`.
+#
+# That command registers the service to run the bare executable with NO
+# arguments — no `tunnel run`, no `--config` — so it depends on discovering a
+# config relative to the service account's profile. It does not find one, and
+# the Windows event log fills with "terminated unexpectedly", 31 times in the
+# first eleven minutes after a reboot, SCM restarting it every 20 seconds.
+#
+# The tunnel LOOKS fine while that happens: each brief run does connect, so the
+# public address answers most requests. It is flapping, not working, and
+# `Get-Service` reports Stopped while the site is up — which is what makes it
+# so easy to miss.
+#
+# A SYSTEM task naming the config path and the tunnel id outright has none of
+# that ambiguity, and it is the same shape as the API task above, which comes
+# back from a reboot cleanly.
 if (Get-Service -Name "cloudflared" -ErrorAction SilentlyContinue) {
-    Write-Host "already installed - reinstalling to pick up the config." -ForegroundColor Yellow
     & $cfExe service uninstall | Out-Null
     Start-Sleep -Seconds 2
 }
-& $cfExe service install | Out-Null
-Set-Service -Name "cloudflared" -StartupType Automatic -ErrorAction SilentlyContinue
-Start-Service -Name "cloudflared" -ErrorAction SilentlyContinue
+Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+if (Get-ScheduledTask -TaskName $TUNNEL_TASK -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $TUNNEL_TASK -Confirm:$false
+}
+$tunnelId = (Select-String -Path (Join-Path $root "cloudflared\config.yml") -Pattern '^tunnel:\s*(\S+)').Matches.Groups[1].Value
+$cfAction = New-ScheduledTaskAction -Execute $cfExe `
+    -Argument "tunnel --config `"$(Join-Path $root 'cloudflared\config.yml')`" run $tunnelId"
+$cfTrigger = New-ScheduledTaskTrigger -AtStartup
+# After the API. A connector that comes up first just retries, but in order
+# means the first request through the tunnel finds something serving.
+$cfTrigger.Delay = "PT45S"
+Register-ScheduledTask -TaskName $TUNNEL_TASK -Action $cfAction -Trigger $cfTrigger `
+    -Principal $sysPrincipal -Settings $settings `
+    -Description "App Cloudflare tunnel -> 127.0.0.1:8080" | Out-Null
+Start-ScheduledTask -TaskName $TUNNEL_TASK
 Write-Host "installed." -ForegroundColor Green
 Start-Sleep -Seconds 6
 
