@@ -257,6 +257,12 @@ class GalleryPhoto(Base):
     lat = Column(Float)               # decimal degrees, north positive
     lon = Column(Float)               # decimal degrees, east positive
     shot_at = Column(FlexDateTime)        # full capture timestamp when EXIF carries one
+    # --- video ---
+    # 'photo' or 'video'. Defaulted rather than nullable: every row that existed
+    # before videos did IS a photo, and a NULL here would make every query that
+    # filters on kind have to say "or null" for ever.
+    kind = Column(String(8), default="photo")
+    duration_ms = Column(Integer)     # videos only; NULL for a photo
     created_at = Column(FlexDateTime)
     updated_at = Column(FlexDateTime)
 

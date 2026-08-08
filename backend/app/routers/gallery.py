@@ -40,10 +40,22 @@ FACE_MATCH = 0.40  # SFace cosine: >=0.363 is same person; 0.40 is a safe margin
 MAX_BYTES = 30 * 1024 * 1024  # 30 MB per photo
 
 
+def thumb_name(p: GalleryPhoto) -> str:
+    """The file that IS this item's thumbnail.
+
+    For a photo it is the photo. For a video it is the poster frame, which is a
+    JPEG saved under the same stem — a `.mp4` in the thumbnail folder would be
+    a video the grid tried to draw as an image.
+    """
+    return (os.path.splitext(p.filename)[0] + ".jpg"
+            if (p.kind or "photo") == "video" else p.filename)
+
+
 def photo_path(p: GalleryPhoto, variant: str) -> str:
     """Absolute path of one variant of a photo — derived from the OWNING ROW, never
     from anything in the request, so a path can't be steered by a caller."""
-    return storage.media_path(storage.GALLERY, p.user_id, variant, p.filename)
+    name = thumb_name(p) if variant == storage.THUMB else p.filename
+    return storage.media_path(storage.GALLERY, p.user_id, variant, name)
 
 
 def media_url(owner_id: int, variant: str, name: str) -> str:
@@ -54,14 +66,17 @@ def media_url(owner_id: int, variant: str, name: str) -> str:
 
 
 def _present(p: GalleryPhoto) -> dict:
+    kind = (p.kind or "photo")
     return {
         "id": p.id,
         "url": media_url(p.user_id, storage.ORIGINAL, p.filename),
-        "thumb_url": media_url(p.user_id, storage.THUMB, p.filename),
+        "thumb_url": media_url(p.user_id, storage.THUMB, thumb_name(p)),
         "is_favourite": int(p.is_favorite or 0),
         "taken_at": p.taken_at.isoformat() if p.taken_at else None,
         "taken_fmt": p.taken_at.strftime("%d-%m-%Y") if p.taken_at else None,
         "caption": p.caption,
+        "kind": kind,
+        "duration_ms": p.duration_ms,
     }
 
 
@@ -90,7 +105,10 @@ def _cover_url(db: Session, photo_id: int | None) -> str | None:
     if not photo_id:
         return None
     p = db.query(GalleryPhoto).get(photo_id)
-    return media_url(p.user_id, storage.THUMB, p.filename) if p else None
+    # thumb_name, not p.filename: an album or place whose cover is a video
+    # would otherwise point at the .mp4 in the thumbnail folder and show
+    # nothing at all.
+    return media_url(p.user_id, storage.THUMB, thumb_name(p)) if p else None
 
 
 @router.get("/media/{variant}/{name}")
@@ -103,6 +121,17 @@ def media(variant: str, name: str, t: str = "", db: Session = Depends(get_db)):
         raise HTTPException(404, "Not found")
 
     photo = db.query(GalleryPhoto).filter(GalleryPhoto.filename == name).first()
+    if photo is None and variant == storage.THUMB:
+        # A video's poster is `<stem>.jpg` while its row says `<stem>.mp4`, so
+        # an exact filename match finds nothing and every video came back as a
+        # broken tile. Matched on the stem, and only for a thumbnail request —
+        # the original still has to be asked for by its real name.
+        stem = os.path.splitext(name)[0]
+        if os.path.splitext(name)[1].lower() == ".jpg" and stem:
+            photo = (db.query(GalleryPhoto)
+                     .filter(GalleryPhoto.kind == "video",
+                             GalleryPhoto.filename.like(f"{stem}.%"))
+                     .first())
     if not photo or not verify(photo.user_id, f"{variant}/{name}", t):
         raise HTTPException(404, "Not found")
 
@@ -309,7 +338,15 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
 
     near_centre = None
     k = (kind or "").strip().lower()
-    if k == "screenshots":
+    if k in ("video", "videos"):
+        sel = sel.filter(GalleryPhoto.kind == "video")
+    elif k in ("photo", "photos"):
+        # `!= 'video'` rather than `== 'photo'`, so rows written before the
+        # column existed — which the migration defaults, but a hand-edited or
+        # restored database might not — still count as photos.
+        sel = sel.filter(or_(GalleryPhoto.kind.is_(None),
+                             GalleryPhoto.kind != "video"))
+    elif k == "screenshots":
         # By filename, because nothing else distinguishes one. Both platforms
         # name them predictably and neither records a flag we could read.
         sel = sel.filter(or_(GalleryPhoto.orig_name.ilike("%screenshot%"),
@@ -848,6 +885,135 @@ def upload(file: UploadFile = File(...), faces: int = 1,
     return store_photo(db, user, raw, file.filename or "")
 
 
+# Videos, by the container's own magic bytes rather than by filename.
+#
+# An extension is a claim, not a fact — a phone that renames on export, a file
+# saved from a chat app, or anything typed by hand can all be wrong. Every one
+# of these is read at a fixed offset in the first few bytes.
+_VIDEO_MAGIC: tuple[tuple[int, bytes], ...] = (
+    (4, b"ftyp"),        # MP4 / MOV / M4V — the ISO base media family
+    (0, b"\x1a\x45\xdf\xa3"),   # Matroska / WebM
+    (0, b"RIFF"),        # AVI (checked further below)
+    (0, b"\x30\x26\xb2\x75"),   # ASF / WMV
+    (0, b"FLV\x01"),
+)
+
+_VIDEO_EXT = {".mp4", ".mov", ".m4v", ".3gp", ".avi", ".mkv", ".webm", ".wmv", ".flv"}
+
+
+def looks_like_video(raw: bytes, filename: str = "") -> bool:
+    head = raw[:32]
+    for offset, sig in _VIDEO_MAGIC:
+        if head[offset:offset + len(sig)] == sig:
+            # RIFF covers WAV and a dozen other things; only AVI is a video.
+            if sig == b"RIFF":
+                return head[8:12] == b"AVI "
+            return True
+    # Falls back to the extension only when the bytes said nothing, so an
+    # unusual container is still accepted rather than refused outright.
+    return os.path.splitext(filename or "")[1].lower() in _VIDEO_EXT
+
+
+def _video_poster(path: str) -> tuple[bytes | None, dict]:
+    """A still from a video, and what we know about it.
+
+    Uses OpenCV, which is ALREADY in this app and already in every customer
+    build — it is here for face matching. The obvious alternative is ffmpeg,
+    and it would have meant shipping a ~100 MB binary to every customer, with
+    its own licensing to think about, to do a job something already present can
+    do.
+
+    The frame is taken about a tenth of the way in, not at zero: the first
+    frame of a phone video is very often black or a blurred pan, and a wall of
+    black thumbnails is indistinguishable from a broken gallery.
+    """
+    meta: dict = {}
+    try:
+        import cv2  # imported lazily: a photo upload should not pay for this
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            return None, meta
+        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
+        meta["width"] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0) or None
+        meta["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0) or None
+        if frames > 0 and fps > 0:
+            meta["duration_ms"] = int(frames / fps * 1000)
+        if frames > 1:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(frames * 0.1)))
+        ok, frame = cap.read()
+        if not ok:
+            # Seeking past the end of a variable-frame-rate clip fails; take the
+            # first frame rather than giving up on a thumbnail entirely.
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ok, frame = cap.read()
+        cap.release()
+        if not ok or frame is None:
+            return None, meta
+        ok, buf = cv2.imencode(".jpg", frame)
+        return (buf.tobytes() if ok else None), meta
+    except Exception as exc:
+        # A video whose poster cannot be made is still a video worth keeping.
+        print(f"[gallery] no poster frame for {os.path.basename(path)}: {exc}")
+        return None, meta
+
+
+def store_video(db: Session, user: User, raw: bytes, filename: str) -> dict:
+    """Store one video, with a still image for the grid to show.
+
+    Deliberately shares de-duplication, trashing, albums and the signed media
+    URLs with photos rather than growing a second gallery beside the first. To
+    everything except the viewer, a video IS a gallery item.
+    """
+    content_hash = hashlib.sha256(raw).hexdigest()
+    dup = (db.query(GalleryPhoto)
+           .filter(GalleryPhoto.user_id == user.id,
+                   GalleryPhoto.content_hash == content_hash)
+           .first())
+    if dup:
+        if dup.is_trashed:
+            dup.is_trashed = 0
+            dup.updated_at = ist.now()
+            db.commit()
+        return {"item": _present(dup), "faces_found": 0, "duplicate": True}
+
+    ext = (os.path.splitext(filename or "")[1].lower() or ".mp4")[:8]
+    fname = f"{uuid.uuid4().hex}{ext}"
+    storage.save(storage.GALLERY, user.id, storage.ORIGINAL, fname, raw)
+
+    # The poster is written under the SAME name with a .jpg suffix, so the
+    # thumbnail variant is found the way a photo's is and nothing downstream
+    # needs to know the difference.
+    poster_name = f"{os.path.splitext(fname)[0]}.jpg"
+    poster, vmeta = _video_poster(storage.media_path(storage.GALLERY, user.id,
+                                                     storage.ORIGINAL, fname))
+    if poster:
+        try:
+            pil = Image.open(io.BytesIO(poster))
+            pil.thumbnail((THUMB_MAX, THUMB_MAX))
+            tbuf = io.BytesIO(); pil.convert("RGB").save(tbuf, format="JPEG", quality=80)
+            storage.save(storage.GALLERY, user.id, storage.THUMB, poster_name,
+                         tbuf.getvalue())
+        except Exception as exc:
+            print(f"[gallery] poster thumbnail failed: {exc}")
+
+    now = ist.now()
+    item = GalleryPhoto(
+        user_id=user.id, filename=fname,
+        caption=os.path.splitext(filename or "")[0] or None,
+        taken_at=ist.today(), is_favorite=0, is_trashed=0, size_bytes=len(raw),
+        content_hash=content_hash, phash=None,
+        orig_name=(filename or "")[-255:] or None,
+        width=vmeta.get("width"), height=vmeta.get("height"),
+        kind="video", duration_ms=vmeta.get("duration_ms"),
+        created_at=now, updated_at=now)
+    db.add(item); db.commit(); db.refresh(item)
+
+    audit(db, user.id, "upload", "video", item.id,
+          {"label": item.caption or item.orig_name or f"Video {item.id}"})
+    return {"item": _present(item), "faces_found": 0, "duplicate": False}
+
+
 def store_photo(db: Session, user: User, raw: bytes, filename: str) -> dict:
     """Decode, de-duplicate, store and thumbnail one photo. The whole of upload.
 
@@ -858,6 +1024,12 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str) -> dict:
     """
     if not raw:
         raise HTTPException(400, "Empty file")
+
+    # A video takes the other path. Checked here rather than at the endpoint so
+    # every caller — the web upload, the phone backup, the iPhone shortcut —
+    # gets the same behaviour without three places deciding it separately.
+    if looks_like_video(raw, filename):
+        return store_video(db, user, raw, filename)
 
     # Decode (pillow-heif handles HEIC/HEIF) and normalise to RGB JPEG bytes once,
     # so the content hash is stable regardless of the original container/encoding.
@@ -1171,7 +1343,11 @@ def empty_trash(user: User = Depends(guard("gallery", "delete")), db: Session = 
         return {"deleted": 0}
     for p in rows:
         for variant in storage.VARIANTS:
-            storage.remove(storage.GALLERY, p.user_id, variant, p.filename)
+            # thumb_name, so a video's poster goes with it. Removing by the raw
+            # filename left a `.jpg` behind for every video ever deleted —
+            # invisible, and it would grow for ever.
+            name = thumb_name(p) if variant == storage.THUMB else p.filename
+            storage.remove(storage.GALLERY, p.user_id, variant, name)
     db.query(PhotoFace).filter(PhotoFace.photo_id.in_(ids)).delete(synchronize_session=False)
     db.query(PhotoPerson).filter(PhotoPerson.photo_id.in_(ids)).delete(synchronize_session=False)
     db.query(AlbumPhoto).filter(AlbumPhoto.photo_id.in_(ids)).delete(synchronize_session=False)
@@ -1190,7 +1366,8 @@ def destroy(id: int, user: User = Depends(guard("gallery", "delete")), db: Sessi
     if not p:
         raise HTTPException(404, "Photo not found")
     for variant in storage.VARIANTS:
-        storage.remove(storage.GALLERY, p.user_id, variant, p.filename)
+        name = thumb_name(p) if variant == storage.THUMB else p.filename
+        storage.remove(storage.GALLERY, p.user_id, variant, name)
     db.query(PhotoFace).filter(PhotoFace.photo_id == id).delete()
     db.query(PhotoPerson).filter(PhotoPerson.photo_id == id).delete()
     db.query(AlbumPhoto).filter(AlbumPhoto.photo_id == id).delete()

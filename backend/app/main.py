@@ -191,6 +191,13 @@ def _migrate() -> None:
         # summary as they always did.
         ("reminders", "due_time", "ALTER TABLE reminders ADD COLUMN due_time VARCHAR(5) NULL"),
         ("reminders", "notified_on", "ALTER TABLE reminders ADD COLUMN notified_on DATE NULL"),
+        # Videos in the gallery. DEFAULT 'photo' rather than NULL: every row
+        # that existed before videos did is a photo, and a NULL would make
+        # every kind= filter say "or null" for the rest of the app's life.
+        ("gallery_photos", "kind",
+         "ALTER TABLE gallery_photos ADD COLUMN kind VARCHAR(8) NOT NULL DEFAULT 'photo'"),
+        ("gallery_photos", "duration_ms",
+         "ALTER TABLE gallery_photos ADD COLUMN duration_ms INT NULL"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).
