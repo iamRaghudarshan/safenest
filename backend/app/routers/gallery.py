@@ -22,7 +22,7 @@ except Exception:
     pass
 
 from .. import ist
-from .. import dialect, indexer, storage, vision
+from .. import dialect, indexer, places, storage, vision
 from ..database import get_db
 from ..helpers import audit
 from ..models import Album, AlbumPhoto, GalleryPhoto, Person, PhotoFace, PhotoPerson, User
@@ -281,17 +281,62 @@ def _search_filter(db: Session, uid: int, term: str):
 
 @router.get("")
 def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: int = 0,
-          smart: int = 0,
+          smart: int = 0, kind: str = "", sort: str = "", near: str = "",
           user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
     """Paginated gallery. Returns the requested page plus the true total count so
     the whole library (well beyond one page) is reachable via infinite scroll.
-    `q` free-text searches, `album` narrows to one album, `fav` to favourites."""
+    `q` free-text searches, `album` narrows to one album, `fav` to favourites.
+
+    `kind` and `sort` exist for the phone's Collections screen, which offers the
+    same standing collections a photo app is expected to have:
+
+        kind=screenshots   phone screenshots, by filename
+        kind=located       photos that know where they were taken
+        near=lat,lon[,km]  one place, as returned by /places
+        sort=added         newest BACKED UP first, not newest taken
+
+    `sort=added` is a genuinely different order from the default. A photo
+    scanned in years later sorts by its EXIF date everywhere else in this app —
+    deliberately, so it lands in the right month — which means "recently added"
+    cannot be answered by the default ordering at all.
+    """
     offset = max(0, offset)
     limit = min(max(1, limit), 300)  # clamp page size
     sel = db.query(GalleryPhoto).filter(GalleryPhoto.user_id == user.id,
                                         GalleryPhoto.is_trashed == 0)
     if fav:
         sel = sel.filter(GalleryPhoto.is_favorite == 1)
+
+    near_centre = None
+    k = (kind or "").strip().lower()
+    if k == "screenshots":
+        # By filename, because nothing else distinguishes one. Both platforms
+        # name them predictably and neither records a flag we could read.
+        sel = sel.filter(or_(GalleryPhoto.orig_name.ilike("%screenshot%"),
+                             GalleryPhoto.orig_name.ilike("screen shot%"),
+                             GalleryPhoto.caption.ilike("%screenshot%")))
+    elif k == "located":
+        sel = sel.filter(GalleryPhoto.lat.isnot(None),
+                         GalleryPhoto.lon.isnot(None))
+
+    if near:
+        # "lat,lon" or "lat,lon,km" — one place from /places, opened.
+        # A bounding box in SQL first, then the real distance in Python on what
+        # survives: haversine cannot use an index, and narrowing 100k rows to a
+        # few hundred by comparing two floats costs nothing.
+        try:
+            bits = [float(x) for x in near.split(",")]
+            nlat, nlon = bits[0], bits[1]
+            nkm = bits[2] if len(bits) > 2 else places.CLUSTER_KM
+        except (ValueError, IndexError):
+            raise HTTPException(422, "near must be lat,lon or lat,lon,km")
+        dlat = nkm / 111.0
+        # Longitude degrees shrink towards the poles. cos(89°) is near zero, so
+        # clamp or the box becomes the whole world.
+        dlon = nkm / max(1.0, 111.0 * math.cos(math.radians(nlat)))
+        sel = sel.filter(GalleryPhoto.lat.between(nlat - dlat, nlat + dlat),
+                         GalleryPhoto.lon.between(nlon - dlon, nlon + dlon))
+        near_centre = (nlat, nlon, nkm)
     if album:
         # Ownership of the album is checked, not just its id — otherwise passing a
         # stranger's album id would confirm which of your photos they'd collected.
@@ -325,9 +370,22 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
 
     if term:
         sel = sel.filter(_search_filter(db, user.id, term))
-    total = sel.count()
-    rows = (sel.order_by(GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc())
-            .offset(offset).limit(limit).all())
+    order = ([GalleryPhoto.created_at.desc(), GalleryPhoto.id.desc()]
+             if (sort or "").strip().lower() == "added"
+             else [GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc()])
+
+    if near_centre:
+        # The box over-selects at its corners, so page after the real distance
+        # test, not before it — otherwise `total` counts photos the caller will
+        # never be shown and the last page comes back short for no reason.
+        nlat, nlon, nkm = near_centre
+        keep = [p for p in sel.order_by(*order).all()
+                if places.km_between(nlat, nlon, float(p.lat), float(p.lon)) <= nkm]
+        total = len(keep)
+        rows = keep[offset:offset + limit]
+    else:
+        total = sel.count()
+        rows = sel.order_by(*order).offset(offset).limit(limit).all()
     return {"items": [_present(p) for p in rows], "total": total, "offset": offset,
             "limit": limit, "mode": "smart" if smart else "text"}
 
@@ -338,6 +396,36 @@ def trash_list(user: User = Depends(guard("gallery", "view")), db: Session = Dep
             .filter(GalleryPhoto.user_id == user.id, GalleryPhoto.is_trashed == 1)
             .order_by(GalleryPhoto.updated_at.desc(), GalleryPhoto.id.desc()).limit(1000).all())
     return {"items": [_present(p) for p in rows]}
+
+
+@router.get("/places")
+def places_list(user: User = Depends(guard("gallery", "view")),
+                db: Session = Depends(get_db)):
+    """Where this library's photos were taken, grouped into places.
+
+    Named offline from a table compiled into the app — see `places.py` for why
+    a geocoding service is not an option here. Photos with no coordinates are
+    simply absent; most libraries are mostly that, and an "Unknown" bucket
+    holding four fifths of someone's photos is not a place.
+    """
+    rows = (db.query(GalleryPhoto.id, GalleryPhoto.lat, GalleryPhoto.lon)
+            .filter(GalleryPhoto.user_id == user.id, GalleryPhoto.is_trashed == 0,
+                    GalleryPhoto.lat.isnot(None), GalleryPhoto.lon.isnot(None))
+            .all())
+    groups = places.cluster([(r.id, float(r.lat), float(r.lon)) for r in rows])
+    out = []
+    for g in groups:
+        # One cover each. The ids come back in scan order, so ask the database
+        # for the newest rather than taking whichever was seen first.
+        cover = (db.query(GalleryPhoto)
+                 .filter(GalleryPhoto.id.in_(g["ids"][:500]))
+                 .order_by(GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc())
+                 .first())
+        item = {k: v for k, v in g.items() if k != "ids"}
+        item["cover_url"] = _cover_url(db, cover.id) if cover else None
+        out.append(item)
+    return {"items": out, "total": len(out),
+            "located": len(rows), "radius_km": places.CLUSTER_KM}
 
 
 @router.get("/memories")

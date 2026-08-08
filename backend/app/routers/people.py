@@ -71,14 +71,30 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
 
 
 @router.get("/{id}/photos")
-def photos(id: int, user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
+def photos(id: int, offset: int = 0, limit: int = 150,
+           user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
+    """Every photo one person appears in, a page at a time.
+
+    It returned the lot in one answer and reported no total. That was harmless
+    while the caller rendered whatever arrived, and stopped being harmless when
+    the phone started paging: a caller asking for a second page got the first
+    one again — offset was not a parameter — and, having no total to check
+    against, had no way to tell. The face clustering here has already found
+    people with 49 photos, so this is a real size, not a hypothetical one.
+    """
     person = db.query(Person).filter(Person.id == id, Person.user_id == user.id).first()
     if not person:
         raise HTTPException(404, "Person not found")
-    rows = (db.query(GalleryPhoto).join(PhotoPerson, PhotoPerson.photo_id == GalleryPhoto.id)
-            .filter(PhotoPerson.person_id == id, GalleryPhoto.is_trashed == 0)
-            .order_by(GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc()).all())
-    return {"person": {"id": person.id, "name": person.name}, "items": [_present(r) for r in rows]}
+    offset = max(0, offset)
+    limit = min(max(1, limit), 300)
+    sel = (db.query(GalleryPhoto).join(PhotoPerson, PhotoPerson.photo_id == GalleryPhoto.id)
+           .filter(PhotoPerson.person_id == id, GalleryPhoto.is_trashed == 0))
+    total = sel.count()
+    rows = (sel.order_by(GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc())
+            .offset(offset).limit(limit).all())
+    return {"person": {"id": person.id, "name": person.name},
+            "items": [_present(r) for r in rows],
+            "total": total, "offset": offset, "limit": limit}
 
 
 @router.put("/{id}")
