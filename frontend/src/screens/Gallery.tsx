@@ -78,7 +78,6 @@ export default function Gallery() {
   const [album, setAlbum] = useState<AlbumSummary | null>(null)    // drill-into an album
   const [trashOpen, setTrashOpen] = useState(false)
   const [dupOpen, setDupOpen] = useState(false)
-  const [backupOpen, setBackupOpen] = useState(false)
   // A backup in progress across several picks — see IOS_BATCH.
   const [backupRun, setBackupRun] = useState<{ rounds: number; photos: number } | null>(null)
   // What the queue is doing while it is being built. The UploadBar owns progress
@@ -257,10 +256,16 @@ export default function Gallery() {
   return (
     <div className="screen">
       <TopBar title="Gallery" sub={countLabel} onBack={canBack ? back : undefined} right={headerRight} />
-      {/* Two separate actions, because they are two different intentions and
-          collapsing them lost one of them. Adding a few photos you have just
-          taken is not the same job as copying a phone's whole library across,
-          and the second needs saying out loud before it starts.
+      {/* ONE primary action. There were three here — add, back up, import a
+          folder — all sharing the width equally, so on a phone each got a third
+          of the screen and none of them read as the thing you came to do.
+          "Back up" has gone: it opened a sheet that only explained how to pick
+          a lot of photos at once, which is what this button already does, and
+          the phone app backs up on its own now.
+
+          The folder import stays because it is genuinely a different mechanism
+          — it sidesteps the iOS picker entirely — but it sizes to its label
+          rather than competing for half the row.
 
           They sit here rather than in the TopBar because on a phone the header
           had to shrink them to a size that was easy to miss and hard to hit. */}
@@ -271,8 +276,6 @@ export default function Gallery() {
             onKeyDown={pickerKeys(false)}>
             {u.uploading ? 'Uploading…' : '＋ Add photos'}
           </label>
-          <button className="btn sm ghost" onClick={() => setBackupOpen(true)}
-            aria-label="Back up my photos">☁ Back up</button>
           {!isIOS && (
             <label className="btn sm ghost" htmlFor={DIR_INPUT_ID} role="button" tabIndex={0}
               onKeyDown={(e) => {
@@ -376,7 +379,6 @@ export default function Gallery() {
           const files = Array.from(e.target.files ?? [])
           const backup = backupIntent.current
           e.currentTarget.value = ''   // so picking the same photo again re-fires change
-          if (files.length) setBackupOpen(false)
           pick(files, backup).catch(() => toast('Those photos could not be queued'))
         }} />
 
@@ -444,8 +446,12 @@ export default function Gallery() {
                     ? <Empty icon="★" title="No favourites yet" hint="Tap ☆ on a photo to save it here" />
                     : (
                       <Empty icon="🖼️" title="No photos yet"
-                        hint={canEdit ? 'Add a few with Add photos, or back up your phone’s whole gallery at once.' : undefined}
-                        action={canEdit ? { label: '☁ Back up my photos', onClick: () => setBackupOpen(true) } : undefined} />
+                        hint={canEdit
+                          ? (isIOS
+                              ? 'Tap Add photos and choose as many as you like.'
+                              : 'Tap Add photos, or use 🗂 Import a folder to bring a whole folder in at once.')
+                          : undefined}
+                        action={canEdit ? { label: '＋ Add photos', onClick: () => openPicker(false) } : undefined} />
                     )
               )
               : <>
@@ -455,14 +461,6 @@ export default function Gallery() {
                 </>}
           </PullToRefresh>
         )}
-
-      {backupOpen && (
-        <BackupSheet onClose={() => setBackupOpen(false)}
-          inputId={FILE_INPUT_ID}
-          onArm={() => { backupIntent.current = true }}
-          onKeys={pickerKeys(true)}
-          onPhone={isIOS} />
-      )}
 
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)}
         onTrash={() => trash(view)} canEdit={canEdit} />}
@@ -751,90 +749,6 @@ function DetailsSheet({ info, onClose }: { info: PhotoInfo | null; onClose: () =
           the coordinates to open a map.
         </p>
       )}
-    </Sheet>
-  )
-}
-
-/** What a whole-gallery backup is about to do, said before it starts.
- *
- *  It asks first because it is not a small action: on a phone this is hundreds
- *  of files and a long upload, and the thing that makes it bearable — that it
- *  carries on in the background while you use the rest of the app — is not
- *  something anyone can guess from a button.
- *
- *  The instruction to use Select All is not padding. A web page cannot read a
- *  phone's photo library by itself, by design; the phone puts up its own picker
- *  and the person has to choose there. Someone expecting the app to find their
- *  photos on its own taps two of them and concludes the backup is broken.
- */
-function BackupSheet({ onClose, inputId, onArm, onKeys, onPhone }: {
-  onClose: () => void; inputId: string
-  onArm: () => void; onKeys: (e: React.KeyboardEvent) => void
-  onPhone: boolean
-}) {
-  return (
-    <Sheet title="Back up my photos" onClose={onClose}>
-      <p style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.55, marginTop: 4 }}>
-        {onPhone ? (
-          <>Your phone will ask which photos to allow. Choose{' '}
-            <b>about {IOS_BATCH} at a time</b> — then I&rsquo;ll ask again for the next
-            batch, and keep count for you.</>
-        ) : (
-          <>Your device will ask which photos to allow. Choose <b>Select All</b> to
-            back up everything, or pick the ones you want.</>
-        )}
-      </p>
-      {/* Said plainly, because the obvious action is the one that fails. Someone
-          who taps Select All on an iPhone gets a picker that never closes, and
-          nothing on screen would otherwise explain why. */}
-      {onPhone && (
-        <>
-          <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
-                      margin: '10px 0 0' }}>
-            Please don&rsquo;t use <b>Select All</b> on an iPhone. Above roughly a
-            hundred photos, iOS stops partway through preparing them and the picker
-            never closes — that is the phone, not this app, and nothing here can
-            hurry it along.
-          </p>
-          {/* The likeliest reason picking is slow, and it is not something this
-              app can see, let alone speed up. Worth saying where someone is
-              standing when they hit it, because from the outside a picker waiting
-              on an iCloud download and a picker that has crashed look identical. */}
-          <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
-                      margin: '10px 0 0' }}>
-            <b>Backing up your whole gallery?</b> Doing it from the phone means
-            waiting on iOS to prepare every photo, fifty at a time. Plug this phone
-            into the computer running {appName()} instead, open the Gallery there
-            and choose <b>🗂 Import a folder</b> — the phone appears as a folder,
-            the iPhone picker is never involved, and thousands go in one action.
-          </p>
-          <p style={{ color: 'var(--ink-soft)', fontSize: 13, lineHeight: 1.55,
-                      margin: '10px 0 0' }}>
-            If picking is slow even in small batches, check{' '}
-            <b>Settings → Photos</b>: with <b>Optimise iPhone Storage</b> on, the
-            originals live in iCloud and are fetched as you tick them.
-          </p>
-        </>
-      )}
-      <ul style={{ color: 'var(--ink-soft)', fontSize: 14, lineHeight: 1.7,
-                   paddingLeft: 18, margin: '12px 0 4px' }}>
-        <li>It keeps going in the background — carry on using the app.</li>
-        <li>Progress shows at the top of every screen.</li>
-        <li>Photos already here are skipped, so batches may safely overlap.</li>
-        <li>You can stop after any batch and pick up later.</li>
-        <li>Nothing leaves this computer.</li>
-      </ul>
-      {/* Deliberately does NOT close the sheet on click. Closing it here would
-          unmount this label while the browser is still acting on the tap, and the
-          picker would never open. The sheet closes when photos actually arrive;
-          cancelling the picker leaves it up, which is also the honest outcome. */}
-      <label className="btn block" style={{ marginTop: 16 }} htmlFor={inputId}
-        role="button" tabIndex={0} onClick={onArm} onKeyDown={onKeys}>
-        Choose photos
-      </label>
-      <button className="btn ghost block" style={{ marginTop: 8 }} onClick={onClose}>
-        Not now
-      </button>
     </Sheet>
   )
 }

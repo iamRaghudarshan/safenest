@@ -961,8 +961,13 @@ button.set-row:active { background: var(--bg); }
   font-size: 13px;
   color: var(--ink-soft);
 }
-.gallery-actions { display: flex; gap: 8px; padding: 10px 14px 0; }
-.gallery-actions .btn { flex: 1 1 0; min-width: 0; }
+.gallery-actions { display: flex; gap: 8px; padding: 10px 14px 0; align-items: stretch; }
+/* The primary action takes the room it needs; the quiet one sizes to its label.
+   `flex: 1 1 0` on every child split the row into equal thirds, so "＋ Add
+   photos" — the only thing most people come here to do — was one third of the
+   width and read as no more important than the two beside it. */
+.gallery-actions .btn { flex: 1 1 auto; min-width: 0; }
+.gallery-actions .btn.ghost { flex: 0 1 auto; white-space: nowrap; }
 /* Off-screen rather than display:none — a <label for> cannot forward activation
    to a control the browser considers non-rendered. No `pointer-events: none`
    here for the same reason: nothing must stand between the label and it. */
