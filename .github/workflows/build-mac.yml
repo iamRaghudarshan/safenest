@@ -25,11 +25,24 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['VERSION']
+    # This file too, not only VERSION. A change to the Mac build is exactly the
+    # thing that should prove itself, and the alternative is workflow_dispatch —
+    # which needs an Actions:write token this project deliberately does not keep,
+    # so with push access alone a broken Mac build could not even be retried.
+    paths: ['VERSION', '.github/workflows/build-mac.yml']
 
 jobs:
   mac:
-    runs-on: macos-14        # Apple silicon; use macos-13 for an Intel build
+    # macos-latest, NOT a pinned image. `macos-14` stopped being provided, and
+    # the failure gives you nothing to go on: the job ends in five seconds with
+    # no runner assigned, no steps, and no log to read — it never started. The
+    # Mac half then sat silently on 3.1 while Windows shipped 3.2, which is the
+    # precise failure the VERSION trigger above was added to prevent.
+    #
+    # Pinning bought reproducibility we were not using and cost the build the
+    # moment the image was retired. The phone app's iOS job has always said
+    # macos-latest and kept working through the same retirement.
+    runs-on: macos-latest
     timeout-minutes: 90
 
     steps:
