@@ -135,8 +135,27 @@ if (Get-ScheduledTask -TaskName $API_TASK -ErrorAction SilentlyContinue) {
 # --no-access-log matters: a per-request log line written to a console nobody
 # drains will eventually fill its buffer and block every request, which looks
 # exactly like the app hanging while using no CPU.
+# --host 0.0.0.0, so the app answers on the HOME NETWORK as well as through the
+# tunnel.
+#
+# It was 127.0.0.1, which meant only this machine could reach it — the tunnel
+# runs here, so the public address worked and the phone could reach the app from
+# anywhere in the world and NOT from the sofa. Typing the LAN address into the
+# app gave a connection refused, which reads as the app being broken rather than
+# the server declining to listen.
+#
+# That matters beyond convenience: at home the phone talks to the computer
+# directly over the wifi, so photos and documents never leave the house at all —
+# no Cloudflare, no internet. It is the more private of the two routes and it
+# was the one that did not work.
+#
+# The firewall rule below scopes this to the local subnet, so opening it up does
+# not mean opening it to anything that can route here. Everything in front of it
+# is unchanged: bcrypt, the per-account lockout, the per-IP throttle and the
+# signed media URLs were always the real defence, since the tunnel already
+# exposed this app to the whole internet.
 $action = New-ScheduledTaskAction -Execute $python `
-    -Argument "-m uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-access-log --no-server-header" `
+    -Argument "-m uvicorn app.main:app --host 0.0.0.0 --port 8080 --no-access-log --no-server-header" `
     -WorkingDirectory $backendDir
 $trigger = New-ScheduledTaskTrigger -AtStartup
 # SYSTEM avoids storing a password and starts without anyone logging in.
@@ -150,10 +169,25 @@ $trigger.Delay = "PT30S"
 
 Register-ScheduledTask -TaskName $API_TASK -Action $action -Trigger $trigger `
     -Principal $sysPrincipal -Settings $settings `
-    -Description "App FastAPI backend + built SPA on 127.0.0.1:8080" | Out-Null
+    -Description "App FastAPI backend + built SPA on 0.0.0.0:8080" | Out-Null
 Start-ScheduledTask -TaskName $API_TASK
 Write-Host "installed." -ForegroundColor Green
 Start-Sleep -Seconds 6
+
+# Let the home network in, and nothing else.
+#
+# Binding 0.0.0.0 only decides what the app is willing to answer; Windows
+# Firewall decides who may knock. RemoteAddress=LocalSubnet keeps this to the
+# devices on the same wifi — a phone in the house, not a hotel network the
+# laptop later joins. Without the rule, Windows silently drops the connection
+# and the LAN address looks broken in exactly the same way an unbound port did.
+$fwName = "App API (home network)"
+Get-NetFirewallRule -DisplayName $fwName -ErrorAction SilentlyContinue |
+    Remove-NetFirewallRule -ErrorAction SilentlyContinue
+New-NetFirewallRule -DisplayName $fwName -Direction Inbound -Action Allow `
+    -Protocol TCP -LocalPort 8080 -RemoteAddress LocalSubnet `
+    -Profile Private -ErrorAction SilentlyContinue | Out-Null
+Write-Host "      home-network access allowed on port 8080 (this subnet only)." -ForegroundColor DarkGray
 
 # ---- 3) cloudflared tunnel -------------------------------------------------
 Write-Host "[3/3] cloudflared service... " -ForegroundColor Cyan -NoNewline
