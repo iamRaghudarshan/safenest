@@ -258,6 +258,15 @@ class GalleryPhoto(Base):
     is_trashed = Column(Integer, default=0)
     size_bytes = Column(Integer, default=0)
     content_hash = Column(String(64), index=True)  # sha256 of normalised JPEG — exact-dup key
+    # sha256 of the bytes exactly as the DEVICE holds them.
+    #
+    # content_hash above is taken after re-encoding and stripping metadata, so
+    # a photo and its shared copy match — which is what the duplicate finder
+    # wants and what a phone cannot reproduce without doing the same decode.
+    # This one a phone CAN compute by reading the file, which is the whole
+    # point: it lets a backup ask "which of these do you already have?" before
+    # sending a single byte, instead of uploading a library to find out.
+    source_hash = Column(String(64), index=True)
     phash = Column(String(16), index=True)          # 64-bit dHash (hex) — perceptual/near-dup key
     # Text found in the picture: whiteboards, receipts, parcel labels, screenshots.
     # NULL = never read; "" = read and genuinely had no text.

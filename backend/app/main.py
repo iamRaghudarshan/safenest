@@ -206,6 +206,9 @@ def _migrate() -> None:
         # Phone push. 'web' for a browser subscription, 'fcm' for the app.
         ("push_subscriptions", "kind",
          "ALTER TABLE push_subscriptions ADD COLUMN kind VARCHAR(8) NOT NULL DEFAULT 'web'"),
+        # Lets a phone ask what the server already has before uploading it.
+        ("gallery_photos", "source_hash",
+         "ALTER TABLE gallery_photos ADD COLUMN source_hash VARCHAR(64) NULL"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).

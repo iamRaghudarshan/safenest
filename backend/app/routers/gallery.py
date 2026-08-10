@@ -310,7 +310,7 @@ def _search_filter(db: Session, uid: int, term: str):
 
 @router.get("")
 def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: int = 0,
-          smart: int = 0, kind: str = "", sort: str = "", near: str = "",
+          smart: int = 0, kind: str = "", sort: str = "", near: str = "", person: int = 0,
           user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
     """Paginated gallery. Returns the requested page plus the true total count so
     the whole library (well beyond one page) is reachable via infinite scroll.
@@ -323,6 +323,14 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
         kind=located       photos that know where they were taken
         near=lat,lon[,km]  one place, as returned by /places
         sort=added         newest BACKED UP first, not newest taken
+        person=<id>        every photo one person appears in
+
+    `person` exists so the gallery can filter by a FACE rather than a name.
+    Text search already matches a person's name, which is no use at all for the
+    faces the clustering has found and nobody has named — and those are most of
+    them. Tapping a face is the only way to ask about someone called "Person 7",
+    and it composes with the date grouping, the media filters and the selection
+    bar, which /api/people/{id}/photos does not.
 
     `sort=added` is a genuinely different order from the default. A photo
     scanned in years later sorts by its EXIF date everywhere else in this app —
@@ -407,6 +415,16 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
 
     if term:
         sel = sel.filter(_search_filter(db, user.id, term))
+
+    if person:
+        # Scoped to this user's own people, or an id guessed from another
+        # account would name whose photos came back.
+        owned = db.query(Person.id).filter(Person.id == person,
+                                           Person.user_id == user.id).first()
+        if not owned:
+            raise HTTPException(404, "Person not found")
+        sel = sel.filter(GalleryPhoto.id.in_(
+            db.query(PhotoPerson.photo_id).filter(PhotoPerson.person_id == person)))
     order = ([GalleryPhoto.created_at.desc(), GalleryPhoto.id.desc()]
              if (sort or "").strip().lower() == "added"
              else [GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc()])
@@ -425,6 +443,44 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
         rows = sel.order_by(*order).offset(offset).limit(limit).all()
     return {"items": [_present(p) for p in rows], "total": total, "offset": offset,
             "limit": limit, "mode": "smart" if smart else "text"}
+
+
+@router.post("/have")
+def already_have(body: dict = Body(...),
+                 user: User = Depends(guard("gallery", "view")),
+                 db: Session = Depends(get_db)):
+    """Which of these photos does this account already hold?
+
+    THE PROBLEM. A phone knows what it has sent because it keeps a list, and
+    that list is local: clear the app's data, reinstall it, or use the "photos
+    missing on the computer" reset, and the phone has to assume it has sent
+    nothing. It then uploads a whole library — gigabytes over a home
+    connection — for the server to recognise almost all of it and store none of
+    it. The work was already avoidable; the phone just had no way to ask.
+
+    So it asks. Hashes are cheap for a phone to compute (it reads the file it
+    was going to upload anyway) and the answer is a few hundred bytes.
+
+    Matched on `source_hash`, the hash of the bytes as the DEVICE holds them —
+    not content_hash, which is taken after re-encoding and which a phone cannot
+    reproduce without doing the same decode.
+    """
+    raw = body.get("hashes")
+    if not isinstance(raw, list):
+        raise HTTPException(422, "hashes must be a list")
+    # Capped: this is one query, and an unbounded IN list from a client is a
+    # way to make the database do arbitrary work.
+    wanted = [str(h)[:64] for h in raw[:1000] if h]
+    if not wanted:
+        return {"have": [], "asked": 0}
+
+    rows = (db.query(GalleryPhoto.source_hash)
+            .filter(GalleryPhoto.user_id == user.id,
+                    GalleryPhoto.is_trashed == 0,
+                    GalleryPhoto.source_hash.in_(wanted))
+            .all())
+    have = sorted({r[0] for r in rows if r[0]})
+    return {"have": have, "asked": len(wanted)}
 
 
 @router.get("/trash")
@@ -966,6 +1022,7 @@ def store_video(db: Session, user: User, raw: bytes, filename: str) -> dict:
     everything except the viewer, a video IS a gallery item.
     """
     content_hash = hashlib.sha256(raw).hexdigest()
+    source_hash = content_hash          # a video is stored byte-for-byte
     dup = (db.query(GalleryPhoto)
            .filter(GalleryPhoto.user_id == user.id,
                    GalleryPhoto.content_hash == content_hash)
@@ -1002,7 +1059,7 @@ def store_video(db: Session, user: User, raw: bytes, filename: str) -> dict:
         user_id=user.id, filename=fname,
         caption=os.path.splitext(filename or "")[0] or None,
         taken_at=ist.today(), is_favorite=0, is_trashed=0, size_bytes=len(raw),
-        content_hash=content_hash, phash=None,
+        content_hash=content_hash, source_hash=source_hash, phash=None,
         orig_name=(filename or "")[-255:] or None,
         width=vmeta.get("width"), height=vmeta.get("height"),
         kind="video", duration_ms=vmeta.get("duration_ms"),
@@ -1048,6 +1105,9 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str) -> dict:
     # copy, so including it would make the exact-duplicate finder miss real pairs —
     # and it would disagree with the hashes backfilled from older stored files.
     content_hash = hashlib.sha256(jpg).hexdigest()
+    # And the hash of what the DEVICE sent, which is the only one a phone can
+    # work out for itself. See models.GalleryPhoto.source_hash.
+    source_hash = hashlib.sha256(raw).hexdigest()
 
     # Idempotent upload: the same image (e.g. re-picked after an accidental refresh)
     # never creates a second row. A matching trashed photo is quietly restored.
@@ -1096,7 +1156,8 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str) -> dict:
                          # Without EXIF the upload date is the only honest answer.
                          taken_at=shot_at.date() if shot_at else ist.today(),
                          is_favorite=0, is_trashed=0, size_bytes=len(raw),
-                         content_hash=content_hash, phash=_dhash(pil),
+                         content_hash=content_hash, source_hash=source_hash,
+                         phash=_dhash(pil),
                          orig_name=orig_name, width=meta.get("width"), height=meta.get("height"),
                          camera=meta.get("camera"), lens=meta.get("lens"),
                          lat=meta.get("lat"), lon=meta.get("lon"), shot_at=shot_at,
