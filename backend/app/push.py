@@ -10,6 +10,7 @@ from datetime import datetime
 from pywebpush import WebPushException, webpush
 from sqlalchemy.orm import Session
 
+from . import fcm
 from . import ist
 from .config import settings
 from .models import Notification, PushSubscription
@@ -74,23 +75,62 @@ def notify(db: Session, user_id: int, title: str, body: str,
 
 
 def send_to_user(db: Session, user_id: int, payload: dict) -> dict:
-    """Push to every device a user has registered. Prunes dead subscriptions."""
-    if not settings.push_enabled:
-        return {"sent": 0, "failed": 0, "removed": 0, "reason": "push not configured"}
+    """Push to every device a user has registered — browsers AND phones.
 
+    Two transports, one list. A browser subscription goes out over web push
+    (VAPID); a phone app's registration token goes through Firebase, because
+    Apple and Google will not deliver to a native app any other way.
+
+    Either may be unconfigured and that is not a failure: an installation with
+    VAPID keys and no Firebase reaches browsers, one with Firebase and no VAPID
+    reaches phones, and one with neither still records the notification for the
+    bell. `reason` says which, so a screen can explain rather than shrug.
+    """
     subs = db.query(PushSubscription).filter(PushSubscription.user_id == user_id).all()
+    web = [s for s in subs if (s.kind or "web") != "fcm"]
+    phones = [s for s in subs if (s.kind or "web") == "fcm"]
+
+    fcm_ready = fcm.configured()
+    if not settings.push_enabled and not fcm_ready:
+        return {"sent": 0, "failed": 0, "removed": 0,
+                "reason": "push not configured"}
+
     sent = failed = removed = 0
     now = ist.now()
-    for sub in subs:
-        ok, status = send_to_subscription(sub, payload)
-        if ok:
-            sub.last_sent_at = now
-            sent += 1
-        elif status in (404, 410):
-            # Gone for good: the browser dropped the subscription.
-            db.delete(sub)
-            removed += 1
-        else:
-            failed += 1
+
+    if settings.push_enabled:
+        for sub in web:
+            ok, status = send_to_subscription(sub, payload)
+            if ok:
+                sub.last_sent_at = now
+                sent += 1
+            elif status in (404, 410):
+                # Gone for good: the browser dropped the subscription.
+                db.delete(sub)
+                removed += 1
+            else:
+                failed += 1
+
+    if fcm_ready:
+        for sub in phones:
+            ok, reason = fcm.send(
+                sub.endpoint,
+                str(payload.get("title") or ""),
+                str(payload.get("body") or ""),
+                {"url": str(payload.get("url") or "/"),
+                 "tag": str(payload.get("tag") or "")},
+            )
+            if ok:
+                sub.last_sent_at = now
+                sent += 1
+            elif reason == "unregistered":
+                # The app was uninstalled, or reinstalled with a new token.
+                # Kept, it would be retried for ever against a dead device.
+                db.delete(sub)
+                removed += 1
+            else:
+                failed += 1
+
     db.commit()
-    return {"sent": sent, "failed": failed, "removed": removed, "devices": len(subs)}
+    return {"sent": sent, "failed": failed, "removed": removed,
+            "devices": len(subs), "phones": len(phones), "browsers": len(web)}

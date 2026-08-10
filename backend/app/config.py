@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     vapid_private_key: str = ""
     vapid_subject: str = "mailto:admin@finmate.local"
 
+    # Path to the Firebase service-account JSON, for pushing to the phone app.
+    #
+    # Web push (VAPID) above reaches browsers and the installed PWA; it cannot
+    # reach a native app, because Apple and Google only deliver to those through
+    # APNs and FCM. Empty means no phone push, which is a perfectly reasonable
+    # way to run this — the phone schedules its own reminders locally either
+    # way. See fcm.py for what actually leaves the machine.
+    fcm_service_account: str = ""
+
     @property
     def push_enabled(self) -> bool:
         return bool(self.vapid_public_key and self.vapid_private_key)

@@ -203,6 +203,9 @@ def _migrate() -> None:
         ("users", "totp_secret_enc", "ALTER TABLE users ADD COLUMN totp_secret_enc TEXT NULL"),
         ("users", "recovery_codes", "ALTER TABLE users ADD COLUMN recovery_codes TEXT NULL"),
         ("users", "two_factor_at", "ALTER TABLE users ADD COLUMN two_factor_at DATETIME NULL"),
+        # Phone push. 'web' for a browser subscription, 'fcm' for the app.
+        ("push_subscriptions", "kind",
+         "ALTER TABLE push_subscriptions ADD COLUMN kind VARCHAR(8) NOT NULL DEFAULT 'web'"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).

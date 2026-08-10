@@ -386,6 +386,17 @@ class PushSubscription(Base):
     p256dh = Column(String(255))
     auth = Column(String(255))
     user_agent = Column(String(255))
+    # 'web' for a browser subscription, 'fcm' for a phone app.
+    #
+    # ONE TABLE, not two. A device is a device: the fan-out, the per-user
+    # lookup, the pruning of dead registrations and "how many devices does this
+    # person have" are all identical, and only the last step — how the bytes
+    # actually leave — differs. Two tables would have meant two of each of
+    # those, and the one that drifted would be whichever is used less.
+    #
+    # An FCM registration token goes in `endpoint`; p256dh and auth stay NULL,
+    # because a native push has no payload encryption of its own.
+    kind = Column(String(8), default="web")
     created_at = Column(FlexDateTime)
     last_sent_at = Column(FlexDateTime)
 

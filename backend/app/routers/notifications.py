@@ -113,6 +113,60 @@ def subscribe(body: dict = Body(...), request: Request = None,
     return _present(pref, devices)
 
 
+@router.post("/device")
+def register_device(body: dict = Body(...), request: Request = None,
+                    user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """Register a phone's FCM token so push can reach the app.
+
+    Separate from /subscribe, which takes a browser's web-push subscription —
+    the shapes have nothing in common. Both land in push_subscriptions with a
+    `kind`, so everything downstream (fan-out, pruning, "how many devices")
+    stays one code path.
+
+    Upsert on the token, not insert. FCM hands the same app the same token on
+    every launch, so inserting would add a row per open until a person's
+    notification arrived forty times.
+    """
+    token = str(body.get("token") or "").strip()
+    if len(token) < 20:
+        raise HTTPException(422, "That is not a device token")
+
+    existing = (db.query(PushSubscription)
+                .filter(PushSubscription.endpoint == token).first())
+    now = ist.now()
+    if existing:
+        # Re-registered by a DIFFERENT account on the same handset: the token
+        # must move, or the previous user's notifications keep arriving on a
+        # phone somebody else is now signed in on.
+        existing.user_id = user.id
+        existing.kind = "fcm"
+        existing.user_agent = str(body.get("platform") or "")[:255]
+        db.commit()
+        return {"registered": True, "moved": True}
+
+    db.add(PushSubscription(user_id=user.id, endpoint=token, kind="fcm",
+                            user_agent=str(body.get("platform") or "")[:255],
+                            created_at=now))
+    db.commit()
+    return {"registered": True, "moved": False}
+
+
+@router.post("/device/remove")
+def remove_device(body: dict = Body(default={}),
+                  user: User = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    """Forget this phone — on sign-out, or when notifications are turned off."""
+    token = str(body.get("token") or "").strip()
+    q = db.query(PushSubscription).filter(PushSubscription.user_id == user.id,
+                                          PushSubscription.kind == "fcm")
+    if token:
+        q = q.filter(PushSubscription.endpoint == token)
+    n = q.delete(synchronize_session=False)
+    db.commit()
+    return {"removed": int(n)}
+
+
 @router.post("/unsubscribe")
 def unsubscribe(body: dict = Body(default={}), user: User = Depends(get_current_user),
                 db: Session = Depends(get_db)):
