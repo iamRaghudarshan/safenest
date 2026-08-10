@@ -1188,28 +1188,49 @@ the operator sees.
 
 ---
 
-## 14. Current state (31 July 2026)
+## 14. Current state (10 August 2026)
 
 - Branding: **SafeNest**, theme `#1656C6`, custom icon uploaded (`icon_version 1`)
 - Users: `admin@finmate.app` (admin), `raghudarshan10@gmail.com` (user)
-- Licences: `L-AFF1FCF4` Ashok Kumar (to 28 Oct), `L-32968114` Meera Nair
-  (to 29 Aug), `L-C5DE0B02` RAGHUDARSHAN (**suspended**, expires 1 Aug)
-- Neither customer has ever launched their copy (`checkins = 0`), so queued
-  broadcasts are undelivered — that is accurate, not a fault
+- Desktop **3.3**, built for BOTH platforms: Windows compiled here with
+  `--native`, Mac fetched from CI. `dist-app/App` and `dist-app/mac/mac-app.tar.gz`
+- Live licences:
+  - `L-218E2470` Raghudarshan S — **perpetual**, seats 0 (unlimited), 60 check-ins
+  - `L-118D98BF` Ashok — **expires 10 Aug 2026**, 18 check-ins. Decide before it
+    lapses: GRACE for 3 days (reads work, writes refused), then blocked
+  - The three customers §14 used to name are all revoked
+- A Mac customer copy exists at `D:\AI PRO\SafeNest-for-Mac-L-218E2470.tar.gz`,
+  verified against §11: 0 readable `.py` of ours, only the branding row in the
+  database, and no publisher key anywhere in the archive
+- Phone app **1.12.0** on TestFlight; APK at `D:\AI PRO\safenest-apk\`
 - Public URL: `finmate.raghudarshan.online` via the named tunnel
   `b6ea7271-4d37-414e-9899-55be7f3903c5`
+- **The `safenest` repo is PUBLIC** as of 8 Aug. It was made public so GitHub's
+  free macOS minutes would build the Mac half — the private repo had exhausted
+  its Actions quota and every Mac build died in four seconds with no runner
+  assigned and no log. The consequence is that anyone can now build and run
+  this from source with no licence; the Ed25519 signing key is not in the repo,
+  so nobody can mint licences, but the gate only binds people who take the
+  compiled build
 
 ### Known outstanding
 
-1. **Services are not installed.** MySQL, the API and the tunnel are hand-started
-   and die with their shell. Run `Install App Services.bat` as administrator.
-2. `VAULT_KEY_LEGACY_HEX` is still set in `backend/.env`. Once
+1. `VAULT_KEY_LEGACY_HEX` is still set in `backend/.env`. Once
    `reencrypt_legacy_items()` reports nothing moved, delete the line.
-3. Cloudflare Browser Cache TTL is still "4 hours" — set it to
+2. Cloudflare Browser Cache TTL is still "4 hours" — set it to
    "Respect Existing Headers".
-4. `CF_ACCOUNT_ID` is unset, so per-customer subdomains are built but disabled.
-5. The Mac executable needs `packaging/build_exe.py` run **on a Mac**.
-6. ~5,002 orphaned `photo_vectors` rows.
+3. `CF_ACCOUNT_ID` is unset, so per-customer subdomains are built but disabled.
+4. ~5,002 orphaned `photo_vectors` rows.
+5. **Two-step sign-in has no screens.** `totp.py`, the login challenge and the
+   setup endpoints are done and tested (22/22, plus the RFC 6238 vectors), and
+   there is no way to turn it on from either client. Server-complete and
+   user-invisible — the exact failure this codebase keeps producing.
+6. **Push to the phone is local-only.** `alarms.dart` schedules reminders on the
+   device, which is deliberate — routing reminder titles through Firebase
+   contradicts §1. True push (app closed, never opened) would need a Firebase
+   project and an APNs key from the owner's accounts.
+7. The TestFlight Internal Testing group still does not exist. Twelve builds
+   have uploaded successfully and none is installable.
 
 ---
 
