@@ -1135,6 +1135,43 @@ folders look empty of Python. That check alone cost 35 of the 57 packages.
   beside onnxruntime's own DLLs after the build. Seen on a customer's Windows 10
   machine and never on the build machine, which is what a search-path difference
   looks like from outside.
+- **Table names are not what you would guess, and three cost real time.**
+  The activity table is **`audit_logs`**, not `activity_log`. Push tokens live
+  in **`push_subscriptions`** (with a `kind` of `web` or `fcm`) — **`device_tokens`
+  is something else entirely**, the Shortcuts upload credential that reaches one
+  endpoint and nothing else. Reminders key on **`due_date`**, not `remind_date`.
+  Read `information_schema` before writing a throwaway query; guessing costs a
+  round trip each time.
+- **`content_hash` is not the hash of what the phone sent.** It is taken after
+  re-encoding and stripping metadata, deliberately, so a photo and its shared
+  copy collide — which is what the duplicate finder wants and what a phone
+  cannot reproduce without doing the same decode. **`source_hash` is the raw
+  bytes**, and it exists so `POST /api/gallery/have` can answer "which of these
+  do you already hold?" before a backup sends a library the server already has.
+  Backfilled from the stored originals: exact for JPEG and video (the file on
+  disk IS what was sent), never matching for HEIC (the stored file is a
+  re-encode). That asymmetry is safe in one direction only — a wrong
+  `source_hash` costs a needless upload and can never cause a photo to be
+  SKIPPED, because a match means identical bytes.
+- **`/api/gallery/have` must exclude trashed rows.** Reporting a photo in the
+  bin as held would have the phone skip it for ever, and it would be gone from
+  both places.
+- **Text search matches a person's NAME, and the clustering names nobody.** It
+  calls them "Person 3", "Person 12". So "search by person" was reachable only
+  for faces somebody had already named — on this installation, none of the six.
+  `?person=<id>` on the gallery index exists so a face can be tapped instead,
+  and it composes with the date grouping and the other filters where
+  `/api/people/{id}/photos` cannot.
+- **The API runs as a SYSTEM scheduled task and cannot be restarted without
+  elevation.** `schtasks /end /tn AppAPI` from an ordinary prompt answers
+  "Access is denied". Double-click **`Restart App API.bat`**, which self-elevates.
+  To test new code without that, start a second uvicorn on another port against
+  the same database — and **kill any old one first**: a stale process on the
+  test port answers `/api/health` perfectly while serving code from an hour ago,
+  which reads exactly like a route that failed to register.
+- **A migration entry keys on a COLUMN existing.** Adding an index that way —
+  `("gallery_photos", "source_hash_idx", "ALTER TABLE ... ADD INDEX ...")` —
+  re-runs on every single startup, because no column of that name ever appears.
 - **`.btn.primary` does not exist in the CSS.** `.btn` is already the filled style;
   `.btn.ghost` is the quiet one.
 - **`tk.Button` ignores `bg` on macOS** — the installer uses a drawn `Btn`
@@ -1188,51 +1225,79 @@ the operator sees.
 
 ---
 
-## 14. Current state (10 August 2026)
+## 14. Current state (11 August 2026)
 
 - Branding: **SafeNest**, theme `#1656C6`, custom icon uploaded (`icon_version 1`)
-- Users: `admin@finmate.app` (admin), `raghudarshan10@gmail.com` (user)
+- Users: `admin@finmate.app` (admin, 141 photos), `raghudarshan10@gmail.com`
+  (user, **0 photos** — see below)
 - Desktop **3.3**, built for BOTH platforms: Windows compiled here with
   `--native`, Mac fetched from CI. `dist-app/App` and `dist-app/mac/mac-app.tar.gz`
 - Live licences:
-  - `L-218E2470` Raghudarshan S — **perpetual**, seats 0 (unlimited), 60 check-ins
-  - `L-118D98BF` Ashok — **expires 10 Aug 2026**, 18 check-ins. Decide before it
-    lapses: GRACE for 3 days (reads work, writes refused), then blocked
-  - The three customers §14 used to name are all revoked
-- A Mac customer copy exists at `D:\AI PRO\SafeNest-for-Mac-L-218E2470.tar.gz`,
-  verified against §11: 0 readable `.py` of ours, only the branding row in the
-  database, and no publisher key anywhere in the archive
-- Phone app **1.12.0** on TestFlight; APK at `D:\AI PRO\safenest-apk\`
+  - `L-218E2470` Raghudarshan S — **perpetual**, seats 0 (unlimited)
+  - `L-118D98BF` Ashok — expired 10 Aug. **The owner said on 10 Aug to ignore
+    this one.** Do not act on it.
+- Phone app **1.16.0** on TestFlight. Repo `D:\AI PRO\safenest-mobile`, which
+  now has **its own CLAUDE.md** — read it before touching the phone.
 - Public URL: `finmate.raghudarshan.online` via the named tunnel
-  `b6ea7271-4d37-414e-9899-55be7f3903c5`
-- **The `safenest` repo is PUBLIC** as of 8 Aug. It was made public so GitHub's
-  free macOS minutes would build the Mac half — the private repo had exhausted
-  its Actions quota and every Mac build died in four seconds with no runner
-  assigned and no log. The consequence is that anyone can now build and run
-  this from source with no licence; the Ed25519 signing key is not in the repo,
-  so nobody can mint licences, but the gate only binds people who take the
-  compiled build
+  `b6ea7271-4d37-414e-9899-55be7f3903c5`. **This machine's LAN address is now
+  `192.168.31.159`** (it was `192.168.0.170`); both the domain and the LAN
+  address were verified reaching this server on 10 Aug.
+- **The `safenest` repo is PUBLIC** as of 8 Aug, so GitHub's free macOS minutes
+  would build the Mac half. Anyone can build and run this from source with no
+  licence; the Ed25519 signing key is not in the repo, so nobody can mint
+  licences, but the gate only binds people who take the compiled build.
+
+### Shipped 10–11 August
+
+- **`source_hash` + `POST /api/gallery/have`** — a phone can ask what the server
+  already holds before uploading. See §12. All 141 existing rows backfilled.
+- **`?person=<id>`** on the gallery index, so a face can be tapped. Scoped to
+  the caller's own people; another account's id is 404.
+- Phone 1.16.0: the Videos filter (a reset was refused whenever a page was in
+  flight, which pressing a chip mid-scroll always is), the pre-flight backup
+  check, a strip of faces in the gallery, month grouping when zoomed out, and
+  Screenshots / Recently added chips that the server always answered and only
+  Collections ever asked for.
+- Committed but **not yet tagged**: the backup headline now reports what was
+  uploaded rather than the size of the library.
 
 ### Known outstanding
 
-1. `VAULT_KEY_LEGACY_HEX` is still set in `backend/.env`. Once
-   `reencrypt_legacy_items()` reports nothing moved, delete the line.
-2. Cloudflare Browser Cache TTL is still "4 hours" — set it to
-   "Respect Existing Headers".
-3. `CF_ACCOUNT_ID` is unset, so per-customer subdomains are built but disabled.
-4. ~5,002 orphaned `photo_vectors` rows.
-5. **Two-step sign-in has no screens.** `totp.py`, the login challenge and the
+1. **iPhone push has never worked, and the cause is found.** There was no
+   `aps-environment` entitlement in the iOS project at all, so iOS never issued
+   an APNs token and Firebase never had one to wrap. `push_subscriptions` holds
+   two rows, both `kind='web'` from Safari in July — not one from the phone app
+   across three releases. The fix is on the branch **`push-entitlement`** and is
+   deliberately NOT on main: signing is manual, and an entitlement the profile
+   does not carry fails the build outright. Four owner-only steps unblock it —
+   they are listed in the phone app's CLAUDE.md §7.
+2. **Two-step sign-in has no screens.** `totp.py`, the login challenge and the
    setup endpoints are done and tested (22/22, plus the RFC 6238 vectors), and
-   there is no way to turn it on from either client. Server-complete and
-   user-invisible — the exact failure this codebase keeps producing.
-6. **Push to the phone is local-only.** `alarms.dart` schedules reminders on the
-   device, which is deliberate — routing reminder titles through Firebase
-   contradicts §1. True push (app closed, never opened) would need a Firebase
-   project and an APNs key from the owner's accounts.
-7. The TestFlight Internal Testing group still does not exist. Twelve builds
-   have uploaded successfully and none is installable.
+   there is no way to turn it on from either client. **Deferred twice by the
+   owner** — this is a decision, not an oversight.
+3. `VAULT_KEY_LEGACY_HEX` — the migration now reports nothing remains on the
+   legacy key, so the line can be deleted from `backend/.env`.
+4. Cloudflare Browser Cache TTL is still "4 hours"; set it to "Respect Existing
+   Headers".
+5. `CF_ACCOUNT_ID` unset, so per-customer subdomains are built but disabled.
+6. ~5,002 orphaned `photo_vectors` rows.
+7. Desktop 3.3 has not been released to `L-218E2470`.
+8. The phone app's minimum iOS is 13.0; Apple requires 15.0 from Spring 2027.
 
----
+### One piece of history worth keeping, because it looked like a bug and was not
+
+`raghudarshan10@gmail.com` has **0 photos**, and the phone reported a library of
+1,048 needing backup. That is correct on both sides: on 8 Aug the owner emptied
+the trash twice, deleting 79 then 42 photos permanently. Nothing was lost by the
+app and there is no second server — the domain and the LAN address were both
+checked reaching this installation.
+
+The same account shows **43 `login_failed` and 0 `login_locked`**. That
+distinction is the diagnosis: `login_locked` is recorded when the password was
+*correct* but the account was locked, so every one of the 43 was a genuine
+password mismatch. Five wrong tries locks for 15 minutes and `failed_logins`
+persists between sessions, which is why a third attempt one evening tipped it
+over rather than the fifth.
 
 ## 15. House style
 
