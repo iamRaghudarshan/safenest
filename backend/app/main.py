@@ -618,7 +618,11 @@ _LICENCE_OPEN = ("/api/health", "/api/auth/login", "/api/auth/me",
                  # The lapsed-licence screen still has to say the app's own name
                  # and show its icon, so reading the branding stays open. It is a
                  # read of the name and colour only — never anything about data.
-                 "/api/branding")
+                 "/api/branding",
+                 # The sign-in screen's connection switch (LAN vs the public
+                 # domain) is on that same lapsed-licence screen, so reading the
+                 # addresses stays open too. Addresses only — never any data.
+                 "/api/hosting/addresses")
 
 # Getting your own records out is never blocked, in any licence state.
 #

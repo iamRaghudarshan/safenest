@@ -1,7 +1,45 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
-import { ApiError } from '../api'
+import { ApiError, api } from '../api'
 import { useBranding } from '../branding'
+
+type Addresses = { current: 'lan' | 'internet'; lan: string; public: string }
+
+/** Lets someone signing in at home switch to the faster local address, and lets
+ *  anyone confirm which way they are connected. Deliberately a set of plain links,
+ *  not a fetch-and-redirect: a page served over the public https domain cannot
+ *  probe an http LAN address (mixed content), so a top-level navigation is the
+ *  only thing that reliably crosses between the two. The server only ever hands
+ *  back the LAN address to a client already on the LAN, so this shows a switch
+ *  when it has one to offer and nothing when it does not. */
+function ConnectionSwitch() {
+  const [addr, setAddr] = useState<Addresses | null>(null)
+  useEffect(() => {
+    let live = true
+    api<Addresses>('/api/hosting/addresses', { auth: false })
+      .then((a) => { if (live) setAddr(a) })
+      .catch(() => {})            // a copy with no public address set is the norm, not an error
+    return () => { live = false }
+  }, [])
+
+  if (!addr) return null
+  const onLan = addr.current === 'lan'
+  // The only address worth offering is the one they are NOT already on: the
+  // public domain when at home, and nothing extra when already on the internet.
+  const other = onLan && addr.public ? addr.public : ''
+  if (!onLan && !addr.public) return null
+
+  return (
+    <div className="auth-connect">
+      <span className="auth-connect-now">
+        {onLan ? '🏠 On your home Wi-Fi' : '🌐 Connected over the internet'}
+      </span>
+      {other && (
+        <a className="auth-connect-alt" href={other}>Open from anywhere →</a>
+      )}
+    </div>
+  )
+}
 
 export default function Login() {
   const { login } = useAuth()
@@ -64,6 +102,8 @@ export default function Login() {
           {err && <div className="auth-err">{err}</div>}
           <button className="btn block auth-btn" disabled={busy}>{busy ? 'Signing in…' : 'Sign in →'}</button>
         </form>
+
+        <ConnectionSwitch />
 
         <div className="auth-foot">🔒 Secured with JWT · AES-256 vault · role-based access</div>
       </div>

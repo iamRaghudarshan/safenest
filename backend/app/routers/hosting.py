@@ -15,6 +15,7 @@ stopping and starting a Windows service from inside a web request is neither, an
 would cut off the very connection the request arrived on. The screen writes the
 config and tells the person the one command to run.
 """
+import ipaddress
 import os
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from ..config import settings
 from ..database import get_db
 from ..helpers import audit
 from ..models import Hosting, License, User
+from ..ratelimit import rate_limit
 from ..security import get_current_user
 
 router = APIRouter(prefix="/api/hosting", tags=["hosting"])
@@ -346,6 +348,48 @@ def _request_port(request: Request) -> int:
         return int(request.url.port or (443 if request.url.scheme == "https" else 80))
     except Exception:
         return 8080
+
+
+def _reached_locally(host: str) -> bool:
+    """True when this request arrived on a LAN or loopback address, not the domain.
+
+    Decides whether it is safe to hand back this machine's private IP. A client
+    already talking to us over the LAN learns nothing it did not already have; the
+    public internet, reaching us through the tunnel with the domain in its Host
+    header, has no business being told the internal address and could not use it
+    anyway. So the switcher only ever offers "reach this from anywhere" to someone
+    at home — never "switch to 192.168.x" to a stranger on the far side of the
+    tunnel.
+    """
+    h = (host or "").split(":")[0].strip().lower()
+    if not h or h == "localhost":
+        return bool(h)          # "" is unknown; "localhost" is local
+    try:
+        ip = ipaddress.ip_address(h)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False            # a hostname/domain means we were reached over the internet
+
+
+@router.get("/addresses")
+def addresses(request: Request, db: Session = Depends(get_db)):
+    """The addresses this copy answers on, for the sign-in screen's connection
+    switch. Public on purpose — it sits before anyone has a token, exactly like
+    /api/branding, and returns only addresses, nothing about users or data.
+
+    `lan` is populated only for a client that reached us locally (see
+    _reached_locally); `public` is the address the owner published, which is
+    already public by definition. Either may be "" — the switcher simply shows
+    nothing it cannot offer.
+    """
+    from .. import lanaccess
+    rate_limit(request, "addresses", limit=120, window=60)
+    local = _reached_locally(request.headers.get("host", ""))
+    return {
+        "current": "lan" if local else "internet",
+        "lan": lanaccess.lan_url(_request_port(request)) if local else "",
+        "public": weburl.public_url(db),
+    }
 
 
 @router.get("/local-network")
