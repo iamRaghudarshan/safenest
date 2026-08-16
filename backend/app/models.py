@@ -640,6 +640,102 @@ class Release(Base):
     created_at = Column(FlexDateTime)
 
 
+class LicenceRequest(Base):
+    """A prospective customer asking for a licence, from the public storefront.
+
+    Publisher-side only, like License. Holds NO secrets — never the signed token,
+    only the public key_id once a request is approved. Manual approval by design,
+    so a spammer or a double-tap creates rows, not licences, and one open request
+    per email is kept rather than a pile of duplicates.
+    """
+    __tablename__ = "licence_requests"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120))
+    email = Column(String(160), index=True)
+    message = Column(String(500))
+    platform = Column(String(16))                          # windows / mac, optional
+    status = Column(String(16), default="pending", index=True)  # pending/approved/rejected
+    key_id = Column(String(16), index=True)               # set once approved
+    reject_reason = Column(String(200))
+    source_ip = Column(String(45))
+    created_at = Column(FlexDateTime)
+    handled_at = Column(FlexDateTime)
+    handled_by = Column(Integer)                           # users.id of the approver
+
+
+class MailSettings(Base):
+    """SMTP configuration for emailing customers (licence keys, announcements).
+
+    Publisher-side only. One row (id=1). The password is AES-encrypted with the
+    vault key via crypto.py — never stored or returned in plaintext.
+    """
+    __tablename__ = "mail_settings"
+    id = Column(Integer, primary_key=True)
+    host = Column(String(255))
+    port = Column(Integer, default=587)
+    username = Column(String(255))
+    password_enc = Column(Text)                            # AES-encrypted
+    from_addr = Column(String(255))
+    from_name = Column(String(120))
+    security = Column(String(8), default="tls")            # tls / ssl / none
+    enabled = Column(Integer, default=0)
+    updated_at = Column(FlexDateTime)
+
+
+class MailLog(Base):
+    """Every email queued and its outcome — a DB-backed send queue and audit trail.
+
+    Rows start 'queued'; a background worker sends them one at a time and records
+    'sent' or 'failed' with the reason. Bulk sends never block the request.
+    """
+    __tablename__ = "mail_log"
+    id = Column(Integer, primary_key=True)
+    to_addr = Column(String(255), index=True)
+    subject = Column(String(255))
+    body = Column(Text)
+    kind = Column(String(20))                              # licence/broadcast/request/ticket/test
+    status = Column(String(10), default="queued", index=True)  # queued/sent/failed
+    error = Column(String(300))
+    attempts = Column(Integer, default=0)
+    created_at = Column(FlexDateTime)
+    sent_at = Column(FlexDateTime)
+
+
+class SiteStat(Base):
+    """One row per day: how many times the public download/site page was opened."""
+    __tablename__ = "site_stats"
+    id = Column(Integer, primary_key=True)
+    day = Column(String(10), unique=True, index=True)      # YYYY-MM-DD (IST)
+    visits = Column(Integer, default=0)
+
+
+class Ticket(Base):
+    """A customer support ticket — raised in the app or from the website."""
+    __tablename__ = "tickets"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)                  # null for website/anon
+    name = Column(String(120))
+    email = Column(String(190), index=True)
+    subject = Column(String(200))
+    status = Column(String(12), default="open", index=True)   # open/pending/closed
+    priority = Column(String(10), default="normal")           # low/normal/high
+    licence_key = Column(String(16))
+    source = Column(String(10), default="app")                # app / web
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime, index=True)
+
+
+class TicketMessage(Base):
+    """One message in a ticket thread, from the customer or the support admin."""
+    __tablename__ = "ticket_messages"
+    id = Column(Integer, primary_key=True)
+    ticket_id = Column(Integer, index=True)
+    author = Column(String(10))                            # customer / admin
+    author_name = Column(String(120))
+    body = Column(Text)
+    created_at = Column(FlexDateTime)
+
+
 class Broadcast(Base):
     """A message the publisher sends to everyone running a copy of the app.
 

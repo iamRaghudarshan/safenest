@@ -57,9 +57,17 @@ function LicRow({ k, v }: { k: string; v: React.ReactNode }) {
   )
 }
 
+interface LicenceRequestRow {
+  id: number; name: string; email: string; message: string | null
+  platform: string | null; status: string; key_id: string | null
+  reject_reason: string | null; created_at: string | null; handled_at: string | null
+}
+
 export default function Licences() {
   const toast = useToast()
   const [data, setData] = useState<LicenceList | null>(null)
+  const [requests, setRequests] = useState<LicenceRequestRow[]>([])
+  const [approving, setApproving] = useState<LicenceRequestRow | null>(null)
   const [newOpen, setNewOpen] = useState(false)
   const [chosen, setChosen] = useState<Licence | null>(null)
   const [issued, setIssued] = useState<Licence | null>(null)
@@ -67,15 +75,43 @@ export default function Licences() {
   const [rel, setRel] = useState(false)
 
   const load = useCallback(async () => {
-    try { setData(await api<LicenceList>('/api/licences')) }
-    catch (e) { toast(errorMessage(e, 'Could not load licences')) }
+    try {
+      const [lic, req] = await Promise.all([
+        api<LicenceList>('/api/licences'),
+        api<{ requests: LicenceRequestRow[] }>('/api/licence-requests').catch(() => ({ requests: [] })),
+      ])
+      setData(lic); setRequests(req.requests)
+    } catch (e) { toast(errorMessage(e, 'Could not load licences')) }
   }, [toast])
 
   useEffect(() => { load() }, [load])
 
+  const pending = requests.filter((r) => r.status === 'pending')
+  const dueSoon = (data?.licences ?? []).filter((l) => l.state !== 'revoked'
+    && (l.state === 'expired' || (l.days_left != null && l.days_left <= 30)))
+
   return (
     <div className="screen">
       <TopBar title="Licences" />
+
+      {data && <LicStats licences={data.licences} pending={pending.length} />}
+
+      {data && dueSoon.length > 0 && (
+        <div className="lic-alert">
+          <div className="lic-alert-h">🔔 {dueSoon.length} licence{dueSoon.length > 1 ? 's' : ''} due for renewal</div>
+          {dueSoon.slice(0, 6).map((l) => (
+            <div key={l.id} className="lic-alert-row">
+              <span className="lic-alert-name">{l.name} <span className="muted">{l.email}</span></span>
+              <span className="lic-alert-when">{l.state === 'expired' ? 'expired' : `${l.days_left}d left`}</span>
+              <button className="btn sm" onClick={() => setChosen(l)}>Renew</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pending.length > 0 && (
+        <RequestsSection requests={pending} onApprove={setApproving} onChanged={load} />
+      )}
 
       <SettingsGroup title="Give someone a copy"
         footer="Each copy carries a signed licence and stops working when it expires. The person you send it to gets a single user account — never an administrator.">
@@ -114,16 +150,144 @@ export default function Licences() {
       {newOpen && (
         <IssueLicence hosting={data?.hosting ?? { available: false, domain: '' }}
           onClose={() => setNewOpen(false)}
-          onDone={(l) => { setNewOpen(false); setIssued(l); load() }} />
+          onDone={(l) => { setNewOpen(false); setIssued(l); load() }}
+          onRenew={(l) => { setNewOpen(false); setChosen(l) }} />
       )}
       {chosen && (
         <LicenceDetail licence={chosen} onClose={() => setChosen(null)}
           onChanged={() => { setChosen(null); load() }} />
       )}
       {issued && <TokenSheet licence={issued} onClose={() => setIssued(null)} />}
+      {approving && (
+        <ApproveSheet req={approving} onClose={() => setApproving(null)}
+          onDone={(l) => { setApproving(null); setIssued(l); load() }} />
+      )}
       {news && <Broadcast onClose={() => setNews(false)} />}
       {rel && <Releases onClose={() => setRel(false)} />}
     </div>
+  )
+}
+
+/** Licensing dashboard tiles — a glance at the whole customer base: how many
+ *  copies are out there, how many are healthy, expiring, blocked, and how many
+ *  requests are waiting to be approved. */
+function LicStats({ licences, pending }: { licences: Licence[]; pending: number }) {
+  const active = licences.filter((l) => l.state === 'ok' || l.state === 'expiring').length
+  const soon = licences.filter((l) => l.state !== 'revoked' && l.state !== 'expired'
+    && l.days_left != null && l.days_left <= 7).length
+  const blocked = licences.filter((l) => l.state === 'expired' || l.state === 'revoked').length
+  const seen = licences.filter((l) => l.checkins > 0).length
+  const tiles = [
+    { n: licences.length, l: 'Total issued', t: 'var(--brand)' },
+    { n: active, l: 'Active', t: 'var(--ok)' },
+    { n: soon, l: 'Expiring ≤7d', t: 'var(--warn)' },
+    { n: blocked, l: 'Expired / withdrawn', t: 'var(--danger)' },
+    { n: pending, l: 'Requests waiting', t: 'var(--c-reminders)' },
+    { n: seen, l: 'Copies opened', t: 'var(--ink-faint)' },
+  ]
+  return (
+    <div className="lic-stats">
+      {tiles.map((t) => (
+        <div className="lic-stat" key={t.l}>
+          <span className="lic-stat-n" style={{ color: t.t }}>{t.n}</span>
+          <span className="lic-stat-l">{t.l}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Storefront licence requests waiting for the publisher to approve or reject.
+ *  This is the admin end of the "Request a licence" form on the download site. */
+function RequestsSection({ requests, onApprove, onChanged }: {
+  requests: LicenceRequestRow[]; onApprove: (r: LicenceRequestRow) => void; onChanged: () => void
+}) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(0)
+  async function reject(r: LicenceRequestRow) {
+    if (!confirm(`Reject the request from ${r.name}?`)) return
+    setBusy(r.id)
+    try { await api(`/api/licence-requests/${r.id}/reject`, { method: 'POST', body: {} }); onChanged() }
+    catch (e) { toast(errorMessage(e, 'Could not reject that')) }
+    finally { setBusy(0) }
+  }
+  return (
+    <section className="lic-list">
+      <h2 className="lic-list-h">Licence requests <span className="lic-badge">{requests.length}</span></h2>
+      {requests.map((r) => (
+        <div key={r.id} className="req-card">
+          <span className="lic-card-av" style={{ background: 'var(--c-reminders)' }}>{initials(r.name)}</span>
+          <div className="req-body">
+            <div className="req-top"><b>{r.name}</b><span className="muted">{r.created_at}</span></div>
+            <div className="req-mail">{r.email}{r.platform ? ` · ${r.platform}` : ''}</div>
+            {r.message && <div className="req-msg">“{r.message}”</div>}
+          </div>
+          <div className="req-actions">
+            <button className="btn sm" onClick={() => onApprove(r)}>Approve</button>
+            <button className="btn ghost sm" disabled={busy === r.id} onClick={() => reject(r)}>
+              {busy === r.id ? '…' : 'Reject'}
+            </button>
+          </div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+/** Approve a request: choose the term and seats, issue the signed licence, then
+ *  hand the token straight to the TokenSheet so it can be sent to the customer. */
+function ApproveSheet({ req, onClose, onDone }: {
+  req: LicenceRequestRow; onClose: () => void; onDone: (l: Licence) => void
+}) {
+  const toast = useToast()
+  const [days, setDays] = useState(365)
+  const [perpetual, setPerpetual] = useState(false)
+  const [seats, setSeats] = useState(1)
+  const [busy, setBusy] = useState(false)
+  async function approve() {
+    setBusy(true)
+    try {
+      const l = await api<Licence>(`/api/licence-requests/${req.id}/approve`, {
+        method: 'POST',
+        body: { perpetual, days: perpetual ? undefined : days, seats },
+      })
+      toast(`Approved — licence issued to ${req.name}`)
+      onDone(l)
+    } catch (e) { toast(errorMessage(e, 'Could not approve that')) }
+    finally { setBusy(false) }
+  }
+  return (
+    <Sheet title={`Approve · ${req.name}`} onClose={onClose}>
+      <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>{req.email}</p>
+      <label className="lbl">Valid for</label>
+      <div className="lic-presets">
+        {PRESETS.map((d) => (
+          <button key={d} type="button" className={`chip${!perpetual && days === d ? ' on' : ''}`}
+            onClick={() => { setPerpetual(false); setDays(d) }}>{d === 365 ? '1 year' : `${d}d`}</button>
+        ))}
+        <button type="button" className={`chip${perpetual ? ' on' : ''}`}
+          onClick={() => setPerpetual(true)}>Never expires</button>
+      </div>
+      {!perpetual && (
+        <input className="input" type="number" inputMode="numeric" min={1} max={3650}
+          value={days} onChange={(e) => setDays(Number(e.target.value) || 0)}
+          placeholder="Or exactly this many days" style={{ marginTop: 8 }} />
+      )}
+      <label className="lbl" style={{ marginTop: 10 }}>People who can sign in</label>
+      <div className="lic-presets">
+        {[1, 2, 4, 6].map((n) => (
+          <button key={n} type="button" className={`chip${seats === n ? ' on' : ''}`}
+            onClick={() => setSeats(n)}>{n === 1 ? 'Just them' : `${n} people`}</button>
+        ))}
+      </div>
+      <button className="btn primary block" style={{ marginTop: 16 }} disabled={busy} onClick={approve}>
+        {busy ? 'Issuing…' : 'Approve & issue licence'}
+      </button>
+      <p className="form-hint">
+        Issues a signed licence and marks the request approved. You’ll get the
+        licence key next — send it to them with the download link.
+      </p>
+    </Sheet>
   )
 }
 
@@ -185,13 +349,17 @@ function slug(text: string) {
   return text.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
 }
 
-function IssueLicence({ hosting, onClose, onDone }: {
+function IssueLicence({ hosting, onClose, onDone, onRenew }: {
   hosting: { available: boolean; domain: string }
-  onClose: () => void; onDone: (l: Licence) => void
+  onClose: () => void; onDone: (l: Licence) => void; onRenew: (l: Licence) => void
 }) {
   const toast = useToast()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  // Live check: does this email already hold a licence? Steers an accidental
+  // duplicate toward a renewal before anything is signed.
+  const [existing, setExisting] = useState<Licence | null>(null)
+  const [allowDup, setAllowDup] = useState(false)
   const [days, setDays] = useState(30)
   const [perpetual, setPerpetual] = useState(false)
   // How many sign-ins their household may have. 1 is the licence holder alone,
@@ -211,6 +379,19 @@ function IssueLicence({ hosting, onClose, onDone }: {
 
   const nameBad = name.trim().length < 2 ? 'Enter their name' : ''
   const mailBad = !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) ? 'Enter a valid email' : ''
+
+  // Debounced lookup as the email is typed; reset the override on every change.
+  useEffect(() => {
+    setAllowDup(false)
+    if (mailBad) { setExisting(null); return }
+    let live = true
+    const t = setTimeout(() => {
+      api<{ existing: Licence | null }>(`/api/licences/lookup?email=${encodeURIComponent(email.trim().toLowerCase())}`)
+        .then((r) => { if (live) setExisting(r.existing) })
+        .catch(() => { if (live) setExisting(null) })
+    }, 350)
+    return () => { live = false; clearTimeout(t) }
+  }, [email, mailBad])
   // Only checked when it applies: a perpetual licence has no number of days to be
   // wrong about, and a disabled field must not block the form.
   const daysBad = !perpetual && !(days >= 1 && days <= 3650)
@@ -228,6 +409,7 @@ function IssueLicence({ hosting, onClose, onDone }: {
           perpetual, days: perpetual ? undefined : days,
           unlimited_seats: unlimitedSeats, seats: unlimitedSeats ? undefined : seats,
           hosting: host, subdomain: host ? label : undefined,
+          allow_duplicate: allowDup,
         },
       })
       toast(l.hostname ? `Issued — ${l.hostname}`
@@ -254,6 +436,27 @@ function IssueLicence({ hosting, onClose, onDone }: {
         ? <p className="form-hint warn">{mailBad}</p>
         : <p className="form-hint">They sign in with this, and it is written into the
           licence itself — the copy cannot be set up under a different name.</p>}
+
+      {existing && !mailBad && (
+        <div className="lic-dup">
+          <div className="lic-dup-h">⚠️ {existing.name} already holds a licence</div>
+          <div className="lic-dup-facts">
+            <span className="lic-pill" style={{ color: (LOOK[existing.state] ?? LOOK.invalid).tint, borderColor: (LOOK[existing.state] ?? LOOK.invalid).tint }}>
+              {(LOOK[existing.state] ?? LOOK.invalid).label}
+            </span>
+            <span>{existing.key_id}</span>
+            {existing.perpetual
+              ? <span>· never expires</span>
+              : existing.expires_on && <span>· {existing.days_left != null && existing.days_left >= 0 ? `${existing.days_left} days left` : 'expired'} ({existing.expires_on})</span>}
+          </div>
+          <p className="lic-dup-note">Renew their existing licence rather than create a duplicate customer.</p>
+          <button type="button" className="btn sm" onClick={() => onRenew(existing)}>Renew this licence →</button>
+          <label className="lic-check" style={{ marginTop: 12 }}>
+            <input type="checkbox" checked={allowDup} onChange={(e) => setAllowDup(e.target.checked)} />
+            <span>This is a different person — issue a separate licence anyway</span>
+          </label>
+        </div>
+      )}
 
       <label className="lbl" style={{ marginTop: 4 }}>Valid for</label>
       <div className="lic-presets">
@@ -350,9 +553,11 @@ function IssueLicence({ hosting, onClose, onDone }: {
       </p>
 
       <button className="btn primary block"
-        disabled={busy || !!(nameBad || mailBad || daysBad || seatsBad || subBad)}
+        disabled={busy || !!(nameBad || mailBad || daysBad || seatsBad || subBad) || (!!existing && !allowDup)}
         onClick={submit}>
-        {busy ? 'Signing…' : host ? 'Issue licence and create their address' : 'Issue licence'}
+        {busy ? 'Signing…'
+          : existing && !allowDup ? 'This person already has a licence'
+          : host ? 'Issue licence and create their address' : 'Issue licence'}
       </button>
     </Sheet>
   )
@@ -450,7 +655,10 @@ function LicenceDetail({ licence, onClose, onChanged }: {
               onClick={() => setExtendDays(d)}>{d === 365 ? '1 year' : `${d}d`}</button>
           ))}
         </div>
-        <button className="btn block" disabled={!!busy}
+        <input className="input" type="number" inputMode="numeric" min={1} max={3650}
+          value={extendDays} onChange={(e) => setExtendDays(Number(e.target.value) || 0)}
+          placeholder="Or exactly this many days" style={{ margin: '8px 0' }} />
+        <button className="btn block" disabled={!!busy || !(extendDays >= 1 && extendDays <= 3650)}
           onClick={() => act('extend', `/api/licences/${licence.id}/extend`, { days: extendDays })}>
           {busy === 'extend' ? 'Signing…' : `Extend to ${extendDays} days from today`}
         </button>
@@ -583,6 +791,7 @@ function Broadcast({ onClose }: { onClose: () => void }) {
   const [version, setVersion] = useState('')
   const [kind, setKind] = useState<'news' | 'update' | 'urgent'>('update')
   const [audience, setAudience] = useState<'all' | 'local' | 'licensed'>('all')
+  const [alsoEmail, setAlsoEmail] = useState(false)
   const [busy, setBusy] = useState(false)
   const [past, setPast] = useState<BroadcastItem[]>([])
 
@@ -599,15 +808,16 @@ function Broadcast({ onClose }: { onClose: () => void }) {
   async function send() {
     setBusy(true)
     try {
-      const r = await api<{ delivered_local: number; waiting_for: number }>(
+      const r = await api<{ delivered_local: number; waiting_for: number; emailed: number }>(
         '/api/licences/broadcast', {
         method: 'POST',
         body: {
           title: title.trim(), body: body.trim(), url: url.trim(),
-          app_version: version.trim(), kind, audience,
+          app_version: version.trim(), kind, audience, email: alsoEmail,
         },
       })
-      toast(`Sent to ${r.delivered_local} here · ${r.waiting_for} copies will collect it`)
+      toast(`Sent to ${r.delivered_local} here · ${r.waiting_for} copies will collect it`
+        + (r.emailed ? ` · ${r.emailed} emailed` : ''))
       onClose()
     } catch (e) { toast(errorMessage(e, 'Could not send that')) }
     finally { setBusy(false) }
@@ -633,6 +843,12 @@ function Broadcast({ onClose }: { onClose: () => void }) {
             onClick={() => setAudience(v)}>{label}</button>
         ))}
       </div>
+      {audience !== 'local' && (
+        <label className="lic-check" style={{ marginTop: 10 }}>
+          <input type="checkbox" checked={alsoEmail} onChange={(e) => setAlsoEmail(e.target.checked)} />
+          <span>Also email customers (requires Email/SMTP set up in Administration)</span>
+        </label>
+      )}
 
       <Field label="Title">
         <input className="input" value={title} maxLength={160} autoFocus

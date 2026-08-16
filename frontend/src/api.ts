@@ -26,6 +26,18 @@ type Options = { method?: string; body?: unknown; auth?: boolean }
 // Fired when any call returns 401 so the app can drop back to the login screen.
 export const onUnauthorized = { handler: null as null | (() => void) }
 
+/** What the backend sends alongside a 402 when the licence gate is closed. */
+export type LicenceBlock = {
+  state?: string
+  reason?: string
+  name?: string
+  key_id?: string
+  expires_on?: string
+}
+// Fired when any call returns 402 (the licence gate is closed) so the app can
+// show the activation screen instead of a dead error toast on every request.
+export const onLicenceBlocked = { handler: null as null | ((info: LicenceBlock) => void) }
+
 /** Connection watchers — the banner subscribes so a failure anywhere surfaces once,
  *  globally, instead of each screen inventing its own error text. */
 type ConnListener = (online: boolean) => void
@@ -92,6 +104,17 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   }
 
   connection.report(true)
+
+  // 402 = the licence gate is closed (missing, expired, revoked). Surface it so
+  // the app can show the activation screen, then still throw so the caller
+  // unwinds rather than acting on an empty body.
+  if (res.status === 402) {
+    const licence =
+      (data && typeof data === 'object' && 'licence' in data
+        ? (data as { licence?: LicenceBlock }).licence
+        : undefined) || {}
+    onLicenceBlocked.handler?.(licence)
+  }
 
   if (!res.ok) {
     const detail =

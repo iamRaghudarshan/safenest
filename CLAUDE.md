@@ -1238,10 +1238,20 @@ the operator sees.
     this one.** Do not act on it.
 - Phone app **1.16.0** on TestFlight. Repo `D:\AI PRO\safenest-mobile`, which
   now has **its own CLAUDE.md** — read it before touching the phone.
-- Public URL: `finmate.raghudarshan.online` via the named tunnel
-  `b6ea7271-4d37-414e-9899-55be7f3903c5`. **This machine's LAN address is now
-  `192.168.31.159`** (it was `192.168.0.170`); both the domain and the LAN
-  address were verified reaching this server on 10 Aug.
+- Public URL: **`safenest.raghudarshan.online`** via the named tunnel
+  `b6ea7271-4d37-414e-9899-55be7f3903c5` (changed from `finmate.raghudarshan.online`
+  on 15 Aug — DB `public_url`, `.env`, and the tunnel config all switched; the old
+  hostname now returns 404 at the tunnel). **This machine's LAN address is now
+  `192.168.31.159`** (it was `192.168.0.170`).
+  **Changing the tunnel hostname:** edit the hostname in `cloudflared/config.yml`
+  (the source of truth — the AppTunnel SYSTEM task reads it via `--config`, and the
+  Web-address screen writes it) then double-click **`Restart App Tunnel.bat`** (it
+  self-elevates). cloudflared keeps THREE config copies — the repo one, the user's
+  `~/.cloudflared`, and (because the task runs as LocalSystem) the SYSTEM profile at
+  `System32\config\systemprofile\.cloudflared`. If they disagree, a connector
+  reading a stale one serves the old hostname; the restart helper syncs the repo
+  config into the other two before restarting, and kills stray connectors (they
+  accumulate and Cloudflare load-balances across all of them).
 - **The `safenest` repo is PUBLIC** as of 8 Aug, so GitHub's free macOS minutes
   would build the Mac half. Anyone can build and run this from source with no
   licence; the Ed25519 signing key is not in the repo, so nobody can mint

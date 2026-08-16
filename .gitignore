@@ -61,3 +61,4 @@ releases/
 # named again here because it arrives by hand rather than from a build on this
 # machine, and is easy to add by accident.
 dist-app/mac/
+nuitka-crash-report.xml

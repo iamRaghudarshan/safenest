@@ -99,6 +99,31 @@ jobs:
       # offered only "Move to Bin", which reads as a corrupt download rather than
       # a policy decision, and customers bin it. Signed ad-hoc, the same app gets
       # the ordinary "unidentified developer" prompt, which has an Open button.
+      # THE REAL FIX FOR "damaged / cannot be opened": Developer ID + notarisation.
+      # Ad-hoc signing (below) only downgrades the wording; on recent macOS a
+      # browser-downloaded ad-hoc app is still quarantined and refused, and the
+      # install .command is refused too. The website works around this with a
+      # curl one-liner (curl-fetched files are not quarantined) — see
+      # storefront.install_mac_script — but the credible fix is notarisation:
+      # then a plain double-click works and no workaround is needed.
+      #
+      # TO ENABLE (needs an Apple Developer account, $99/yr). Add repo secrets:
+      #   MAC_CERT_P12         base64 of the "Developer ID Application" .p12
+      #   MAC_CERT_PASSWORD    its password
+      #   MAC_SIGN_IDENTITY    e.g. "Developer ID Application: NAME (TEAMID)"
+      #   MAC_NOTARY_APPLE_ID  Apple ID email
+      #   MAC_NOTARY_TEAM_ID   the 10-char team id
+      #   MAC_NOTARY_PASSWORD  an app-specific password for that Apple ID
+      # then: import the cert into a temp keychain, sign with --options runtime
+      # (hardened runtime is REQUIRED), `xcrun notarytool submit --wait`, and
+      # `xcrun stapler staple App.app` — BEFORE the "Pack" step.
+      #
+      # CAVEAT to reconcile when enabling: bundler._mac_from_tar renames App.app ->
+      # <Brand>.app and edits Info.plist, which INVALIDATES a Developer ID signature
+      # (and the staple). So notarisation must sign the app in its FINAL branded
+      # form — either bake the brand name here before signing and make the bundler
+      # skip its rename/plist edit, or re-sign+re-notarise after the rename. Do NOT
+      # ship a renamed copy of a notarised bundle; it reads as tampered.
       - name: Sign ad-hoc
         run: |
           cd dist-app/mac

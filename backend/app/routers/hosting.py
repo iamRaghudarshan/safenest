@@ -17,6 +17,7 @@ config and tells the person the one command to run.
 """
 import ipaddress
 import os
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -55,8 +56,41 @@ def _manager(user: User = Depends(get_current_user)) -> User:
             403, "Only an administrator can change the web address on this copy.")
     return user
 
-# Where cloudflared looks for its configuration when it runs as a service.
+# Where cloudflared keeps its credentials (cert.pem, the tunnel's <id>.json). This
+# is the user profile of whoever set the tunnel up by hand.
 CF_HOME = Path(os.path.expanduser("~")) / ".cloudflared"
+
+
+def _tunnel_config_path() -> Path:
+    """The config file the RUNNING tunnel actually reads.
+
+    On the publisher's own machine the tunnel runs from a SYSTEM scheduled task
+    that names the project's `cloudflared/config.yml` outright (see
+    install-services.ps1: `--config <root>\\cloudflared\\config.yml`). A change
+    written to `~/.cloudflared` — which for a SYSTEM process is the systemprofile,
+    not the user who set things up — would never reach it, so the hostname would
+    silently not change. Prefer that project file when it is present; fall back to
+    `~/.cloudflared/config.yml` for a plain manual setup or a customer copy that
+    has no source tree.
+    """
+    repo = Path(__file__).resolve().parents[3] / "cloudflared" / "config.yml"
+    return repo if repo.parent.is_dir() else (CF_HOME / "config.yml")
+
+
+def _credentials_line(cfg: Path, tunnel_id: str) -> str:
+    """Reuse the credentials-file the working config already points at.
+
+    The JSON is written once by `cloudflared tunnel create` and referenced by
+    ABSOLUTE path; on this machine it lives in the user profile. Recomputing it
+    from CF_HOME would, under the SYSTEM task, point at a systemprofile path that
+    holds no credentials and the tunnel would fail to start. So keep the existing
+    line whenever there is one.
+    """
+    if cfg.is_file():
+        m = re.search(r"^\s*credentials-file:\s*(.+)$", cfg.read_text(encoding="utf-8"), re.M)
+        if m:
+            return m.group(1).strip()
+    return str(CF_HOME / f"{tunnel_id}.json")
 
 
 def _mask(token: str) -> str:
@@ -71,7 +105,7 @@ def _state(db: Session) -> dict:
     row = weburl._row(db)
     url = weburl.public_url(db)
     from_env = not (row.public_url or "").strip()
-    cfg = CF_HOME / "config.yml"
+    cfg = _tunnel_config_path()
     return {
         "public_url": url,
         "hostname": weburl.hostname_of(url),
@@ -173,10 +207,11 @@ def set_tunnel(request: Request, body: dict = Body(...),
 @router.post("/config")
 def write_config(request: Request, admin: User = Depends(_manager),
                  db: Session = Depends(get_db)):
-    """Write ~/.cloudflared/config.yml from what is stored here.
+    """Write the tunnel config from what is stored here, into the file the running
+    connector actually reads (see `_tunnel_config_path`).
 
-    Deliberately does not restart anything — see the module note. Returns the
-    exact command to run, so the person is not left guessing.
+    Deliberately does not restart anything — see the module note. Returns the exact
+    step to run, so the person is not left guessing.
     """
     row = weburl._row(db)
     host = row.tunnel_hostname or weburl.hostname_of(weburl.public_url(db))
@@ -187,13 +222,14 @@ def write_config(request: Request, admin: User = Depends(_manager),
             422, "Set the tunnel id first — cloudflared prints it when you run "
                  "'cloudflared tunnel create'.")
 
-    creds = CF_HOME / f"{row.tunnel_id}.json"
-    CF_HOME.mkdir(parents=True, exist_ok=True)
-    (CF_HOME / "config.yml").write_text(
-        f"# Written by {settings.public_base_url and 'the app' or 'the app'} — "
-        f"edit it here or in the Web address screen.\n"
+    cfg = _tunnel_config_path()
+    creds_line = _credentials_line(cfg, row.tunnel_id)
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text(
+        f"# Written by the app — edit it here or in the Web address screen.\n"
+        f"# Change the hostname below and then run 'Restart App Tunnel.bat'.\n"
         f"tunnel: {row.tunnel_id}\n"
-        f"credentials-file: {creds}\n"
+        f"credentials-file: {creds_line}\n"
         f"\n"
         f"ingress:\n"
         f"  - hostname: {host}\n"
@@ -201,16 +237,20 @@ def write_config(request: Request, admin: User = Depends(_manager),
         f"  - service: http_status:404\n",
         encoding="utf-8")
 
+    creds_present = Path(creds_line).is_file()
     audit(db, admin.id, "hosting_config", "hosting", 1, {"label": host},
           request=request)
     return {
         **_state(db),
-        "written_to": str(CF_HOME / "config.yml"),
-        "credentials_present": creds.is_file(),
-        "next_command": "net stop cloudflared && net start cloudflared",
+        "written_to": str(cfg),
+        "credentials_present": creds_present,
+        # On this machine the tunnel is a SYSTEM task, not a `cloudflared` service,
+        # so `net stop/start cloudflared` does nothing. The helper self-elevates,
+        # restarts the AppTunnel task and clears any stray connectors.
+        "next_command": "Double-click 'Restart App Tunnel.bat' and say Yes.",
         "note": ("The credentials file is missing. Run 'cloudflared tunnel login' "
                  "then 'cloudflared tunnel create <name>' on this computer."
-                 if not creds.is_file() else ""),
+                 if not creds_present else ""),
     }
 
 

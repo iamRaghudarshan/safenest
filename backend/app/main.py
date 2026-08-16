@@ -12,13 +12,13 @@ from sqlalchemy.exc import IntegrityError
 from .config import BACKEND_DIR, settings
 from .crypto import reencrypt_legacy_items
 from .database import Base, engine
-from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Hosting, License, Release,
-                     Master, MasterList, Notification, NotificationPref, PhotoVector, PushSubscription,
+from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Hosting, License, LicenceRequest, MailLog, MailSettings, Release,
+                     Master, MasterList, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, Ticket, TicketMessage,
                      UserModule, User)
 from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, hosting, household, masters, briefing, cards, releases,
-                      expenses, gallery, licences, loans, notifications, people, reminders,
-                      resources, search, system, todos, vault)
-from . import autoimport, autostart, hosts, indexer, ist, licensing, scheduler, tunnelrun
+                      expenses, gallery, licences, loans, mail, notifications, people, reminders,
+                      resources, search, mobile, storefront, support, system, todos, vault)
+from . import autoimport, autostart, hosts, indexer, ist, licensing, mailer, scheduler, tunnelrun
 
 
 def _sqlite_topup() -> int:
@@ -263,6 +263,15 @@ def _migrate() -> None:
     Broadcast.__table__.create(bind=engine, checkfirst=True)
     # Versions published to customers (added August 2026).
     Release.__table__.create(bind=engine, checkfirst=True)
+    # Storefront licence requests, publisher side only (added August 2026).
+    LicenceRequest.__table__.create(bind=engine, checkfirst=True)
+    # SMTP settings for emailing customers, publisher side only (added August 2026).
+    MailSettings.__table__.create(bind=engine, checkfirst=True)
+    # Email send queue/log, site-visit stats, and support tickets (added August 2026).
+    MailLog.__table__.create(bind=engine, checkfirst=True)
+    SiteStat.__table__.create(bind=engine, checkfirst=True)
+    Ticket.__table__.create(bind=engine, checkfirst=True)
+    TicketMessage.__table__.create(bind=engine, checkfirst=True)
     # Delivery receipts for those messages (added July 2026). Without them the admin
     # list cannot tell "never collected" from "collected days ago".
     BroadcastReceipt.__table__.create(bind=engine, checkfirst=True)
@@ -538,6 +547,12 @@ def _on_startup() -> None:
         threading.Thread(target=_check_licence, daemon=True).start()
 
     scheduler.start()
+    # The email queue worker — sends queued customer mail one at a time in the
+    # background, so a bulk broadcast never blocks the request that started it.
+    try:
+        mailer.start_worker()
+    except Exception as exc:
+        print(f"[startup] mail worker: {exc}")
     # Photo indexing resumes itself: anything uploaded while the app was down, or
     # left over from an interrupted pass, gets picked up without anyone asking.
     try:
@@ -763,6 +778,17 @@ for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminder
 app.include_router(licences.public)   # /api/licence/... — customer-facing, separate prefix
 app.include_router(releases.public)   # /api/licence/update, /download
 app.include_router(household.updater) # /api/update — the customer half
+app.include_router(mobile.router)     # /api/mobile/... — the phone's own updates
+# The storefront exists ONLY on the publisher — the box that holds the signing
+# key and issues licences. Registering it behind is_publisher means a customer
+# copy never even has these routes, on top of the admin+publisher gates inside.
+if settings.is_publisher:
+    app.include_router(storefront.public)   # /api/public/download, licence-request
+    app.include_router(storefront.admin_r)  # /api/licence-requests — admin review
+    app.include_router(storefront.pages)    # /get — the download page itself
+    app.include_router(mail.router)         # /api/admin/mail — SMTP settings
+    app.include_router(support.admin_t)     # /api/admin/tickets — manage support
+    app.include_router(support.public_t)    # /api/public/support — website tickets
 # Icon files and the manifest. Registered here, ahead of the SPA mount below, so
 # the generated manifest wins over the one compiled into the build — otherwise a
 # renamed app would keep its old name on every home screen.

@@ -278,14 +278,19 @@ $health = $null
 try { $health = Invoke-RestMethod "http://127.0.0.1:8080/api/health" -TimeoutSec 10 } catch {}
 Show "API health check  " ($null -ne $health -and $health.ok)
 
+# Read the public hostname from the tunnel config rather than hard-coding it, so a
+# domain change (edit cloudflared\config.yml) never leaves this verification pointing
+# at the old address.
+$pubHost = (Select-String -Path (Join-Path $root "cloudflared\config.yml") -Pattern '^\s*-?\s*hostname:\s*(\S+)').Matches.Groups[1].Value
+$publicUrl = if ($pubHost) { "https://$pubHost" } else { "" }
 $public = $null
-try { $public = Invoke-RestMethod "https://finmate.raghudarshan.online/api/health" -TimeoutSec 20 } catch {}
+if ($publicUrl) { try { $public = Invoke-RestMethod "$publicUrl/api/health" -TimeoutSec 20 } catch {} }
 Show "Public URL        " ($null -ne $public -and $public.ok)
 
 Write-Host ""
 if ($okMysql -and $okApi -and $okTun) {
     Write-Host "  All three start automatically at boot now." -ForegroundColor Green
-    Write-Host "  https://finmate.raghudarshan.online" -ForegroundColor Green
+    if ($publicUrl) { Write-Host "  $publicUrl" -ForegroundColor Green }
 } else {
     Write-Host "  Something did not come up - check the details above." -ForegroundColor Yellow
     Write-Host "  Logs:  Get-ScheduledTaskInfo $API_TASK   |   Get-Service cloudflared" -ForegroundColor DarkGray

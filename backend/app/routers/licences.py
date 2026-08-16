@@ -133,6 +133,47 @@ def _row(lic: License) -> dict:
     }
 
 
+def issue_and_store(db: Session, *, name: str, email: str, days: int | None,
+                    seats: int, note: str, created_by: int,
+                    allow_duplicate: bool = False) -> tuple[License, str]:
+    """Mint a signed licence and write its row — the shared core of issuing.
+
+    Used by the storefront's approve endpoint so it cannot drift from create() on
+    the essentials: a unique key id, the signed token, and the row that lets a
+    licence be re-sent or withdrawn later. Hosting and account-creation are
+    create()'s own extras and stay there — a storefront approval needs neither,
+    because the customer activates a generic build and makes their own account at
+    first run.
+
+    Refuses a duplicate live licence for the same email (same rule as create), so
+    approving a request from an existing customer routes to a renewal rather than
+    a second copy, unless allow_duplicate is set.
+    """
+    e = (email or "").strip().lower()
+    if not allow_duplicate:
+        dup = (db.query(License)
+               .filter(func.lower(License.email) == e, License.revoked_at.is_(None))
+               .order_by(License.id.desc()).first())
+        if dup:
+            raise HTTPException(409,
+                f"{e} already holds a licence ({dup.key_id}). Renew it instead, "
+                "or choose 'issue a separate licence'.")
+    key_id = licensing.new_key_id()
+    while db.query(License).filter(License.key_id == key_id).first():
+        key_id = licensing.new_key_id()
+    token, _payload = licensing.issue(
+        settings.license_signing_key_hex, key_id=key_id, name=name, email=email,
+        days=days, role="user", issuer=weburl.public_url(db), note=note, seats=seats)
+    now = ist.now()
+    lic = License(key_id=key_id, name=name, email=email, role="user",
+                  issued_on=ist.today(),
+                  expires_on=None if days is None else ist.today() + ist.timedelta(days=days),
+                  seats=seats, note=(note or "")[:200], token=token,
+                  created_by=created_by, created_at=now, updated_at=now)
+    db.add(lic)
+    return lic, token
+
+
 @router.get("")
 def index(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     _require_publisher()
@@ -143,6 +184,24 @@ def index(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
             "public_key": settings.license_public_key_hex,
             "hosting": {"available": settings.licence_hosting_enabled,
                         "domain": settings.licence_domain}}
+
+
+@router.get("/lookup")
+def lookup(email: str = "", admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Does this email already hold a live (non-withdrawn) licence?
+
+    The issue screen calls this as the address is typed, so an accidental duplicate
+    is steered toward a renewal BEFORE anything is signed — rather than only being
+    caught by the 409 on submit.
+    """
+    _require_publisher()
+    e = (email or "").strip().lower()
+    if not licensing.looks_like_email(e):
+        return {"existing": None}
+    lic = (db.query(License)
+           .filter(func.lower(License.email) == e, License.revoked_at.is_(None))
+           .order_by(License.id.desc()).first())
+    return {"existing": _row(lic) if lic else None}
 
 
 @router.post("")
@@ -165,6 +224,19 @@ def create(request: Request, body: dict = Body(...),
         raise HTTPException(422, "Name is required")
     if not licensing.looks_like_email(email):
         raise HTTPException(422, "A valid email address is required")
+
+    # Do not silently issue a SECOND live licence to the same person — the slip that
+    # quietly creates duplicate customers. An existing licence (even expired, as long
+    # as it is not withdrawn) should be RENEWED, not duplicated. allow_duplicate is
+    # the deliberate escape hatch for a genuine second household.
+    if not body.get("allow_duplicate"):
+        dup = (db.query(License)
+               .filter(func.lower(License.email) == email, License.revoked_at.is_(None))
+               .order_by(License.id.desc()).first())
+        if dup:
+            raise HTTPException(409,
+                f"{email} already holds a licence ({dup.key_id}). Renew it instead, "
+                "or choose 'issue a separate licence' to add another.")
 
     key_id = licensing.new_key_id()
     while db.query(License).filter(License.key_id == key_id).first():
@@ -248,6 +320,8 @@ def extend(id: int, request: Request, body: dict = Body(...),
     lic = db.query(License).get(id)
     if not lic:
         raise HTTPException(404, "Licence not found")
+    if lic.revoked_at:
+        raise HTTPException(409, "This licence is withdrawn — restore it before extending.")
     days = _days(body)
 
     token, payload = licensing.issue(
@@ -426,10 +500,24 @@ def broadcast(request: Request, body: dict = Body(...),
     row.delivered_local = sent
     db.commit(); db.refresh(row)
 
+    # Optionally also EMAIL customers (an extra push channel on top of the in-app
+    # announcement, for ads/notices). Best-effort and de-duplicated by address.
+    emailed = 0
+    if body.get("email") and audience in ("all", "licensed"):
+        from .. import mailer
+        if mailer.is_configured(db):
+            seen = set()
+            for lic in db.query(License).filter(License.revoked_at.is_(None)).all():
+                e = (lic.email or "").strip().lower()
+                if e and e not in seen:
+                    seen.add(e)
+                    mailer.enqueue(db, lic.email, title, text, kind="broadcast")
+                    emailed += 1                      # queued; the worker sends one by one
+
     live = db.query(License).filter(License.revoked_at.is_(None)).count()
     audit(db, admin.id, "broadcast", "broadcast", row.id,
-          {"label": title, "audience": audience, "local": sent}, request=request)
-    return {"id": row.id, "delivered_local": sent,
+          {"label": title, "audience": audience, "local": sent, "emailed": emailed}, request=request)
+    return {"id": row.id, "delivered_local": sent, "emailed": emailed,
             "waiting_for": live if audience in ("all", "licensed") else 0}
 
 
@@ -712,4 +800,62 @@ def status(user: User = Depends(get_current_user)):
         # It also put the publisher's private domain on someone else's screen. What
         # a copy validates belongs in the licence terms, not in Settings — and the
         # browser has no use for either value, so neither is sent.
+    }
+
+
+@public.post("/activate")
+def activate(request: Request, body: dict = Body(...),
+             user: User = Depends(get_current_user)):
+    """Install a licence key on THIS copy — the customer side of a generic build.
+
+    A generic download boots with LICENSED_MODE on and no licence.key, so the
+    gate blocks every module (402) and the app shows the activation screen. The
+    customer pastes the signed token they were sent and this installs it.
+
+    The signature is verified against the public key BEFORE anything is written:
+    licensing.install_token() writes blindly (it is used elsewhere with an
+    already-trusted token), so a forged, edited or foreign-signed token must be
+    refused here or it would land on disk and wedge the copy. On success the
+    memoised gate state is dropped so the very next request is already unblocked
+    — the same reason branding calls forget_name() after a rename.
+    """
+    # Reachable over the LAN and the tunnel, and it swaps the licence a working
+    # copy runs on — so it sits behind an account and a ceiling, like /status.
+    rate_limit(request, "licence-activate", limit=10, window=300)
+    if not settings.licensed_mode:
+        # A publisher install has no gate to open; there is nothing to activate,
+        # and writing a key here would be meaningless.
+        raise HTTPException(409, "This copy is not a licensed build")
+
+    token = (body.get("token") or body.get("key") or "").strip()
+    if not token:
+        raise HTTPException(422, "Paste the licence key you were sent")
+
+    # Verify the signature first. A token signed by another key, or with an
+    # edited payload, comes back INVALID — refuse it, never write it.
+    payload = licensing.parse(token, settings.license_public_key_hex)
+    if payload.get("state") in (licensing.INVALID, licensing.MISSING):
+        raise HTTPException(422, payload.get("reason") or "That is not a valid licence key")
+
+    # And refuse one that is already dead on arrival, so a stale key cannot
+    # overwrite a live one. GRACE / EXPIRING still install — those are usable.
+    live = licensing.evaluate(payload)
+    if licensing.is_blocked(live.get("state", "")):
+        raise HTTPException(422, live.get("reason")
+                            or f"That licence is {live.get('state')} and cannot be used")
+
+    licensing.install_token(settings.license_path, token)
+    licensing.forget()          # reopen the gate now, not in up to CACHE_SECONDS
+
+    state = licensing.status(settings.license_path, settings.license_public_key_hex)
+    return {
+        "licensed": True,
+        "state": state.get("state"),
+        "reason": state.get("reason"),
+        "name": state.get("name"),
+        "email": state.get("email"),
+        "key_id": state.get("kid"),
+        "expires_on": state.get("expires_on"),
+        "days_left": state.get("days_left"),
+        "blocked": licensing.is_blocked(state.get("state", "")),
     }

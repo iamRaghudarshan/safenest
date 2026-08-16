@@ -344,6 +344,22 @@ def _carry_hosting(data_dir: Path, hostname: str, tunnel_token: str) -> None:
     }, indent=2), encoding="utf-8")
 
 
+def _carry_licence_meta(data_dir: Path) -> None:
+    """Write licence.json — the public key and check URL that turn licensed mode
+    on at the far end.
+
+    Carries only the PUBLIC half of the key (safe to ship) and never the signing
+    key. Split out from _carry_licence so a GENERIC build can ship this without a
+    licence.key: such a copy boots blocked and the customer activates by pasting
+    the key they were sent, which the app verifies against this public key.
+    """
+    (data_dir / "licence.json").write_text(json.dumps({
+        "licensed": True,
+        "public_key": _read_env_value("LICENSE_PUBLIC_KEY_HEX"),
+        "check_url": _read_env_value("PUBLIC_BASE_URL"),
+    }, indent=2), encoding="utf-8")
+
+
 def _carry_licence(data_dir: Path, token: str) -> None:
     """Put the customer's licence, and only the public half of the key, into the build.
 
@@ -352,11 +368,7 @@ def _carry_licence(data_dir: Path, token: str) -> None:
     setup.py reads these and turns licensed mode on at the far end.
     """
     (data_dir / "licence.key").write_text(token.strip() + "\n", encoding="utf-8")
-    (data_dir / "licence.json").write_text(json.dumps({
-        "licensed": True,
-        "public_key": _read_env_value("LICENSE_PUBLIC_KEY_HEX"),
-        "check_url": _read_env_value("PUBLIC_BASE_URL"),
-    }, indent=2), encoding="utf-8")
+    _carry_licence_meta(data_dir)
 
 
 def _carry_tunnel(data_dir: Path) -> bool:
@@ -621,26 +633,25 @@ def _mac_gatekeeper_note(brand: str, launcher: str, folder: str) -> list:
     page is the difference between a working copy and a refund.
     """
     return [
-        "  INSTALLING IT",
+        "  INSTALLING IT - THE EASY WAY",
         "",
+        f'    Double-click  "Install {brand} (Mac).command"',
+        "    The first time, RIGHT-CLICK it and choose Open (macOS asks once for",
+        "    anything not from the App Store - choose Open). It moves the app to",
+        "    Applications and sets it up. After that, open it from Applications",
+        "    with a normal double-click.",
+        "",
+        "  IF YOU PREFER TO DO IT BY HAND",
         f"    1. Drag {brand}.app into your Applications folder.",
-        "",
-        f"    2. Open Applications, RIGHT-CLICK {brand} and choose Open.",
-        "       (Right-click, not double-click, only this first time.)",
-        "",
-        "    3. macOS will say it cannot verify the developer. Choose Open.",
-        "",
-        "    That is all. From then on it opens with a normal double-click.",
+        f"    2. Right-click {brand} -> Open -> Open (only the first time).",
+        "       If you are only offered 'Move to Bin', open Terminal and run:",
+        f"         xattr -cr /Applications/{brand}.app",
+        "       then open the app again.",
         "",
         "  WHY macOS ASKS",
-        "    Apple charges software makers a yearly fee to vouch for their apps.",
-        "    This one is signed but not registered with Apple, so macOS asks you",
-        "    once whether you trust it. Nothing is wrong with the download.",
-        "",
-        "    If you double-clicked and were only offered 'Move to Bin', that is",
-        "    the same thing: right-click and choose Open instead, and the Open",
-        "    button appears. Or go to System Settings > Privacy & Security and",
-        f"    click 'Open Anyway' beside the note about {brand}.",
+        "    This app is signed but not registered with Apple (that costs a yearly",
+        "    fee), so macOS asks you once whether you trust it. Nothing is wrong",
+        "    with the download.",
         "",
     ]
 
@@ -765,8 +776,134 @@ def _mac_from_tar(tar_src: Path, folder: str, data_dir: Path,
             dst.add(readme, arcname=f"{folder}/README.txt")
             copied += 1
 
+        # A one-time setup script, so the customer is not left running xattr and
+        # codesign by hand. Double-clicked (right-click -> Open the first time —
+        # the single step macOS forces on anything not notarised), it clears the
+        # download quarantine, ad-hoc re-signs the bundle, moves it to Applications
+        # and opens it. After that the app opens with a plain double-click.
+        setup = (
+            "#!/bin/bash\n"
+            f"# One-time setup for {exe_name} on macOS.\n"
+            "set -u\n"
+            'HERE="$(cd "$(dirname "$0")" && pwd)"\n'
+            f'APP="$HERE/{renamed_to}"\n'
+            f'echo "Setting up {exe_name}..."\n'
+            'xattr -cr "$APP" 2>/dev/null || true\n'
+            'codesign --force --deep -s - "$APP" 2>/dev/null || true\n'
+            f'DEST="/Applications/{renamed_to}"\n'
+            'if [ -d "$DEST" ]; then rm -rf "$DEST" 2>/dev/null || true; fi\n'
+            'if cp -R "$APP" /Applications/ 2>/dev/null; then APP="$DEST"; '
+            'else echo "(Could not copy to Applications - running from this folder.)"; fi\n'
+            'xattr -cr "$APP" 2>/dev/null || true\n'
+            'codesign --force --deep -s - "$APP" 2>/dev/null || true\n'
+            'open "$APP"\n'
+            f'echo "{exe_name} is installed. Open it from Applications from now on."\n'
+        )
+        sdata = setup.encode("utf-8")
+        sinfo = tarfile.TarInfo(name=f"{folder}/Install {exe_name} (Mac).command")
+        sinfo.size = len(sdata)
+        sinfo.mode = 0o755
+        dst.addfile(sinfo, _io.BytesIO(sdata))
+        copied += 1
+
     print(f"[bundle] mac archive: {copied} files, {links} symlinks preserved")
     return links
+
+
+def build_mac_release(out: Path, progress=lambda s, p: None) -> int:
+    """A generic (no-licence) Mac download for the website, ready to open.
+
+    The release the update path consumes is a BARE `App.app` — correct for a swap,
+    because `updates.unpack` resolves it and the customer's own `.app` name is kept.
+    But a bare, unsigned, un-renamed `.app` handed to a person from a web page is a
+    dead end: macOS quarantines the download and the only button is "Move to Bin".
+    Every Mac customer hit this.
+
+    So the website serves THIS instead: the same app renamed to the brand, inside a
+    folder next to a one-click `Install <Brand> (Mac).command` (clears quarantine,
+    ad-hoc re-signs, moves to Applications, opens) and a README. No licence travels
+    — the copy boots to the activation screen, exactly like the generic download it
+    is. Symlinks in Python.framework are preserved (see `_mac_from_tar`).
+    """
+    import shutil as _shutil
+    import tempfile
+
+    app_name = current_app_name()
+    exe_name = _display_name(app_name)
+    folder = f"{exe_name}-for-Mac"
+    launcher = f"Install {exe_name} (Mac).command"
+    tmp = Path(tempfile.mkdtemp(prefix="mac-release-"))
+    try:
+        dest = tmp / folder
+        dest.mkdir(parents=True)
+        # Carries licence.json (public key + check URL) but NO licence.key. That is
+        # what turns LICENSED_MODE on at the far end (runner.py) so the copy boots
+        # BLOCKED and shows the activation screen — without it a website download
+        # runs unlicensed with full access and never asks for a key. No records and
+        # no licence.key travel, so nothing usable is given away.
+        seed = tmp / "seed-data"
+        seed.mkdir()
+        _carry_licence_meta(seed)
+        _licensed_readme(dest, app_name, launcher, "", MAC)   # token="" -> activation copy
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.unlink(missing_ok=True)
+        return _mac_from_tar(mac_tarball(), folder, seed,
+                             dest / "README.txt", exe_name, out, progress)
+    finally:
+        _shutil.rmtree(tmp, ignore_errors=True)
+
+
+def build_windows_release(out: Path, progress=lambda s, p: None) -> Path:
+    """A generic (no-licence) Windows download for the website, branded and ready.
+
+    The release the update path consumes is the bare compiled folder — top-level
+    `App\\App.exe`, no README. That runs, but a person downloading it from a web
+    page gets an unbranded `App.exe` with no word about the SmartScreen prompt every
+    unsigned app triggers. So the website serves THIS: the same compiled app with
+    the executable and folder renamed to the brand and a README explaining the
+    'More info -> Run anyway' step. No licence travels — it boots to activation.
+
+    The bare zip stays the update artifact (updates.unpack + the swap expect it);
+    this is a separate file, so auto-update is untouched.
+    """
+    import shutil as _shutil
+    import tempfile
+
+    if not compiled_available(WINDOWS):
+        raise FileNotFoundError("No compiled Windows build. Run "
+                                "packaging/build_exe.py --native")
+    app_name = current_app_name()
+    brand = _display_name(app_name)
+    folder = f"{brand}-for-Windows"
+    src = compiled_dir(WINDOWS)
+    tmp = Path(tempfile.mkdtemp(prefix="win-release-"))
+    try:
+        dest = tmp / folder
+        progress("Copying the compiled app", 20)
+        _shutil.copytree(src, dest)
+        # Rename App.exe -> <Brand>.exe. A PyInstaller onedir finds _internal by the
+        # executable's FOLDER, not its name, so the rename is safe (the licensed
+        # build does the same).
+        exe = dest / f"{BRAND_TOKEN}.exe"
+        wanted = f"{brand}.exe"
+        if brand != BRAND_TOKEN and exe.exists():
+            exe.rename(dest / wanted)
+        # data/licence.json (public key + check URL, NO licence.key) ships beside the
+        # exe. runner.py restores it into the chosen records folder, which turns on
+        # LICENSED_MODE so the copy boots BLOCKED and asks for a key. Without it the
+        # download runs unlicensed with full access. No records/licence.key travel.
+        (dest / "data").mkdir(exist_ok=True)
+        _carry_licence_meta(dest / "data")
+        _licensed_readme(dest, app_name, wanted, "", WINDOWS)   # token="" -> activation copy
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.unlink(missing_ok=True)
+        progress("Zipping", 70)
+        _shutil.make_archive(str(out.with_suffix("")), "zip",
+                             root_dir=str(tmp), base_dir=folder)
+        progress("Done", 100)
+        return out
+    finally:
+        _shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _licensed_readme(dest: Path, app_name: str, launcher: str, token: str,
@@ -791,8 +928,10 @@ def _licensed_readme(dest: Path, app_name: str, launcher: str, token: str,
         pass
 
     brand = _display_name(app_name)
+    generic = not (token or "").strip()
     who = (f"Licensed to {holder}." if holder
-           else "Licensed to the holder of the enclosed licence.")
+           else "Activate this copy with the licence key you were sent."
+           if generic else "Licensed to the holder of the enclosed licence.")
     lines = [
         brand,
         "=" * len(brand),
@@ -800,6 +939,13 @@ def _licensed_readme(dest: Path, app_name: str, launcher: str, token: str,
     ]
     if platform == MAC:
         lines += _mac_gatekeeper_note(brand, launcher, dest.name)
+    if generic:
+        lines += [
+            "  ACTIVATING IT",
+            "    The first time you open it, paste the licence key you were sent.",
+            "    Until then it stays locked. The key came with this download.",
+            "",
+        ]
     lines += [
         "  STARTING IT",
         f"    Double-click  {launcher}",
@@ -949,7 +1095,16 @@ def build_licensed(platform: str, licence_token: str, out_root: Path | None = No
     # A vault key generated for them: this server's key protects everyone else's
     # saved passwords and must never leave the building.
     _write_carried_secrets(data_dir, vault_key=secrets.token_hex(32))
-    _carry_licence(data_dir, licence_token)
+    # No token → a GENERIC build: it carries the public key (so it can verify a
+    # pasted licence and check for updates) but NO licence.key, so it boots
+    # blocked and shows the activation screen. One download, activated per
+    # customer, instead of a fresh build per sale.
+    generic = not (licence_token or "").strip()
+    if generic:
+        _carry_licence_meta(data_dir)
+        result["generic"] = True
+    else:
+        _carry_licence(data_dir, licence_token)
     result["licensed"] = True
     if hosting and hosting.get("hostname") and hosting.get("tunnel_token"):
         _carry_hosting(data_dir, hosting["hostname"], hosting["tunnel_token"])

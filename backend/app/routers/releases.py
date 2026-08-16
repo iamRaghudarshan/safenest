@@ -118,6 +118,17 @@ def publish(request: Request, body: dict = Body(...),
             archive = out / f"{stem}.tar.gz"
             archive.unlink(missing_ok=True)
             shutil.copy2(src, archive)
+            # The bare copy above is the UPDATE artifact (updates.unpack resolves it
+            # and keeps the customer's own .app name). Separately, build the WEBSITE
+            # download: the same app renamed to the brand, with a one-click installer
+            # and a README, so a fresh download opens instead of being quarantined as
+            # a bare unsigned .app. Served by storefront.public_download; sibling of
+            # the release by naming convention. Non-fatal if it cannot be built.
+            try:
+                bundler.build_mac_release(out / f"{stem}-installer.tar.gz")
+            except Exception as exc:  # pragma: no cover - never block a release on it
+                (out / f"{stem}-installer.tar.gz").unlink(missing_ok=True)
+                print(f"[release] mac installer variant not built: {exc}")
         else:
             if not bundler.compiled_available(plat):
                 raise HTTPException(409, "There is no compiled Windows build to "
@@ -131,6 +142,16 @@ def publish(request: Request, body: dict = Body(...),
             src = bundler.compiled_dir(plat)
             shutil.make_archive(str(archive.with_suffix("")), "zip",
                                 root_dir=str(src.parent), base_dir=src.name)
+            # The bare zip above is the UPDATE artifact (top-level App\App.exe, which
+            # the swap expects). Separately build the WEBSITE download: the app renamed
+            # to the brand (SafeNest.exe) with a README about the SmartScreen prompt,
+            # so a fresh download is branded and explained. Served by
+            # storefront.public_download. Non-fatal if it cannot be built.
+            try:
+                bundler.build_windows_release(out / f"{stem}-installer.zip")
+            except Exception as exc:  # pragma: no cover - never block a release on it
+                (out / f"{stem}-installer.zip").unlink(missing_ok=True)
+                print(f"[release] windows installer variant not built: {exc}")
 
         sha = updates.digest(archive)
         size = archive.stat().st_size

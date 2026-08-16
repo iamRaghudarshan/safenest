@@ -1111,13 +1111,36 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str) -> dict:
 
     # Idempotent upload: the same image (e.g. re-picked after an accidental refresh)
     # never creates a second row. A matching trashed photo is quietly restored.
+    #
+    # Matched on content_hash OR source_hash. content_hash is the normalised
+    # encoding, which can shift a hair if the imaging library re-encodes
+    # differently after an upgrade; source_hash is the raw device bytes and
+    # matches only a byte-identical file — so it catches a re-upload content_hash
+    # would miss and can never mistake two different files for one.
     dup = (db.query(GalleryPhoto)
-           .filter(GalleryPhoto.user_id == user.id, GalleryPhoto.content_hash == content_hash)
+           .filter(GalleryPhoto.user_id == user.id,
+                   (GalleryPhoto.content_hash == content_hash) |
+                   (GalleryPhoto.source_hash == source_hash))
            .first())
     if dup:
+        changed = False
         if dup.is_trashed:
             dup.is_trashed = 0
             dup.updated_at = ist.now()
+            changed = True
+        # Self-heal the phone's backup pre-flight. Rows backfilled before this
+        # code had source_hash taken from the STORED file, which for a
+        # pre-optimisation JPEG is a re-encode, not the bytes the device sent —
+        # so it equals content_hash (the give-away) and /api/gallery/have never
+        # matched it, and the phone re-uploaded the whole library on every
+        # backup. The device just handed us the true original-bytes hash; bind
+        # it so /have matches next time. A source_hash only ever AVOIDS an
+        # upload, never causes a wrong skip, so correcting it cannot lose a photo.
+        if (not dup.source_hash or dup.source_hash == dup.content_hash) \
+                and dup.source_hash != source_hash:
+            dup.source_hash = source_hash
+            changed = True
+        if changed:
             db.commit()
         return {"item": _present(dup), "faces_found": 0, "duplicate": True}
 

@@ -137,6 +137,15 @@ function UserForm({ initial, onSave, onClose }: { initial: AdminUser | null; onS
   const [showPw, setShowPw] = useState(false)
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }))
 
+  // Optional per-module access chosen AT creation. Defaults to full access, so a
+  // plain create behaves exactly as before; tick "Choose access" to restrict.
+  const allKeys = Object.keys(MODULES) as ModuleKey[]
+  const [customPerms, setCustomPerms] = useState(false)
+  const [perms, setPerms] = useState<Matrix>(() =>
+    Object.fromEntries(allKeys.map((k) => [k, { view: true, create: true, edit: true, delete: true }])) as Matrix)
+  const togglePerm = (m: string, a: string, v: boolean) =>
+    setPerms((p) => ({ ...p, [m]: { ...p[m], [a]: v } }))
+
   // One place decides both the message and whether the button is usable, so they
   // can never disagree — the reason is always visible when the button is blocked.
   const pw = f.password
@@ -167,16 +176,55 @@ function UserForm({ initial, onSave, onClose }: { initial: AdminUser | null; onS
         </div>
       </Field>
 
+      {/* Choose access at creation. Only offered for a new non-admin user;
+          admins get everything, and edits use the dedicated Permissions sheet. */}
+      {!initial && f.role === 'user' && (
+        <Field label="Access">
+          <label className="perm-all">
+            <input type="checkbox" checked={!customPerms} onChange={(e) => setCustomPerms(!e.target.checked)} />
+            <span>All modules (full access)</span>
+          </label>
+          {customPerms && (
+            <div className="list" style={{ marginTop: 8 }}>
+              {allKeys.map((k) => {
+                const row = perms[k]; const Icon = MODULES[k].Icon
+                return (
+                  <div key={k} className="card" style={{ padding: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <div style={{ width: 26, height: 26, borderRadius: 8, display: 'grid', placeItems: 'center', color: '#fff', background: MODULES[k].color }}><Icon className="ic" /></div>
+                      <b style={{ fontSize: 13 }}>{MODULES[k].label}</b>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
+                      {(['view', 'create', 'edit', 'delete'] as const).map((a) => (
+                        <button key={a} type="button" onClick={() => togglePerm(k, a, !row[a])}
+                          className="pill" style={{ justifyContent: 'center', padding: '7px 0', textTransform: 'capitalize', background: row[a] ? 'var(--brand)' : 'var(--bg)', color: row[a] ? '#fff' : 'var(--ink-soft)', border: '1.5px solid var(--line)' }}>
+                          {a}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Field>
+      )}
+
       {/* Say WHY the button is disabled. A silently dead button reads as a broken app. */}
       {problem && <p className="form-hint warn">{problem}</p>}
       {initial && f.password.length > 0 && !problem && (
         <p className="form-hint warn">This signs {f.name.trim() || 'the user'} out on every device</p>
       )}
-      {!initial && !problem && (
+      {!initial && !problem && f.role === 'user' && !customPerms && (
         <p className="form-hint">They’ll get access to all modules; fine-tune with Permissions afterwards.</p>
       )}
+      {!initial && !problem && f.role === 'user' && customPerms && (
+        <p className="form-hint">Only the ticked actions will be allowed. You can change these later.</p>
+      )}
 
-      <button className="btn block" onClick={() => onSave(f)} disabled={!!problem}>
+      <button className="btn block"
+        onClick={() => onSave(!initial && f.role === 'user' && customPerms ? { ...f, permissions: perms } : f)}
+        disabled={!!problem}>
         {initial ? 'Save changes' : 'Create user'}
       </button>
     </Sheet>

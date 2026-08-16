@@ -24,8 +24,6 @@ function ConnectionSwitch() {
 
   if (!addr) return null
   const onLan = addr.current === 'lan'
-  // The only address worth offering is the one they are NOT already on: the
-  // public domain when at home, and nothing extra when already on the internet.
   const other = onLan && addr.public ? addr.public : ''
   if (!onLan && !addr.public) return null
 
@@ -40,6 +38,13 @@ function ConnectionSwitch() {
     </div>
   )
 }
+
+const POINTS: [string, string][] = [
+  ['🔒', 'AES-256 encrypted vault for your passwords'],
+  ['🏠', 'Your records stay on your own machine'],
+  ['🖼️', 'Back up your whole photo library'],
+  ['📄', 'Money, documents, photos & passwords in one place'],
+]
 
 export default function Login() {
   const { login } = useAuth()
@@ -62,51 +67,70 @@ export default function Login() {
     }
   }
 
+  const Logo = (
+    <div className="auth-logo">
+      {brand.icon_version > 0
+        ? <img src={brand.icons['192']} alt="" className="auth-logo-img" />
+        : '₹'}
+    </div>
+  )
+  const tagline = brand.tagline || 'Everything you own, kept safe at home.'
+
   return (
-    <div className="auth">
+    <div className="auth login-split">
       <div className="auth-bg" aria-hidden="true">
         <span className="orb o1" /><span className="orb o2" /><span className="orb o3" />
       </div>
 
-      <div className="auth-inner">
-        <div className="auth-brand">
-          {/* The uploaded icon when there is one; the rupee mark is the fallback
-              so a copy that never set an icon still looks deliberate. */}
-          <div className="auth-logo">
-            {brand.icon_version > 0
-              ? <img src={brand.icons['192']} alt="" className="auth-logo-img" />
-              : '₹'}
-          </div>
-          <h1 className="auth-title">{brand.app_name}</h1>
-          <p className="auth-tag">{brand.tagline || 'Your money, beautifully organised.'}</p>
+      {/* Brand panel — the whole left side on desktop, hidden on phones (the form
+          carries a compact brand block there instead). */}
+      <aside className="auth-hero">
+        <div className="auth-hero-in">
+          {Logo}
+          <h1 className="auth-hero-title">{brand.app_name}</h1>
+          <p className="auth-hero-tag">{tagline}</p>
+          <ul className="auth-points">
+            {POINTS.map(([ic, t]) => (
+              <li key={t}><span>{ic}</span>{t}</li>
+            ))}
+          </ul>
         </div>
+        <div className="auth-hero-foot">🔒 Secured with JWT · AES-256 vault · role-based access</div>
+      </aside>
 
-        <form onSubmit={submit} className="auth-card">
-          <div className="field">
-            <label>Email</label>
-            {/* Not a branded example address. The old one read "you@finmate.app",
-                which put a name the branding screen cannot reach on the first
-                screen anybody sees — and on a renamed copy it named the wrong
-                product to the customer, on their own machine. */}
-            <input className="input" type="email" autoComplete="username" placeholder="you@example.com"
-              value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+      <main className="auth-main">
+        <div className="auth-inner">
+          <div className="auth-brand only-mobile">
+            {Logo}
+            <h1 className="auth-title">{brand.app_name}</h1>
+            <p className="auth-tag">{tagline}</p>
           </div>
-          <div className="field">
-            <label>Password</label>
-            <div className="pw-wrap">
-              <input className="input" type={show ? 'text' : 'password'} autoComplete="current-password" placeholder="••••••••"
-                value={password} onChange={(e) => setPassword(e.target.value)} required />
-              <button type="button" className="pw-toggle" onClick={() => setShow((s) => !s)}>{show ? 'Hide' : 'Show'}</button>
+
+          <form onSubmit={submit} className="auth-card">
+            <h2 className="auth-card-h">Sign in</h2>
+            <p className="auth-card-sub">Welcome back — sign in to your {brand.app_name} account.</p>
+            <div className="field">
+              <label>Email</label>
+              <input className="input" type="email" autoComplete="username" placeholder="you@example.com"
+                value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
             </div>
-          </div>
-          {err && <div className="auth-err">{err}</div>}
-          <button className="btn block auth-btn" disabled={busy}>{busy ? 'Signing in…' : 'Sign in →'}</button>
-        </form>
+            <div className="field">
+              <label>Password</label>
+              <div className="pw-wrap">
+                <input className="input" type={show ? 'text' : 'password'} autoComplete="current-password" placeholder="••••••••"
+                  value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <button type="button" className="pw-toggle" onClick={() => setShow((s) => !s)}>{show ? 'Hide' : 'Show'}</button>
+              </div>
+            </div>
+            {err && <div className="auth-err">{err}</div>}
+            <button className="btn block auth-btn" disabled={busy}>{busy ? 'Signing in…' : 'Sign in →'}</button>
+          </form>
 
-        <ConnectionSwitch />
+          <ConnectionSwitch />
 
-        <div className="auth-foot">🔒 Secured with JWT · AES-256 vault · role-based access</div>
-      </div>
+          <div className="auth-foot only-mobile">🔒 Secured with JWT · AES-256 vault · role-based access</div>
+        </div>
+      </main>
     </div>
   )
 }

@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#1656C6" id="theme-color" />
+<title>SafeNest — everything you own, kept safe at home</title>
+<meta name="description" content="A private home for your money, documents, photos and passwords — running on your own computer, never a server anyone else controls." />
+<link rel="icon" href="/branding/icon-192.png" />
+<link rel="apple-touch-icon" href="/branding/icon-180.png" />
+<style>
+  :root {
+    --brand:#1656C6;
+    --c1:var(--brand); --c2:#7b3ff2; --c3:#0ea5e9; --c4:#10b981; --c5:#f59e0b; --c6:#f43f5e; --c7:#0891b2;
+    --grad: linear-gradient(120deg, var(--c1), var(--c2) 55%, var(--c3));
+    --ink:#0b1220; --body:#3a4453; --muted:#6b7480;
+    --line:#e7ebf2; --card:#ffffff; --bg:#ffffff;
+    --radius:18px;
+    --shadow: 0 14px 44px -14px color-mix(in srgb, var(--brand) 42%, transparent);
+    --font:'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --accent:var(--brand);
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; font-family:var(--font); color:var(--body); background:var(--bg);
+         line-height:1.62; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
+  h1,h2,h3 { color:var(--ink); line-height:1.13; letter-spacing:-.022em; margin:0; }
+  a { color:var(--brand); text-decoration:none; }
+  .wrap { max-width:1120px; margin:0 auto; padding:0 22px; }
+  #progress { position:fixed; top:0; left:0; height:3px; width:0; z-index:100;
+              background:var(--grad); box-shadow:0 0 12px color-mix(in srgb,var(--c2) 60%,transparent); }
+
+  .btn { position:relative; overflow:hidden; appearance:none; border:0; cursor:pointer; font:inherit;
+         font-weight:650; color:#fff; padding:14px 24px; border-radius:13px; display:inline-flex;
+         align-items:center; gap:9px; background:var(--grad); box-shadow:var(--shadow);
+         transition:transform .16s ease, box-shadow .16s ease; }
+  .btn:hover { transform:translateY(-3px); box-shadow:0 20px 60px -18px color-mix(in srgb,var(--c2) 55%,transparent); }
+  .btn::after { content:""; position:absolute; inset:0; background:linear-gradient(110deg,transparent 25%, rgba(255,255,255,.45) 50%, transparent 75%); transform:translateX(-160%); transition:transform .7s ease; }
+  .btn:hover::after { transform:translateX(160%); }
+  .btn[disabled] { background:#c3ccda; box-shadow:none; cursor:not-allowed; transform:none; }
+  .btn.ghost { background:color-mix(in srgb, var(--accent) 10%, white); color:var(--accent); box-shadow:none; }
+  .btn.ghost::after { display:none; }
+  .btn.ghost:hover { background:color-mix(in srgb, var(--accent) 18%, white); }
+  .btn.big { padding:16px 28px; font-size:16px; }
+
+  nav { position:sticky; top:0; z-index:50; backdrop-filter:saturate(1.5) blur(14px);
+        background:color-mix(in srgb, white 80%, transparent); border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; align-items:center; gap:14px; height:68px; }
+  .brand { display:flex; align-items:center; gap:11px; font-weight:800; color:var(--ink); font-size:20px; }
+  .brand img { width:36px; height:36px; border-radius:10px; }
+  nav .links { margin-left:auto; display:flex; align-items:center; gap:26px; }
+  nav .links a { color:var(--body); font-weight:550; }
+  nav .links a:hover { color:var(--brand); }
+  @media (max-width:760px){ nav .links a.hide-sm { display:none; } }
+
+  /* per-section theming: each section sets --accent, giving it its own colour */
+  section { position:relative; padding:82px 0; }
+  section.tint { background:
+      radial-gradient(60% 70% at 10% 0%, color-mix(in srgb,var(--accent) 11%,transparent), transparent 70%),
+      radial-gradient(55% 75% at 92% 100%, color-mix(in srgb,var(--accent) 9%,transparent), transparent 72%),
+      color-mix(in srgb,var(--accent) 4.5%, white);
+      border-block:1px solid color-mix(in srgb,var(--accent) 14%, var(--line)); }
+  .eyebrow { display:inline-block; font-weight:750; font-size:12.5px; letter-spacing:.1em; text-transform:uppercase;
+             margin-bottom:12px; padding:5px 13px; border-radius:999px; color:var(--accent);
+             background:color-mix(in srgb,var(--accent) 11%, white); border:1px solid color-mix(in srgb,var(--accent) 22%,white); }
+  .sec-head { max-width:660px; margin:0 auto 46px; text-align:center; }
+  .sec-head h2 { font-size:clamp(27px,3.6vw,40px); font-weight:800; }
+  .sec-head h2 em { font-style:normal; background:linear-gradient(100deg,var(--accent),color-mix(in srgb,var(--accent) 55%,var(--c2)));
+                    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .sec-head p { font-size:17px; margin-top:14px; }
+
+  /* HERO */
+  header.hero { position:relative; overflow:hidden; padding:92px 0 84px; }
+  .blobs { position:absolute; inset:-20% -10% auto -10%; height:150%; z-index:-1; }
+  .blob { position:absolute; border-radius:50%; opacity:.5; filter:blur(60px); animation:float 16s ease-in-out infinite; }
+  .blob.b1 { width:520px;height:520px; background:color-mix(in srgb,var(--c1) 55%,transparent); top:-160px; right:-80px; }
+  .blob.b2 { width:440px;height:440px; background:color-mix(in srgb,var(--c2) 45%,transparent); top:40px; left:-120px; animation-delay:-4s; }
+  .blob.b3 { width:360px;height:360px; background:color-mix(in srgb,var(--c3) 40%,transparent); bottom:-120px; left:38%; animation-delay:-8s; }
+  @keyframes float { 0%,100%{ transform:translate(0,0) scale(1);} 33%{ transform:translate(28px,-26px) scale(1.06);} 66%{ transform:translate(-22px,20px) scale(.96);} }
+  .hero-grid { display:grid; grid-template-columns:1.06fr .94fr; gap:46px; align-items:center; }
+  .pill { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:650; color:var(--brand);
+          background:color-mix(in srgb, var(--brand) 10%, white); border:1px solid var(--line); padding:8px 15px; border-radius:999px; margin-bottom:22px; }
+  .pill .live { width:8px;height:8px;border-radius:50%;background:var(--c4); box-shadow:0 0 0 0 color-mix(in srgb,var(--c4) 70%,transparent); animation:pulse 2s infinite; }
+  @keyframes pulse { 0%{ box-shadow:0 0 0 0 color-mix(in srgb,var(--c4) 70%,transparent);} 70%{ box-shadow:0 0 0 10px transparent;} 100%{ box-shadow:0 0 0 0 transparent;} }
+  .hero h1 { font-size:clamp(36px, 5.4vw, 60px); font-weight:800; }
+  .hero h1 .accent { background:linear-gradient(100deg, var(--c1), var(--c2) 45%, var(--c3)); background-size:220% auto;
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; animation:shine 6s linear infinite; }
+  @keyframes shine { to { background-position:220% center; } }
+  .hero p.lead { font-size:19px; color:var(--body); margin:22px 0 30px; max-width:37ch; }
+  .cta-row { display:flex; gap:13px; flex-wrap:wrap; align-items:center; }
+  .trust { display:flex; gap:22px; flex-wrap:wrap; margin-top:30px; color:var(--muted); font-size:13.5px; }
+  .trust b { color:var(--ink); }
+  .hero-art { position:relative; }
+  .hero-card { background:var(--card); border:1px solid var(--line); border-radius:24px;
+               box-shadow:0 40px 90px -30px color-mix(in srgb, var(--c2) 45%, transparent); padding:22px; animation:cardfloat 7s ease-in-out infinite; }
+  @keyframes cardfloat { 0%,100%{ transform:translateY(0) rotate(1deg);} 50%{ transform:translateY(-14px) rotate(-.4deg);} }
+  .hero-card .top { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .hero-card .top img { width:42px; height:42px; border-radius:11px; }
+  .hero-card .dot { width:10px;height:10px;border-radius:50%; background:var(--c4); box-shadow:0 0 0 4px color-mix(in srgb,var(--c4) 20%,transparent); margin-left:auto; }
+  .mini { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .mini div { border-radius:14px; padding:14px 8px; text-align:center; font-size:12px; font-weight:650; color:#fff; box-shadow:0 8px 20px -10px rgba(0,0,0,.35); }
+  .mini div span { display:block; font-size:21px; margin-bottom:5px; }
+  @media (max-width:880px){ .hero-grid{ grid-template-columns:1fr; } .hero-art{ display:none; } }
+
+  /* Hero product preview: a browser-framed dashboard + a phone showing backup */
+  /* realistic laptop: lid (dark bezel) with camera, screen, and a wider base */
+  .laptop { position:relative; animation:cardfloat 8s ease-in-out infinite; }
+  .lid { background:linear-gradient(#141b2e,#0b1220); border-radius:16px; padding:11px 11px 13px;
+         box-shadow:0 44px 90px -30px color-mix(in srgb,var(--c2) 42%,transparent); }
+  .cam { display:block; width:6px; height:6px; border-radius:50%; background:#39445a; margin:0 auto 8px; box-shadow:inset 0 0 0 1.5px #10151f; }
+  .screen { position:relative; background:var(--card); border:1px solid #05070d; border-radius:7px; overflow:hidden; }
+  .base { position:relative; width:118%; margin-left:-9%; height:15px; background:linear-gradient(#e4e9f1,#c3ccd9);
+          border-radius:2px 2px 13px 13px; box-shadow:0 20px 34px -14px rgba(11,18,32,.45); }
+  .base::after { content:""; position:absolute; top:0; left:50%; transform:translateX(-50%); width:74px; height:7px; background:#b4bdcc; border-radius:0 0 9px 9px; }
+  .win-bar { display:flex; align-items:center; gap:7px; padding:11px 14px; border-bottom:1px solid var(--line); background:#f7f9fc; }
+  .tl { width:11px; height:11px; border-radius:50%; } .tl.r{background:#ff5f57;} .tl.y{background:#febc2e;} .tl.g{background:#28c840;}
+  .addr { margin-left:10px; flex:1; background:#fff; border:1px solid var(--line); border-radius:8px; padding:5px 12px; font-size:12px; color:var(--muted); display:flex; gap:7px; align-items:center; }
+  .dash { display:grid; grid-template-columns:64px 1fr; height:340px; }
+  .side { background:linear-gradient(180deg,color-mix(in srgb,var(--brand) 6%,white),#fff); border-right:1px solid var(--line); padding:14px 0; display:flex; flex-direction:column; align-items:center; gap:11px; }
+  .side-logo img { width:32px; height:32px; border-radius:9px; }
+  .si { width:38px; height:38px; border-radius:11px; display:grid; place-items:center; font-size:17px; background:color-mix(in srgb,var(--sc,#1656C6) 14%,white); }
+  .si.on { background:linear-gradient(135deg,var(--sc),color-mix(in srgb,var(--sc) 55%,white)); box-shadow:0 8px 16px -6px color-mix(in srgb,var(--sc) 55%,transparent); }
+  .main { padding:16px 18px; overflow:hidden; }
+  .greet { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .greet .hi { font-size:12px; color:var(--muted); } .greet .who { font-weight:800; color:var(--ink); font-size:16px; }
+  .greet .ava { width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg,var(--c2),var(--c3)); }
+  .cards3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:12px; }
+  .c { border:1px solid var(--line); border-radius:12px; padding:11px; background:#fff; }
+  .c .ct { font-size:10.5px; color:var(--muted); } .c .cv { font-weight:800; color:var(--ink); font-size:16px; margin:3px 0 6px; }
+  .spark { width:100%; height:26px; display:block; }
+  .panel { border:1px solid var(--line); border-radius:12px; padding:12px 13px; background:#fff; }
+  .panel .pt { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; }
+  .prow { display:flex; align-items:center; gap:10px; padding:6px 0; font-size:12.5px; color:var(--ink); }
+  .prow .ri { width:26px; height:26px; border-radius:8px; display:grid; place-items:center; font-size:13px; flex:0 0 auto; }
+  .prow .rt { margin-left:auto; color:var(--muted); font-size:11px; }
+  .phone { position:absolute; right:-14px; bottom:-16px; width:150px; background:linear-gradient(#141b2e,#0b1220); border-radius:30px; padding:13px 9px 15px; box-shadow:0 34px 64px -20px rgba(11,18,32,.62); animation:cardfloat 6s ease-in-out infinite; animation-delay:-2s; }
+  .phone .isl { position:absolute; top:7px; left:50%; transform:translateX(-50%); width:46px; height:11px; border-radius:7px; background:#000; z-index:3; }
+  .phone .btn-r { position:absolute; right:-2px; top:66px; width:3px; height:32px; border-radius:2px; background:#0b1220; }
+  .phone .btn-l { position:absolute; left:-2px; top:54px; width:3px; height:22px; border-radius:2px; background:#0b1220; }
+  .phone::after { content:""; position:absolute; bottom:6px; left:50%; transform:translateX(-50%); width:44px; height:4px; border-radius:3px; background:rgba(255,255,255,.5); }
+  .phone .scr { background:#fff; border-radius:22px; padding:15px 11px 12px; color:#0b1220; }
+  .ph-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .gp { width:22px; height:22px; transform-origin:50% 50%; animation:spin 16s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .ph-app { font-weight:800; font-size:14px; }
+  .ph-ava { margin-left:auto; width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#7b3ff2,#0ea5e9); }
+  .pg { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .pg span { aspect-ratio:1; border-radius:9px; box-shadow:inset 0 0 0 1px rgba(0,0,0,.05); }
+  .ph-status { margin-top:11px; background:#f4f7fb; border:1px solid #e9eef5; border-radius:12px; padding:9px 10px; }
+  .ph-line { font-size:11px; font-weight:750; display:flex; align-items:center; gap:6px; }
+  .ph-line .d { width:7px; height:7px; border-radius:50%; background:#34A853; animation:pulse 2s infinite; }
+  .ph-bar { margin-top:7px; height:6px; border-radius:4px; background:#e6ebf3; overflow:hidden; }
+  .ph-bar i { display:block; height:100%; width:72%; border-radius:4px; background:linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335); }
+  .ph-cap { font-size:9.5px; color:#6b7480; margin-top:5px; }
+  @media (max-width:980px){ .phone{ display:none; } }
+
+  /* STATS */
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:18px; }
+  @media (max-width:720px){ .stats{ grid-template-columns:repeat(2,1fr);} }
+  .stat { text-align:center; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:26px 14px; transition:transform .2s ease, box-shadow .2s ease; }
+  .stat:hover { transform:translateY(-4px); box-shadow:var(--shadow); }
+  .stat .n { font-size:40px; font-weight:850; letter-spacing:-.03em; line-height:1;
+             background:linear-gradient(120deg,var(--accent),color-mix(in srgb,var(--accent) 55%,var(--c2)));
+             -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .stat .l { margin-top:8px; font-size:13.5px; color:var(--muted); font-weight:550; }
+
+  /* FLOW INFOGRAPHIC */
+  .flow-wrap { max-width:760px; margin:0 auto; }
+  .flow-svg { width:100%; height:auto; display:block; }
+  .flow-legend { display:flex; gap:26px; justify-content:center; flex-wrap:wrap; margin-top:18px; font-size:13.5px; color:var(--muted); }
+  .flow-legend b { color:var(--ink); }
+
+  /* FEATURES */
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  @media (max-width:820px){ .grid{ grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:520px){ .grid{ grid-template-columns:1fr;} }
+  .feat { --fc:var(--brand); position:relative; background:var(--card); border:1px solid var(--line);
+          border-radius:var(--radius); padding:24px; overflow:hidden; transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+  .feat::before { content:""; position:absolute; inset:0 0 auto 0; height:4px; background:linear-gradient(90deg, var(--fc), color-mix(in srgb,var(--fc) 55%, white)); }
+  .feat:hover { transform:translateY(-6px); box-shadow:0 24px 50px -22px color-mix(in srgb, var(--fc) 45%, transparent); border-color:color-mix(in srgb, var(--fc) 40%, var(--line)); }
+  .feat .ic { width:50px; height:50px; border-radius:14px; display:grid; place-items:center; font-size:24px; margin-bottom:15px; color:#fff;
+              background:linear-gradient(135deg, var(--fc), color-mix(in srgb,var(--fc) 58%, white)); box-shadow:0 12px 24px -8px color-mix(in srgb,var(--fc) 55%, transparent); transition:transform .25s ease; }
+  .feat:hover .ic { transform:scale(1.12) rotate(-6deg); }
+  .feat h3 { font-size:17px; margin-bottom:6px; }
+  .feat p { font-size:14.5px; color:var(--muted); margin:0; }
+
+  /* SECURITY */
+  .sec-grid { display:grid; grid-template-columns:.9fr 1.1fr; gap:44px; align-items:center; }
+  @media (max-width:820px){ .sec-grid{ grid-template-columns:1fr; } }
+  .shield { position:relative; width:230px; height:230px; margin:0 auto; display:grid; place-items:center; }
+  .shield .ring { position:absolute; inset:0; margin:auto; border-radius:50%; border:2px solid color-mix(in srgb,var(--accent) 45%,transparent); animation:ripple 3s ease-out infinite; }
+  .shield .r2 { animation-delay:1s; } .shield .r3 { animation-delay:2s; }
+  @keyframes ripple { 0%{ transform:scale(.35); opacity:.9; } 100%{ transform:scale(1); opacity:0; } }
+  .shield .core { width:120px; height:120px; border-radius:32px; display:grid; place-items:center; font-size:52px; color:#fff;
+                  background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 55%,var(--c3))); box-shadow:0 24px 50px -18px color-mix(in srgb,var(--accent) 60%,transparent); z-index:1; animation:cardfloat 6s ease-in-out infinite; }
+  .checks { display:grid; gap:14px; }
+  .check { display:flex; gap:13px; align-items:flex-start; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:15px 17px; }
+  .check .b { width:34px;height:34px;border-radius:10px; display:grid; place-items:center; color:#fff; font-size:17px; flex:0 0 auto;
+              background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 55%,var(--c4))); }
+  .check b { color:var(--ink); } .check span { color:var(--muted); font-size:14px; }
+
+  /* STEPS + animated connector */
+  .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; position:relative; }
+  @media (max-width:760px){ .steps{ grid-template-columns:1fr; } }
+  .connector { max-width:720px; margin:0 auto 6px; height:34px; }
+  .connector svg { width:100%; height:100%; overflow:visible; }
+  .step { position:relative; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:28px 22px; transition:transform .2s ease, box-shadow .2s ease; }
+  .step:hover { transform:translateY(-5px); box-shadow:var(--shadow); }
+  .step .num { width:40px; height:40px; border-radius:12px; background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 55%,var(--c5))); color:#fff; font-weight:850; display:grid; place-items:center; box-shadow:var(--shadow); margin-bottom:14px; font-size:18px; }
+  .step h3 { font-size:17px; margin:0 0 6px; } .step p { font-size:14.5px; color:var(--muted); margin:0; }
+
+  /* DOWNLOAD */
+  .dl-box { max-width:780px; margin:0 auto; background:var(--card); border:1px solid var(--line); border-radius:24px; padding:32px; box-shadow:var(--shadow); text-align:center; }
+  .dl { display:flex; gap:13px; justify-content:center; flex-wrap:wrap; margin:6px 0 4px; }
+  .dl-meta { color:var(--muted); font-size:13.5px; margin-top:12px; }
+  details.open-help { text-align:left; margin-top:18px; border-top:1px solid var(--line); padding-top:16px; }
+  details.open-help summary { cursor:pointer; font-weight:650; color:var(--ink); }
+  details.open-help ol { color:var(--muted); font-size:14px; margin:12px 0 0; padding-left:20px; }
+  code { background:color-mix(in srgb,var(--brand) 8%,white); color:var(--brand); padding:2px 7px; border-radius:6px; font-size:13px; }
+  .get-os { text-align:left; padding:16px 0; border-top:1px solid var(--line); }
+  .get-os:first-of-type { border-top:0; padding-top:0; }
+  .os-h { font-weight:800; color:var(--ink); margin-bottom:10px; font-size:15px; }
+  .cmd-row { display:flex; gap:8px; align-items:stretch; }
+  .cmd-row code { flex:1; overflow-x:auto; white-space:nowrap; padding:11px 13px; font-size:13px; display:flex; align-items:center; }
+  .cmd-row .btn { padding:0 16px; }
+
+  /* CTA */
+  .cta { color:#fff; text-align:center; background:var(--grad); background-size:200% 200%; animation:gradmove 12s ease infinite; }
+  @keyframes gradmove { 0%,100%{ background-position:0% 50%;} 50%{ background-position:100% 50%;} }
+  .cta h2 { color:#fff; font-size:clamp(26px,3.6vw,38px); }
+  .cta p { color:rgba(255,255,255,.9); font-size:17px; margin:14px auto 26px; max-width:52ch; }
+  .cta .btn { background:#fff; color:var(--brand); }
+  .cta .btn.ghost { background:rgba(255,255,255,.14); color:#fff; }
+
+  /* FORM */
+  .form-card { max-width:580px; margin:0 auto; background:var(--card); border:1px solid var(--line); border-radius:22px; padding:32px; box-shadow:var(--shadow); }
+  label { display:block; font-weight:600; font-size:14px; color:var(--ink); margin:14px 0 6px; }
+  input, textarea { width:100%; border:1px solid var(--line); border-radius:12px; padding:13px 14px; font:inherit; background:#fbfcfe; transition:border .15s, box-shadow .15s; }
+  input:focus, textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); }
+  textarea { resize:vertical; }
+  .ok { background:color-mix(in srgb,var(--c4) 12%,white); color:#0f7a4a; border:1px solid color-mix(in srgb,var(--c4) 30%,white); padding:14px 16px; border-radius:12px; }
+  .err { color:#c0362c; font-size:14px; margin-top:10px; }
+
+  footer { border-top:1px solid var(--line); padding:42px 0; color:var(--muted); font-size:14px; }
+  footer .wrap { display:flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:space-between; }
+
+  .js .reveal { opacity:0; transform:translateY(22px); transition:opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
+  .js .reveal.in { opacity:1; transform:none; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation:none !important; scroll-behavior:auto; }
+    .js .reveal { opacity:1 !important; transform:none !important; transition:none; }
+  }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top"><img id="nav-logo" class="logo-img" src="/branding/icon-192.png" alt=""><span id="nav-name">SafeNest</span></a>
+    <div class="links">
+      <a class="hide-sm" href="#privacy">Privacy</a>
+      <a class="hide-sm" href="#features">Features</a>
+      <a class="hide-sm" href="#how">How it works</a>
+      <a class="hide-sm" href="#download">Download</a>
+      <a class="hide-sm" href="#support">Support</a>
+      <a class="btn ghost" style="padding:10px 18px" href="/">Sign in</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="blobs" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
+  <div class="wrap hero-grid">
+    <div>
+      <span class="pill"><span class="live"></span> Runs on your own computer — not our servers</span>
+      <h1>Everything you own,<br><span class="accent">kept safe at home.</span></h1>
+      <p class="lead" id="hero-lead">Your money, documents, photos and passwords in one private place — on a machine only you control.</p>
+      <div class="cta-row">
+        <a class="btn big" href="#licence">Get SafeNest</a>
+        <a class="btn ghost big" href="#how">How it works</a>
+      </div>
+      <div class="trust">
+        <span>🛡️ <b>AES-256</b> encrypted vault</span>
+        <span>🏠 <b>Your data never leaves</b> your machine</span>
+        <span>🔄 <b>Simple subscription</b>, cancel anytime</span>
+      </div>
+    </div>
+    <div class="hero-art">
+      <div class="laptop reveal">
+        <div class="lid">
+          <span class="cam"></span>
+          <div class="screen">
+        <div class="win-bar"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
+          <div class="addr"><span>🔒</span> safenest.home</div></div>
+        <div class="dash">
+          <aside class="side">
+            <div class="side-logo"><img id="card-logo" class="logo-img" src="/branding/icon-192.png" alt=""></div>
+            <span class="si on" style="--sc:#1656C6">🏠</span>
+            <span class="si" style="--sc:#7b3ff2">🖼️</span>
+            <span class="si" style="--sc:#0ea5e9">🔐</span>
+            <span class="si" style="--sc:#10b981">📄</span>
+            <span class="si" style="--sc:#f59e0b">🛡️</span>
+            <span class="si" style="--sc:#f43f5e">🔔</span>
+          </aside>
+          <div class="main">
+            <div class="greet">
+              <div><div class="hi">Good evening,</div><div class="who" id="card-name">SafeNest</div></div>
+              <div class="ava"></div>
+            </div>
+            <div class="cards3">
+              <div class="c"><div class="ct">This month</div><div class="cv">₹48,250</div>
+                <svg class="spark" viewBox="0 0 90 26" xmlns="http://www.w3.org/2000/svg"><g fill="#1656C6"><rect x="2" y="14" width="9" height="12" rx="2"/><rect x="15" y="9" width="9" height="17" rx="2"/><rect x="28" y="17" width="9" height="9" rx="2"/><rect x="41" y="6" width="9" height="20" rx="2"/><rect x="54" y="12" width="9" height="14" rx="2"/><rect x="67" y="3" width="9" height="23" rx="2"/><rect x="80" y="10" width="8" height="16" rx="2"/></g></svg></div>
+              <div class="c"><div class="ct">Upcoming</div><div class="cv">3 bills</div>
+                <svg class="spark" viewBox="0 0 90 26" xmlns="http://www.w3.org/2000/svg"><polyline points="2,20 17,14 32,17 47,8 62,11 77,5 88,9" fill="none" stroke="#7b3ff2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <div class="c"><div class="ct">Documents</div><div class="cv">126</div>
+                <svg class="spark" viewBox="0 0 90 26" xmlns="http://www.w3.org/2000/svg"><g fill="#10b981"><rect x="2" y="10" width="9" height="16" rx="2"/><rect x="15" y="7" width="9" height="19" rx="2"/><rect x="28" y="13" width="9" height="13" rx="2"/><rect x="41" y="4" width="9" height="22" rx="2"/><rect x="54" y="9" width="9" height="17" rx="2"/><rect x="67" y="14" width="9" height="12" rx="2"/><rect x="80" y="7" width="8" height="19" rx="2"/></g></svg></div>
+            </div>
+            <div class="panel">
+              <div class="pt">Recent activity</div>
+              <div class="prow"><span class="ri" style="background:#10b98122">📄</span><span>Aadhaar.pdf added to Documents</span><span class="rt">2m</span></div>
+              <div class="prow"><span class="ri" style="background:#7b3ff222">🖼️</span><span>1,248 photos backed up</span><span class="rt">1h</span></div>
+              <div class="prow"><span class="ri" style="background:#f59e0b22">🛡️</span><span>Car insurance renews in 12 days</span><span class="rt">1d</span></div>
+            </div>
+          </div>
+        </div>
+          </div>
+        </div>
+        <div class="base"></div>
+      </div>
+      <div class="phone reveal">
+        <span class="isl"></span><span class="btn-r"></span><span class="btn-l"></span>
+        <div class="scr">
+          <div class="ph-head">
+            <svg class="gp" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M20 20 C12 18 12 4 20 4 C28 4 28 18 20 20Z" fill="#4285F4"/>
+              <path d="M20 20 C12 18 12 4 20 4 C28 4 28 18 20 20Z" fill="#EA4335" transform="rotate(90 20 20)"/>
+              <path d="M20 20 C12 18 12 4 20 4 C28 4 28 18 20 20Z" fill="#FBBC05" transform="rotate(180 20 20)"/>
+              <path d="M20 20 C12 18 12 4 20 4 C28 4 28 18 20 20Z" fill="#34A853" transform="rotate(270 20 20)"/>
+            </svg>
+            <span class="ph-app">Photos</span>
+            <span class="ph-ava"></span>
+          </div>
+          <div class="pg">
+            <span style="background:linear-gradient(135deg,#ff9a56,#ff5e62)"></span>
+            <span style="background:linear-gradient(135deg,#43cea2,#185a9d)"></span>
+            <span style="background:linear-gradient(135deg,#f6d365,#fda085)"></span>
+            <span style="background:linear-gradient(135deg,#a1c4fd,#c2e9fb)"></span>
+            <span style="background:linear-gradient(135deg,#84fab0,#8fd3f4)"></span>
+            <span style="background:linear-gradient(135deg,#fbc2eb,#a18cd1)"></span>
+            <span style="background:linear-gradient(135deg,#5ee7df,#b490ca)"></span>
+            <span style="background:linear-gradient(135deg,#f093fb,#f5576c)"></span>
+            <span style="background:linear-gradient(135deg,#4facfe,#00f2fe)"></span>
+          </div>
+          <div class="ph-status">
+            <div class="ph-line"><span class="d"></span> Backing up · 1,248</div>
+            <div class="ph-bar"><i></i></div>
+            <div class="ph-cap">72% · to your computer</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- STATS (violet) -->
+<section id="stats" class="tint" style="--accent:#7b3ff2; padding:56px 0">
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat reveal"><div class="n">10</div><div class="l">Modules in one home</div></div>
+      <div class="stat reveal"><div class="n">256-bit</div><div class="l">AES encryption</div></div>
+      <div class="stat reveal"><div class="n">0</div><div class="l">Records on our servers</div></div>
+      <div class="stat reveal"><div class="n">100%</div><div class="l">Yours, on your machine</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- PRIVACY DATA-FLOW (teal) -->
+<section id="privacy" style="--accent:#0891b2">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Where your data goes</div>
+      <h2>It flows to <em>your computer</em> — never to us</h2>
+      <p>Your phone backs up to the machine in your home. Nothing is copied to our servers, because we don't run any that hold your records.</p>
+    </div>
+    <div class="flow-wrap reveal">
+      <svg class="flow-svg" viewBox="0 0 680 240" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-label="Data flows from your phone to your own computer, and is blocked from outside servers">
+        <defs>
+          <linearGradient id="gdev" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0891b2"/><stop offset="1" stop-color="#1656C6"/></linearGradient>
+        </defs>
+        <!-- flowing path phone -> computer -->
+        <path id="p1" d="M175 120 H300" fill="none" stroke="#0891b2" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round" opacity=".55"/>
+        <circle r="7" fill="#0891b2"><animateMotion dur="1.8s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="linear"><mpath xlink:href="#p1"/></animateMotion></circle>
+        <circle r="7" fill="#10b981"><animateMotion dur="1.8s" begin="0.9s" repeatCount="indefinite"><mpath xlink:href="#p1"/></animateMotion></circle>
+        <!-- phone -->
+        <g>
+          <rect x="70" y="66" width="105" height="108" rx="16" fill="#fff" stroke="#dbe2ee" stroke-width="2"/>
+          <rect x="82" y="80" width="81" height="72" rx="8" fill="url(#gdev)" opacity=".9"/>
+          <circle cx="122.5" cy="163" r="4" fill="#c7d0de"/>
+          <text x="122" y="205" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#0b1220">Your phone</text>
+        </g>
+        <!-- your computer with lock -->
+        <g>
+          <rect x="300" y="60" width="150" height="100" rx="12" fill="#fff" stroke="#dbe2ee" stroke-width="2"/>
+          <rect x="312" y="72" width="126" height="66" rx="6" fill="url(#gdev)"/>
+          <rect x="360" y="160" width="30" height="16" fill="#dbe2ee"/><rect x="338" y="176" width="74" height="8" rx="4" fill="#c7d0de"/>
+          <g transform="translate(357,86)"><rect x="0" y="16" width="36" height="28" rx="6" fill="#fff"/><path d="M6 16 v-6 a12 12 0 0 1 24 0 v6" fill="none" stroke="#fff" stroke-width="5"/><circle cx="18" cy="30" r="4" fill="#0891b2"/></g>
+          <text x="375" y="205" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#0b1220">Your computer</text>
+        </g>
+        <!-- blocked: outside servers -->
+        <path d="M470 120 H545" fill="none" stroke="#f43f5e" stroke-width="3" stroke-dasharray="6 7" opacity=".5"/>
+        <g opacity=".65">
+          <path d="M560 128 a26 26 0 0 1 4 -51 a30 30 0 0 1 56 8 a22 22 0 0 1 -6 43 z" fill="#eef1f6" stroke="#cfd7e3" stroke-width="2"/>
+          <text x="600" y="205" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="700" fill="#8a94a3">Outside servers</text>
+        </g>
+        <!-- red X over the blocked link -->
+        <g transform="translate(507,120)"><circle r="15" fill="#fff" stroke="#f43f5e" stroke-width="2.5"/><path d="M-6 -6 L6 6 M6 -6 L-6 6" stroke="#f43f5e" stroke-width="3" stroke-linecap="round"/></g>
+      </svg>
+      <div class="flow-legend">
+        <span>🟢 <b>Flows to your home</b></span>
+        <span>⛔ <b>Blocked from any server</b></span>
+        <span>🔐 <b>Encrypted on arrival</b></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES (blue band, multi-colour cards) -->
+<section id="features" class="tint" style="--accent:#1656C6">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Ten modules, one home</div>
+      <h2>Everything in <em>one private place</em></h2>
+      <p>A complete home for your financial life and personal records — organised, searchable, and yours alone.</p>
+    </div>
+    <div class="grid" id="features-grid"></div>
+  </div>
+</section>
+
+<!-- SECURITY (emerald) -->
+<section id="security" style="--accent:#10b981">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Built to be trusted</div>
+      <h2>Serious security, <em>by default</em></h2>
+    </div>
+    <div class="sec-grid">
+      <div class="shield reveal" aria-hidden="true">
+        <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
+        <div class="core">🛡️</div>
+      </div>
+      <div class="checks">
+        <div class="check reveal"><div class="b">🔐</div><div><b>AES-256 encrypted vault.</b> <span>Passwords and secrets are sealed with the same encryption banks use.</span></div></div>
+        <div class="check reveal"><div class="b">✍️</div><div><b>Signed, verified licences.</b> <span>Ed25519 signatures, checked offline on your own machine.</span></div></div>
+        <div class="check reveal"><div class="b">🏠</div><div><b>Nothing leaves your device.</b> <span>Photos and documents are served only to you, over signed links that expire.</span></div></div>
+        <div class="check reveal"><div class="b">🧪</div><div><b>Independently reviewed.</b> <span>A full security pass (VAPT/SAST/DAST) — kept that way.</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS (amber) with animated flow -->
+<section id="how" class="tint" style="--accent:#f59e0b">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Up and running in minutes</div>
+      <h2>How it works</h2>
+    </div>
+    <div class="connector reveal" aria-hidden="true">
+      <svg viewBox="0 0 720 34" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none">
+        <path id="flowline" d="M60 17 H660" fill="none" stroke="#f59e0b" stroke-width="3" stroke-dasharray="2 12" stroke-linecap="round" opacity=".55"/>
+        <circle r="7" fill="#f59e0b"><animateMotion dur="3s" repeatCount="indefinite"><mpath xlink:href="#flowline"/></animateMotion></circle>
+        <circle cx="60" cy="17" r="6" fill="#f59e0b"/><circle cx="360" cy="17" r="6" fill="#f59e0b"/><circle cx="660" cy="17" r="6" fill="#f59e0b"/>
+      </svg>
+    </div>
+    <div class="steps">
+      <div class="step reveal"><div class="num">1</div><h3>Download</h3><p>Get the app for Windows or Mac. It installs everything it needs on first run — no database to set up, no account with us.</p></div>
+      <div class="step reveal"><div class="num">2</div><h3>Activate</h3><p>Paste the licence key you were sent. Your copy unlocks and runs offline, and stays active for as long as your subscription is current.</p></div>
+      <div class="step reveal"><div class="num">3</div><h3>Use anywhere at home</h3><p>Open it in a browser or on your phone over your own Wi-Fi. Back up your whole photo library straight from the SafeNest app.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- DOWNLOAD (sky) -->
+<section id="download" style="--accent:#0ea5e9">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Get the app</div>
+      <h2>Download <em>SafeNest</em></h2>
+      <p>One licensed copy, yours to keep. Choose your platform below.</p>
+    </div>
+    <div class="dl-box reveal">
+      <p style="margin:0 0 14px;color:var(--ink);font-weight:600">Request a licence first — your download unlocks the moment you do, right on this page.</p>
+      <div class="dl">
+        <a class="btn big" href="#licence">Request a licence to download →</a>
+      </div>
+      <div class="dl-meta" id="dl-meta">Checking for the latest version…</div>
+      <details class="open-help">
+        <summary>The first time you open it, your computer may warn you</summary>
+        <p style="color:var(--muted);margin-top:10px">This app runs entirely on your own machine and is not distributed through an app store, so Windows and macOS ask you to confirm you trust it. That is expected.</p>
+        <ol>
+          <li><b>Windows:</b> if you see “Windows protected your PC”, click <b>More info</b> → <b>Run anyway</b>.</li>
+          <li><b>Mac:</b> if it offers only <b>Move to Bin</b>, <b>right-click</b> the app → <b>Open</b> → <b>Open</b>. If it still refuses, run in Terminal: <code>xattr -dr com.apple.quarantine /Applications/&lt;AppName&gt;.app</code></li>
+        </ol>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- LICENCE (rose) -->
+<section id="licence" class="tint" style="--accent:#f43f5e">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Licensing</div>
+      <h2>Request a <em>licence</em></h2>
+      <p>SafeNest runs on a simple subscription. Send your details and we’ll issue a key to activate your app — and if you ever stop, you can still export everything you own.</p>
+    </div>
+    <div class="form-card reveal">
+      <form id="req">
+        <label for="rn">Your name</label>
+        <input id="rn" name="name" required autocomplete="name" />
+        <label for="re">Email</label>
+        <input id="re" name="email" type="email" required autocomplete="email" />
+        <label for="rm">Anything you’d like to tell us (optional)</label>
+        <textarea id="rm" name="message" rows="3"></textarea>
+        <div class="err" id="req-err"></div>
+        <p style="margin-top:20px"><button class="btn big" type="submit" id="req-btn" style="width:100%;justify-content:center">Request a licence →</button></p>
+      </form>
+      <div class="ok" id="req-ok" style="display:none">Thanks — your request is in. We’ll email your licence key as soon as we approve it.</div>
+      <div id="req-download" style="display:none;margin-top:22px">
+        <p style="font-weight:700;color:var(--ink);margin:0 0 14px">Get SafeNest now — activate it with the key once it arrives.</p>
+
+        <div class="get-os">
+          <div class="os-h">🪟 &nbsp;Windows</div>
+          <a class="btn big" id="dl-windows" href="/api/public/download?platform=windows">⬇ &nbsp;Download for Windows</a>
+          <p class="dl-meta" style="margin-top:8px">If Windows shows “protected your PC”, click <b>More info → Run anyway</b> — that is expected for any app not sold through a store.</p>
+        </div>
+
+        <div class="get-os">
+          <div class="os-h">🍎 &nbsp;Mac <span style="font-weight:500;color:var(--muted);font-size:12.5px">— Apple Silicon (M1 or newer), macOS 11+</span></div>
+          <p style="margin:0 0 8px">Open <b>Terminal</b> (press ⌘ + Space, type “Terminal”, Return), then paste this one line and press Return:</p>
+          <div class="cmd-row">
+            <code id="mac-cmd">curl -fsSL /install-mac.sh | bash</code>
+            <button type="button" class="btn ghost" id="mac-copy">Copy</button>
+          </div>
+          <p class="dl-meta" style="margin-top:8px">Apple blocks apps it hasn’t personally reviewed, so a normal download shows a “damaged” warning. This one line installs SafeNest safely and opens it — nothing to click through.
+            <br><a id="dl-mac" href="/api/public/download?platform=mac">Prefer to download the file manually?</a></p>
+        </div>
+
+        <p class="dl-meta" style="margin-top:16px">On first launch the app asks you to create your sign-in, then shows an activation screen — paste the key there.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SUPPORT (indigo) -->
+<section id="support" style="--accent:#6366f1">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">We’re here to help</div>
+      <h2>Need a hand? <em>Get support</em></h2>
+      <p>Trouble activating, a question about a feature, or something not working? Send us a note and we’ll get back to you by email. If you have a licence key, add it so we can find your copy.</p>
+    </div>
+    <div class="form-card reveal">
+      <form id="sup">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div><label for="sn">Your name</label><input id="sn" name="name" required autocomplete="name" /></div>
+          <div><label for="se">Email</label><input id="se" name="email" type="email" required autocomplete="email" /></div>
+        </div>
+        <label for="sk">Licence key (optional)</label>
+        <input id="sk" name="licence_key" placeholder="L-XXXXXXXX" autocomplete="off" />
+        <label for="ss">Subject</label>
+        <input id="ss" name="subject" required />
+        <label for="sb">How can we help?</label>
+        <textarea id="sb" name="body" rows="4" required></textarea>
+        <div class="err" id="sup-err"></div>
+        <p style="margin-top:20px"><button class="btn big" type="submit" id="sup-btn" style="width:100%;justify-content:center">Send to support →</button></p>
+      </form>
+      <div class="ok" id="sup-ok" style="display:none">Thanks — your message is in. We’ll reply to your email as soon as we can.</div>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap" style="text-align:center">
+    <h2 class="reveal">Your records deserve a home you control.</h2>
+    <p class="reveal">Download SafeNest, activate your licence, and keep everything you own in one private, encrypted place — on your own machine.</p>
+    <div class="cta-row reveal" style="justify-content:center">
+      <a class="btn big" href="#licence">Request a licence &amp; download</a>
+      <a class="btn ghost big" href="#support">Get support</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="brand"><img id="foot-logo" class="logo-img" src="/branding/icon-192.png" alt="" style="width:28px;height:28px"><span id="foot-name">SafeNest</span></div>
+    <div id="foot-copy">© SafeNest. Licensed software. Not for resale or redistribution.</div>
+    <div><a href="/">Sign in</a> &nbsp;·&nbsp; <a href="#download">Download</a> &nbsp;·&nbsp; <a href="#licence">Get a licence</a></div>
+  </div>
+</footer>
+
+<script src="/storefront.js"></script>
+</body>
+</html>

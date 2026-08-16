@@ -1,6 +1,6 @@
 // Auth context: holds the session, restores it on load, exposes login/logout + RBAC helper.
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { api, tokenStore, onUnauthorized } from './api'
+import { api, tokenStore, onUnauthorized, onLicenceBlocked, type LicenceBlock } from './api'
 import { uploadDB } from './uploadDB'
 import type { ModuleKey, Session, User } from './types'
 
@@ -21,6 +21,9 @@ interface AuthState {
   user: User | null
   modules: ModuleKey[]
   ready: boolean
+  /** Set when the server answers 402: this copy's licence needs activating. */
+  licenceBlock: LicenceBlock | null
+  clearLicenceBlock: () => void
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   /** Re-pull the signed-in user after a profile change (name, avatar). */
@@ -34,11 +37,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [modules, setModules] = useState<ModuleKey[]>([])
   const [ready, setReady] = useState(false)
+  const [licenceBlock, setLicenceBlock] = useState<LicenceBlock | null>(null)
 
   useEffect(() => {
     // A 401 means the session died (expired, revoked, password changed elsewhere) —
     // treat it exactly like a sign-out and drop the cached data with it.
     onUnauthorized.handler = () => { setUser(null); setModules([]); purgeLocalData() }
+    // A 402 means the licence gate is closed — show the activation screen. Fires
+    // from anywhere a guarded request lands, so one closed gate surfaces once.
+    onLicenceBlocked.handler = (info) => setLicenceBlock(info)
     const t = tokenStore.get()
     if (!t) { setReady(true); return }
     api<{ user: User; modules: ModuleKey[] }>('/api/auth/me')
@@ -68,9 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const can = (m: ModuleKey) => user?.role === 'admin' || modules.includes(m)
+  const clearLicenceBlock = () => setLicenceBlock(null)
 
   return (
-    <Ctx.Provider value={{ user, modules, ready, login, logout, refreshUser, can }}>
+    <Ctx.Provider value={{ user, modules, ready, licenceBlock, clearLicenceBlock, login, logout, refreshUser, can }}>
       {children}
     </Ctx.Provider>
   )

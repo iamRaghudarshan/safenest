@@ -4,13 +4,15 @@
 # finds the tunnel by name and the credentials it saved during `tunnel create`.
 #
 # Prereqs (one-time): cloudflared installed + `cloudflared tunnel login` done +
-# `cloudflared tunnel create finmate` + `cloudflared tunnel route dns finmate finmate.raghudarshan.online`.
+# `cloudflared tunnel create finmate` + `cloudflared tunnel route dns finmate safenest.raghudarshan.online`.
+# ("finmate" here is the Cloudflare TUNNEL NAME, not the public address.)
 # Also run start-finmate-internet.ps1 first (serves the app on 127.0.0.1:8080) and have MySQL up.
+# NOTE: the app normally runs the tunnel via the AppTunnel scheduled task; this is a manual fallback.
 
 $ErrorActionPreference = "Stop"
 
 $cf = "C:\Program Files (x86)\cloudflared\cloudflared.exe"
 if (-not (Test-Path $cf)) { $cf = "cloudflared" }  # fall back to PATH
 
-Write-Host "Starting the App tunnel -> https://finmate.raghudarshan.online" -ForegroundColor Green
+Write-Host "Starting the App tunnel -> https://safenest.raghudarshan.online" -ForegroundColor Green
 & $cf tunnel --url http://127.0.0.1:8080 run finmate

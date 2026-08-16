@@ -132,7 +132,7 @@ class Settings(BaseSettings):
             return v.strip().lstrip(".").lower()
         base = (info.data.get("public_base_url") or "").split("//")[-1].split("/")[0]
         parts = base.split(".")
-        # finmate.raghudarshan.online -> raghudarshan.online
+        # safenest.raghudarshan.online -> raghudarshan.online
         return ".".join(parts[-2:]).lower() if len(parts) > 2 else base.lower()
 
     @property

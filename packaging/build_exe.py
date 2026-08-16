@@ -154,8 +154,12 @@ def compile_native() -> Path:
     out = ROOT / "build-app" / "native"
     out.mkdir(parents=True, exist_ok=True)
     print("  Compiling backend/app to native code (this takes a few minutes)...")
+    # --zig: compile with ziglang, which Nuitka downloads itself (~50 MB). Without a
+    # C compiler declared, Nuitka looks for Visual Studio and fails on a machine that
+    # has none ("cannot locate suitable C compiler") — and MinGW is Python <=3.12
+    # only, so on 3.13 zig is the one that works with no Build Tools installed.
     subprocess.run(
-        [sys.executable, "-m", "nuitka", "--module", "app",
+        [sys.executable, "-m", "nuitka", "--module", "app", "--zig",
          "--include-package=app", "--assume-yes-for-downloads", "--remove-output",
          f"--output-dir={out}"],
         cwd=str(BACKEND), check=True)

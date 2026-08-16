@@ -55,8 +55,21 @@ def create_user(request: Request, body: dict = Body(...), admin: User = Depends(
              status=body.get("status", "active"), created_at=now, updated_at=now)
     db.add(u); db.commit(); db.refresh(u)
     if role == "user":
+        # An optional permissions matrix lets the admin choose access AT creation,
+        # instead of always granting everything and then trimming it in a second
+        # step. Absent (the long-standing behaviour) → full access to every module.
+        perms = body.get("permissions")
         for m in ALL_MODULES:
-            db.add(UserModule(user_id=u.id, module_key=m, can_view=1, can_create=1, can_edit=1, can_delete=1))
+            if perms is None:
+                v = c = e = d = 1
+            else:
+                p = perms.get(m) or {}
+                v = 1 if p.get("view") else 0
+                c = 1 if p.get("create") else 0
+                e = 1 if p.get("edit") else 0
+                d = 1 if p.get("delete") else 0
+            db.add(UserModule(user_id=u.id, module_key=m,
+                              can_view=v, can_create=c, can_edit=e, can_delete=d))
         db.commit()
     audit(db, admin.id, "user_create", "user", u.id,
           # Name and email are recorded here so the log still identifies the
@@ -160,3 +173,16 @@ def toggle_permission(request: Request, body: dict = Body(...), admin: User = De
     audit(db, admin.id, "permission_change", "user", uid,
           {"module": module, "action": action, "value": value}, request=request)
     return {"userId": uid, "module": module, "action": action, "value": bool(value)}
+
+
+@router.get("/site-stats")
+def site_stats(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """How many times the public site/download page has been opened."""
+    from sqlalchemy import func
+    from ..models import SiteStat
+    rows = db.query(SiteStat).order_by(SiteStat.day.desc()).limit(30).all()
+    total = int(db.query(func.coalesce(func.sum(SiteStat.visits), 0)).scalar() or 0)
+    today = ist.today().isoformat()
+    today_n = int(next((r.visits for r in rows if r.day == today), 0) or 0)
+    return {"total": total, "today": today_n,
+            "days": [{"day": r.day, "visits": int(r.visits or 0)} for r in reversed(rows)]}

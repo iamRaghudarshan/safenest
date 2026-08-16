@@ -11,7 +11,7 @@ credentials-file: C:\Users\Lenovo\.cloudflared\b6ea7271-4d37-414e-9899-55be7f390
 ingress:
   # All traffic for the hostname goes to the local the app app (served by
   # start-finmate-internet.ps1 on port 8080).
-  - hostname: finmate.raghudarshan.online
+  - hostname: safenest.raghudarshan.online
     service: http://127.0.0.1:8080
   # Required catch-all.
   - service: http_status:404
