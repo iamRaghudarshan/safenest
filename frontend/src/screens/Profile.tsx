@@ -2183,7 +2183,10 @@ function AppUpdateRow() {
     return () => { alive = false; clearTimeout(timer) }
   }, [phase])
 
-  if (!st || !st.installable) return null
+  // Only hide before the first check answers. When it does — up to date OR an
+  // update that can't self-install — still show a row so the customer can always
+  // see the version and check/get the latest from Profile.
+  if (!st) return null
 
   async function install() {
     if (!confirm(`Install version ${st!.version}?
@@ -2238,7 +2241,7 @@ ${appName()} will download it, then close and reopen. Your records are not touch
     )
   }
 
-  if (st.available) {
+  if (st.available && st.installable) {
     return (
       <SettingsRow icon="⬆" tint="var(--ok)"
         label={busy === 'install' ? 'Starting…' : `Version ${st.version} is ready`}
@@ -2246,10 +2249,17 @@ ${appName()} will download it, then close and reopen. Your records are not touch
         onClick={busy ? undefined : install} />
     )
   }
+  // Up to date, or an update exists but this copy can't install it in place — in
+  // which case point them at the website download. Always tappable to re-check.
   return (
-    <SettingsRow icon="✓" tint="var(--ink-faint)"
-      label={busy === 'check' ? 'Checking…' : `App version ${st.running}`}
-      sub={st.reason || 'Tap to check for a new version'}
+    <SettingsRow icon={st.available ? '⬆' : '✓'}
+      tint={st.available ? 'var(--warn)' : 'var(--ink-faint)'}
+      label={busy === 'check' ? 'Checking…'
+        : st.available ? `Version ${st.version} available`
+        : `App version ${st.running}`}
+      sub={st.available
+        ? 'Download the newest version from your website to update.'
+        : (st.reason || 'Tap to check for a new version')}
       onClick={busy ? undefined : () => look(true)} />
   )
 }
