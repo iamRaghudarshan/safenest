@@ -304,7 +304,20 @@ xattr -cr "$APP" 2>/dev/null || true
 codesign --force --deep -s - "$APP" 2>/dev/null || true
 DEST="/Applications/$BRAND.app"
 rm -rf "$DEST" 2>/dev/null || true
-if cp -R "$APP" /Applications/ 2>/dev/null; then :; else DEST="$APP"; echo "  (No permission for Applications - running from a temporary folder.)"; fi
+if ! cp -R "$APP" /Applications/ 2>/dev/null; then
+  # No permission for /Applications (a standard, non-admin Mac account). Install
+  # into the user's OWN Applications folder instead. NEVER run from $TMP: the trap
+  # above deletes it the instant this script exits, which yanks the app out from
+  # under itself and it simply "will not open".
+  mkdir -p "$HOME/Applications"
+  DEST="$HOME/Applications/$BRAND.app"
+  rm -rf "$DEST" 2>/dev/null || true
+  if ! cp -R "$APP" "$HOME/Applications/" 2>/dev/null; then
+    echo "  Could not install $BRAND. Check you have space and try again."
+    exit 1
+  fi
+  echo "  Installed to your personal Applications folder (~/Applications)."
+fi
 xattr -cr "$DEST" 2>/dev/null || true
 codesign --force --deep -s - "$DEST" 2>/dev/null || true
 open "$DEST"
