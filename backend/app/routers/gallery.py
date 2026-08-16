@@ -39,6 +39,13 @@ SMART_MIN_SCORE = 0.20
 MAX_SMART_HITS = 400
 FACE_MATCH = 0.40  # SFace cosine: >=0.363 is same person; 0.40 is a safe margin
 MAX_BYTES = 30 * 1024 * 1024  # 30 MB per photo
+# Videos are far bigger than photos — 30 MB rejected almost every real phone clip
+# (a 413 the backup reported as "larger than your computer will accept"), so a
+# "back up my phone" app silently kept none of them. This covers most phone clips.
+# Kept to a size the in-memory read can hold without exhausting RAM across a few
+# concurrent uploads; a truly huge 4K clip beyond this still needs a future
+# stream-to-disk path rather than a bigger buffer.
+MAX_VIDEO_BYTES = 256 * 1024 * 1024  # 256 MB per video
 
 
 def thumb_name(p: GalleryPhoto) -> str:
@@ -944,7 +951,7 @@ def _read_capped(file: UploadFile, limit: int) -> bytes:
 
 
 @router.post("/upload")
-def upload(file: UploadFile = File(...), faces: int = 1,
+def upload(file: UploadFile = File(...), faces: int = 1, duration_ms: int = 0,
            user: User = Depends(guard("gallery", "create")),
            db: Session = Depends(get_db)):
     """Take one photo in, normalise it, store it, thumbnail it.
@@ -971,8 +978,21 @@ def upload(file: UploadFile = File(...), faces: int = 1,
     Pillow releases the GIL for encode and decode, so this is real parallelism and
     not just tidier queueing.
     """
-    raw = _read_capped(file, MAX_BYTES)
-    return store_photo(db, user, raw, file.filename or "")
+    # Peek the first chunk to tell a video (which may be far larger than a photo)
+    # from a photo, so a real phone clip isn't rejected by the 30 MB photo cap.
+    head = file.file.read(1024 * 1024)
+    limit = MAX_VIDEO_BYTES if looks_like_video(head, file.filename or "") else MAX_BYTES
+    chunks, total = [head], len(head)
+    while True:
+        chunk = file.file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(413, f"File too large (max {limit // (1024 * 1024)} MB)")
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+    return store_photo(db, user, raw, file.filename or "", duration_ms=duration_ms)
 
 
 # Videos, by the container's own magic bytes rather than by filename.
@@ -1048,7 +1068,8 @@ def _video_poster(path: str) -> tuple[bytes | None, dict]:
         return None, meta
 
 
-def store_video(db: Session, user: User, raw: bytes, filename: str) -> dict:
+def store_video(db: Session, user: User, raw: bytes, filename: str,
+                duration_ms: int = 0) -> dict:
     """Store one video, with a still image for the grid to show.
 
     Deliberately shares de-duplication, trashing, albums and the signed media
@@ -1096,7 +1117,9 @@ def store_video(db: Session, user: User, raw: bytes, filename: str) -> dict:
         content_hash=content_hash, source_hash=source_hash, phash=None,
         orig_name=(filename or "")[-255:] or None,
         width=vmeta.get("width"), height=vmeta.get("height"),
-        kind="video", duration_ms=vmeta.get("duration_ms"),
+        # Prefer the duration the phone reported (accurate) over OpenCV's, which is
+        # unreliable on iPhone HEVC and left every clip showing "0:01".
+        kind="video", duration_ms=(duration_ms or vmeta.get("duration_ms")),
         created_at=now, updated_at=now)
     db.add(item); db.commit(); db.refresh(item)
 
@@ -1105,7 +1128,8 @@ def store_video(db: Session, user: User, raw: bytes, filename: str) -> dict:
     return {"item": _present(item), "faces_found": 0, "duplicate": False}
 
 
-def store_photo(db: Session, user: User, raw: bytes, filename: str) -> dict:
+def store_photo(db: Session, user: User, raw: bytes, filename: str,
+                duration_ms: int = 0) -> dict:
     """Decode, de-duplicate, store and thumbnail one photo. The whole of upload.
 
     Shared with the device-token route so a photo arriving from an iPhone shortcut
@@ -1120,7 +1144,7 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str) -> dict:
     # every caller — the web upload, the phone backup, the iPhone shortcut —
     # gets the same behaviour without three places deciding it separately.
     if looks_like_video(raw, filename):
-        return store_video(db, user, raw, filename)
+        return store_video(db, user, raw, filename, duration_ms=duration_ms)
 
     # Decode (pillow-heif handles HEIC/HEIF) and normalise to RGB JPEG bytes once,
     # so the content hash is stable regardless of the original container/encoding.
