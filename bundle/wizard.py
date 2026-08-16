@@ -880,13 +880,40 @@ def free_space(path: str) -> str:
     return f"{gb:,.0f} GB free" if gb >= 1 else f"{gb * 1024:,.0f} MB free"
 
 
+def _risky_location(path: str) -> str:
+    """Why this folder would break the database, or "" if it is fine.
+
+    SQLite memory-maps its write-ahead log. If the folder's storage goes away while
+    the app is running — a cloud folder evicting files to save space, or an external
+    /network drive disconnecting — that mapping faults and the app dies with a bus
+    error (SIGBUS: "the backing vnode was force unmounted"). A real customer hit
+    exactly this. The internal disk never does that, so it is the only safe home.
+    """
+    p = path.replace("\\", "/").lower()
+    for token in ("/library/mobile documents", "/library/cloudstorage", "/icloud",
+                  "/onedrive", "/dropbox", "/google drive", "/googledrive", "/pcloud"):
+        if token in p:
+            return ("A cloud folder (iCloud, OneDrive, Dropbox…) removes files to "
+                    "save space, which corrupts the records. Keep them on this "
+                    "computer's own disk instead.")
+    if sys.platform == "darwin" and p.startswith("/volumes/"):
+        return ("An external or network drive can disconnect while the app is "
+                "running and corrupt the records. Keep them on this computer's own "
+                "disk (the suggested folder is best).")
+    if path.replace("/", "\\").startswith("\\\\"):
+        return ("A network location can drop while the app is running and corrupt "
+                "the records. Keep them on this computer's own disk.")
+    return ""
+
+
 def ask_location(default: str) -> str | None:
     """Where should this copy keep its records? None means "use the default".
 
     Asked because the app carries the whole of somebody's life admin — years of
     photos and scanned documents — and the folder it was unzipped into is often a
-    Downloads folder on a full C: drive. Choosing a second disk or an external one
-    at the start is easy; moving it afterwards is not.
+    Downloads folder on a full C: drive. The default is a stable spot on the
+    internal disk; a different LOCAL folder is fine, but cloud-synced and
+    external/network folders are refused — they disconnect and corrupt the database.
     """
     if not HAVE_TK:
         return None
@@ -908,8 +935,10 @@ def ask_location(default: str) -> str | None:
 
         wrap = tk.Frame(root, bg=BG)
         wrap.pack(fill="both", expand=True, padx=24, pady=18)
-        tk.Label(wrap, text="Photos and scanned documents add up. Pick a drive with "
-                            "room to grow — you can use an external disk.",
+        tk.Label(wrap, text="The suggested folder on this computer is best. You can "
+                            "pick another folder on this computer's own disk, but not "
+                            "a cloud (iCloud/OneDrive/Dropbox) or external/USB drive — "
+                            "those disconnect and corrupt your records.",
                  bg=BG, fg=SOFT, font=F_HINT, anchor="w", justify="left",
                  wraplength=520).pack(fill="x", pady=(0, 12))
 
@@ -940,6 +969,10 @@ def ask_location(default: str) -> str | None:
             if not path:
                 note.config(text="Choose a folder.", fg=WARN)
                 return
+            risky = _risky_location(path)
+            if risky:
+                note.config(text=risky, fg=WARN)
+                return
             ok, why = writability(path)
             space = free_space(path)
             if ok:
@@ -960,6 +993,10 @@ def ask_location(default: str) -> str | None:
 
         def finish():
             path = chosen.get().strip()
+            risky = _risky_location(path)
+            if risky:
+                note.config(text=risky, fg=WARN)
+                return
             ok, why = writability(path)
             if not ok:
                 note.config(text=why, fg=WARN)
