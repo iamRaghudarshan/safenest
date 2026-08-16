@@ -5,12 +5,13 @@ import hashlib
 import io
 import json
 import math
+import mimetypes
 import os
 import uuid
 from datetime import date, datetime
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -49,6 +50,24 @@ def thumb_name(p: GalleryPhoto) -> str:
     """
     return (os.path.splitext(p.filename)[0] + ".jpg"
             if (p.kind or "photo") == "video" else p.filename)
+
+
+_VIDEO_PLACEHOLDER: bytes | None = None
+
+
+def _video_placeholder() -> bytes:
+    """A neutral dark tile served when a video has no poster frame.
+
+    OpenCV cannot decode some containers (iPhone HEVC .mov most often), so the
+    poster JPEG is never written and the thumbnail request would 404 and render as
+    a broken image. A plain dark tile under the client's play badge reads as a video
+    still, not a fault. Built once and reused."""
+    global _VIDEO_PLACEHOLDER
+    if _VIDEO_PLACEHOLDER is None:
+        buf = io.BytesIO()
+        Image.new("RGB", (480, 480), (34, 36, 44)).save(buf, "JPEG", quality=70)
+        _VIDEO_PLACEHOLDER = buf.getvalue()
+    return _VIDEO_PLACEHOLDER
 
 
 def photo_path(p: GalleryPhoto, variant: str) -> str:
@@ -137,8 +156,23 @@ def media(variant: str, name: str, t: str = "", db: Session = Depends(get_db)):
 
     path = photo_path(photo, variant)
     if not os.path.isfile(path):
+        # A video whose poster frame could not be decoded (iPhone HEVC that the
+        # shipped OpenCV can't read is the common case) has no <stem>.jpg on disk.
+        # Serve a neutral dark tile rather than 404, so the grid shows a clean
+        # placeholder under the play button instead of a broken image.
+        if variant == storage.THUMB and (photo.kind or "") == "video":
+            return Response(_video_placeholder(), media_type="image/jpeg",
+                            headers={"Cache-Control": "private, max-age=3600"})
         raise HTTPException(404, "Not found")
-    return FileResponse(path, media_type="image/jpeg", content_disposition_type="inline",
+    # The content type must match the bytes. Thumbnails are always JPEG posters
+    # (a video's poster frame included). But the ORIGINAL of a video is an .mp4 /
+    # .mov, and serving it as image/jpeg — which this did for every file — makes a
+    # player refuse it with "could not be played". Derive it from the real file.
+    if variant == storage.THUMB:
+        ctype = "image/jpeg"
+    else:
+        ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=ctype, content_disposition_type="inline",
                         headers={"Cache-Control": "private, max-age=3600"})
 
 
