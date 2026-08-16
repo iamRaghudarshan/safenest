@@ -600,6 +600,12 @@ class License(Base):
     last_version = Column(String(20))
     last_hostname = Column(String(120))     # the computer's own name
     checkins = Column(Integer, default=0)
+
+    # Activation lock (Option B): the licence binds to the first machine that
+    # activates it. A hashed hardware fingerprint, set once at activation; a
+    # different machine is refused. Cleared by "reset activation" to allow a move.
+    machine_id = Column(String(64), index=True)
+    activated_at = Column(FlexDateTime)
     # Suspension is reversible and separate from revocation: a customer who has
     # not paid this month is not the same as one whose licence is withdrawn.
     suspended_at = Column(FlexDateTime)

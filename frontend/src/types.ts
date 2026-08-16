@@ -395,6 +395,9 @@ export interface Licence {
   last_version: string | null
   last_hostname: string | null
   checkins: number
+  /** Activation lock (Option B): whether this key has been claimed by a machine. */
+  activated: boolean
+  activated_at: string | null
   /** Only returned when the licence is issued or extended. */
   token?: string
 }

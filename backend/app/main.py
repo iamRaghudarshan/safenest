@@ -178,6 +178,9 @@ def _migrate() -> None:
         ("licenses", "hostname", "ALTER TABLE licenses ADD COLUMN hostname VARCHAR(255) NULL"),
         ("licenses", "tunnel_id", "ALTER TABLE licenses ADD COLUMN tunnel_id VARCHAR(64) NULL"),
         ("licenses", "tunnel_token", "ALTER TABLE licenses ADD COLUMN tunnel_token TEXT NULL"),
+        # Activation lock (Option B): bind a licence to its first machine.
+        ("licenses", "machine_id", "ALTER TABLE licenses ADD COLUMN machine_id VARCHAR(64) NULL"),
+        ("licenses", "activated_at", "ALTER TABLE licenses ADD COLUMN activated_at DATETIME NULL"),
         # Text read out of documents and photos (added July 2026).
         ("documents", "ocr_text", "ALTER TABLE documents ADD COLUMN ocr_text TEXT NULL"),
         ("documents", "ocr_at", "ALTER TABLE documents ADD COLUMN ocr_at DATETIME NULL"),

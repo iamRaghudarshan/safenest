@@ -306,6 +306,77 @@ def about_this_copy() -> dict:
     }
 
 
+def machine_id() -> str:
+    """A stable, hashed fingerprint of THIS computer — the anchor for the activation
+    lock (Option B). Derived from a hardware/OS id so it survives a reinstall: a
+    fresh install of the app on the same machine must read as the SAME machine, or a
+    legitimate reinstall would be refused as "already activated elsewhere". Hashed
+    so the raw id never travels.
+    """
+    import hashlib
+    import platform as _p
+    import subprocess
+    raw = ""
+    sysname = _p.system().lower()
+    try:
+        if sysname == "windows":
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"SOFTWARE\Microsoft\Cryptography") as k:
+                raw = winreg.QueryValueEx(k, "MachineGuid")[0]
+        elif sysname == "darwin":
+            out = subprocess.check_output(
+                ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], timeout=5).decode()
+            for line in out.splitlines():
+                if "IOPlatformUUID" in line:
+                    raw = line.split('"')[-2]
+                    break
+        else:
+            for p in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+                try:
+                    raw = open(p, encoding="utf-8").read().strip()
+                    if raw:
+                        break
+                except OSError:
+                    pass
+    except Exception:
+        raw = ""
+    if not raw:
+        raw = _p.node()                     # last resort: the computer's name
+    return hashlib.sha256(("safenest-machine:" + raw).encode()).hexdigest()[:64]
+
+
+# A sentinel the customer side recognises to tell "server said no" from "could not
+# reach the server" — the two must produce different messages at activation.
+BIND_UNREACHABLE = "__bind_unreachable__"
+
+
+def bind_machine(kid: str, issuer: str, mid: str, timeout: float = 8.0) -> tuple[bool, str]:
+    """Ask the publisher to bind this licence to this machine, at activation time.
+
+    Returns (allowed, reason). FAILS CLOSED: if the publisher is unreachable we do
+    NOT activate. Option B is a lock — allowing activation offline would let a
+    shared key be activated on a second machine while the server was down, which is
+    exactly what it exists to prevent. That is the deliberate cost of B over the
+    fail-open revocation check.
+    """
+    if not issuer or not kid or not mid:
+        return False, BIND_UNREACHABLE
+    import requests
+    try:
+        r = requests.post(f"{issuer.rstrip('/')}/api/licence/bind",
+                          json={"key_id": kid, "machine_id": mid}, timeout=timeout)
+        if r.status_code == 200:
+            return True, ""
+        try:
+            reason = r.json().get("detail") or ""
+        except Exception:
+            reason = ""
+        return False, reason or "This licence could not be activated on this computer."
+    except Exception:
+        return False, BIND_UNREACHABLE
+
+
 def check_revoked(kid: str, issuer: str, path, timeout: float = 6.0) -> bool:
     """Has the supplier withdrawn this licence?
 

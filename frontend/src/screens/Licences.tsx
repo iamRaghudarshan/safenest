@@ -590,6 +590,7 @@ function LicenceDetail({ licence, onClose, onChanged }: {
         : what === 'unsuspend' ? 'Suspension lifted'
         : what === 'revoke' ? 'Licence withdrawn'
         : what === 'restore' ? 'Licence reinstated'
+          : what === 'reset' ? 'Activation reset — the next computer can now activate'
           : what === 'build' ? 'Building their app — you will be notified'
             : 'Licence extended')
       onChanged()
@@ -646,6 +647,15 @@ function LicenceDetail({ licence, onClose, onChanged }: {
           <p className="lic-empty">Has not checked in yet — they have not opened it with a connection.</p>
         )}
         {licence.bundle_at && <LicRow k="App built" v={licence.bundle_at} />}
+        <LicRow k="Activation" v={licence.activated
+          ? <>Locked to one computer{licence.activated_at ? ` · ${licence.activated_at}` : ''}
+              {!licence.revoked_at && (
+                <button className="btn ghost xs" style={{ marginLeft: 8 }} disabled={busy === 'reset'}
+                  onClick={() => act('reset', `/api/licences/${licence.id}/reset-activation`)}>
+                  {busy === 'reset' ? 'Resetting…' : 'Reset'}
+                </button>)}
+            </>
+          : <span className="muted">Not activated yet — the first computer to enter the key claims it</span>} />
       </LicSection>
 
       <LicSection title="Licence">

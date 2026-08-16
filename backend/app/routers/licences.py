@@ -122,6 +122,9 @@ def _row(lic: License) -> dict:
         "suspended": bool(lic.suspended_at),
         "suspended_at": ist.fmt(lic.suspended_at),
         "suspend_reason": lic.suspend_reason,
+        # Activation lock (Option B): whether this key has been claimed by a machine.
+        "activated": bool(lic.machine_id),
+        "activated_at": ist.fmt(lic.activated_at),
         # What the copy last told us about itself.
         "last_seen": ist.fmt(lic.last_seen_at),
         "last_ip": lic.last_ip,
@@ -455,6 +458,29 @@ def restore(id: int, request: Request, admin: User = Depends(require_admin),
     return _row(lic)
 
 
+@router.post("/{id}/reset-activation")
+def reset_activation(id: int, request: Request, admin: User = Depends(require_admin),
+                     db: Session = Depends(get_db)):
+    """Un-bind a licence from its machine (Option B).
+
+    The customer bought a new computer, reinstalled onto a fresh disk, or a machine
+    died — the key is locked to the old one and would be refused everywhere else.
+    Clearing the binding lets the NEXT computer to activate claim it. Use it to move
+    a licence, not to hand a second person a copy.
+    """
+    _require_publisher()
+    lic = db.query(License).get(id)
+    if not lic:
+        raise HTTPException(404, "Licence not found")
+    lic.machine_id = None
+    lic.activated_at = None
+    lic.updated_at = ist.now()
+    db.commit(); db.refresh(lic)
+    audit(db, admin.id, "licence_reset_activation", "licence", lic.id,
+          {"label": f"{lic.name} ({lic.key_id})"}, request=request)
+    return _row(lic)
+
+
 @router.get("/{id}/token")
 def token_of(id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """The licence file's contents, for re-sending to a customer who lost it."""
@@ -753,6 +779,36 @@ def check(request: Request, key_id: str, db: Session = Depends(get_db)):
                        else None)}
 
 
+@public.post("/bind")
+def bind(request: Request, body: dict = Body(...), db: Session = Depends(get_db)):
+    """Lock a licence to the first machine that activates it (Option B).
+
+    Called by a customer copy during activation, before it installs the key. Binds
+    on first use, allows the SAME machine again (a reinstall must not lock the owner
+    out), and refuses a DIFFERENT machine — which is how a shared key is stopped.
+    The publisher (this server) is the single source of truth for the binding.
+    """
+    rate_limit(request, "licence-bind", limit=20, window=300)
+    kid = (body.get("key_id") or "").strip()[:16]
+    mid = (body.get("machine_id") or "").strip()[:64]
+    if not kid or not mid:
+        raise HTTPException(422, "Missing licence or machine id")
+    lic = db.query(License).filter(License.key_id == kid).first()
+    if not lic:
+        raise HTTPException(404, "Unknown licence")
+    if lic.revoked_at:
+        raise HTTPException(403, "This licence has been withdrawn.")
+    if not lic.machine_id:
+        lic.machine_id = mid
+        lic.activated_at = ist.now()
+        db.commit()
+        return {"ok": True, "bound": True}
+    if lic.machine_id == mid:
+        return {"ok": True, "bound": False}          # same computer, e.g. a reinstall
+    raise HTTPException(409, "This licence is already active on another computer. "
+                            "Ask your supplier to move it to this one.")
+
+
 def _record_checkin(request: Request, lic: License, db: Session) -> None:
     """Note that this copy is alive, and on what.
 
@@ -843,6 +899,21 @@ def activate(request: Request, body: dict = Body(...),
     if licensing.is_blocked(live.get("state", "")):
         raise HTTPException(422, live.get("reason")
                             or f"That licence is {live.get('state')} and cannot be used")
+
+    # Activation lock (Option B): bind this key to THIS machine with the publisher
+    # before writing it. A key already activated on another computer is refused
+    # here; the same computer (a reinstall) is allowed. Fails closed — see
+    # licensing.bind_machine — so a shared key cannot be activated while the
+    # publisher is unreachable.
+    issuer = settings.license_check_url or payload.get("issuer") or ""
+    allowed, reason = licensing.bind_machine(payload.get("kid", ""), issuer,
+                                             licensing.machine_id())
+    if not allowed:
+        if reason == licensing.BIND_UNREACHABLE:
+            raise HTTPException(503, "Couldn't reach the activation server. Connect this "
+                                     "computer to the internet and try again in a moment.")
+        raise HTTPException(409, reason or
+                            "This licence is already activated on another computer.")
 
     licensing.install_token(settings.license_path, token)
     licensing.forget()          # reopen the gate now, not in up to CACHE_SECONDS
