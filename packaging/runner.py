@@ -178,7 +178,14 @@ def resolve_data_dir() -> Path:
     # the per-installation secrets and is generated on the first real run, so it
     # is the marker that actually distinguishes "fresh out of the zip" from "in
     # use".
-    if not (default / "instance.env").exists():
+    # On macOS there is NO first-run location choice: records always go to the
+    # default, which is Application Support — an internal, stable folder. Never
+    # beside the .app (it may sit on a removable/read-only volume or in Downloads),
+    # and never on an external/cloud drive, which disconnect and kill SQLite with a
+    # bus error. The owner can still move them later from Profile → This computer →
+    # "Records kept in" (that flow refuses unsafe volumes). The picker is kept for
+    # other platforms, where the app can land in a full Downloads folder.
+    if not (default / "instance.env").exists() and not in_app_bundle():
         try:
             # The window opens before the database exists, so the name it shows
             # comes from the executable rather than the branding row.
