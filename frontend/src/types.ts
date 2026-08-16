@@ -421,6 +421,8 @@ export interface LicenceStatus {
   key_id?: string
   expires_on?: string
   days_left?: number
+  /** Sold outright — no expiry. expires_on and days_left are null when true. */
+  perpetual?: boolean
   blocked?: boolean
   /** No longer sent. The server stopped returning what a licensed copy validates
    *  and where: shown in Settings it read as the app reporting on its owner, and

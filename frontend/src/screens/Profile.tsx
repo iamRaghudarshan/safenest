@@ -1139,12 +1139,14 @@ function MyLicence() {
 
   return (
     <SettingsGroup title="Licence"
-      footer={lic.reason || `This copy of ${appName()} is licensed. It keeps working until the date shown.`}>
+      footer={lic.reason || (lic.perpetual
+        ? `This copy of ${appName()} is licensed permanently — it never expires.`
+        : `This copy of ${appName()} is licensed. It keeps working until the date shown.`)}>
       <SettingsRow icon="🎫" tint={tint} label={lic.name || 'Licensed copy'}
         sub={lic.email} />
       <SettingsRow icon="📅" tint="var(--ink-faint)" label="Valid until"
-        value={lic.expires_on || '—'} />
-      {lic.days_left != null && lic.days_left >= 0 && (
+        value={lic.perpetual ? 'Never expires' : (lic.expires_on || '—')} />
+      {!lic.perpetual && lic.days_left != null && lic.days_left >= 0 && (
         <SettingsRow icon="⏳" tint={tint} label="Days remaining"
           value={String(lic.days_left)} />
       )}

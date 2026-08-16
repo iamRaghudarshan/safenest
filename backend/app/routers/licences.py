@@ -848,6 +848,10 @@ def status(user: User = Depends(get_current_user)):
         "key_id": state.get("kid"),
         "expires_on": state.get("expires_on"),
         "days_left": state.get("days_left"),
+        # Without this a perpetual licence (no expiry date) showed "Valid until: —"
+        # on the desktop while the phone read the same missing date as "never
+        # expires" — the same licence looking different on two screens.
+        "perpetual": bool(state.get("perpetual")),
         "blocked": licensing.is_blocked(state.get("state", "")),
         # `reports` and `reports_to` used to be returned here and listed in the
         # Profile screen, as candour about what a licensed copy sends. It read as
@@ -928,5 +932,6 @@ def activate(request: Request, body: dict = Body(...),
         "key_id": state.get("kid"),
         "expires_on": state.get("expires_on"),
         "days_left": state.get("days_left"),
+        "perpetual": bool(state.get("perpetual")),
         "blocked": licensing.is_blocked(state.get("state", "")),
     }
