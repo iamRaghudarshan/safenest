@@ -108,8 +108,8 @@ export default function Profile() {
       {webOpen && <WebAddress onClose={() => setWebOpen(false)} />}
 
       <WebAddressSection onOpen={() => setWebOpen(true)} />
+      <PhoneAppSection onOpenWeb={() => setWebOpen(true)} />
       <PhoneBackupSection />
-      <WatchFolderSection />
       <HouseholdSection />
       <AlwaysOnSection onOpenWeb={() => setWebOpen(true)} />
       <LocalNetworkSection />
@@ -1697,86 +1697,56 @@ function WebAddressSection({ onOpen }: { onOpen: () => void }) {
   )
 }
 
-/** Watch a folder, and import whatever appears in it.
+/** How to reach this copy from a phone, in one place.
  *
- *  Not the iPhone answer on its own — something still has to put photos in the
- *  folder — but it is the whole answer for photos that are already on this
- *  computer, for plugging the phone in, and for anything that syncs into a folder
- *  later. It sits below the phone route because that is the question people
- *  arrive with.
+ *  The address a phone needs was scattered before — the Wi-Fi URL was buried in a
+ *  firewall section that only showed it once the rule was set, and the web address
+ *  was a section of its own. A customer who has just activated on their computer
+ *  has no idea what to type into the app on their phone. This states both plainly,
+ *  copyable, with the one instruction that matters: install the app, type this, sign
+ *  in with the same account. `/api/hosting/addresses` is public and returns only
+ *  addresses.
  */
-function WatchFolderSection() {
+function PhoneAppSection({ onOpenWeb }: { onOpenWeb: () => void }) {
   const toast = useToast()
-  const [st, setSt] = useState<{
-    folder: string; enabled: boolean; imported: number; skipped: number
-    last_scan_at: string | null; last_error: string
-  } | null>(null)
-  const [folder, setFolder] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const load = useCallback(() => {
-    api<NonNullable<typeof st>>('/api/autoimport')
-      .then((d) => { setSt(d); setFolder(d.folder || '') })
-      .catch(() => setSt(null))
-  }, [])
-  useEffect(() => { load() }, [load])
-  // While it is on, the count is the only sign it is working.
+  const [a, setA] = useState<{ lan: string; public: string } | null>(null)
   useEffect(() => {
-    if (!st?.enabled) return
-    const t = window.setInterval(load, 10000)
-    return () => window.clearInterval(t)
-  }, [st?.enabled, load])
+    api<{ lan: string; public: string }>('/api/hosting/addresses')
+      .then((r) => setA({ lan: r.lan || '', public: r.public || '' })).catch(() => setA(null))
+  }, [])
 
-  async function save(enabled: boolean) {
-    setBusy(true)
-    try {
-      if (enabled && folder.trim()) {
-        const c = await api<{ photos: number }>('/api/autoimport/check', {
-          method: 'POST', body: { folder },
-        })
-        toast(c.photos
-          ? `Found ${c.photos.toLocaleString()} photo${c.photos === 1 ? '' : 's'} — importing them now`
-          : 'That folder has no photos in it yet — anything added later will come in')
-      }
-      const d = await api<NonNullable<typeof st>>('/api/autoimport', {
-        method: 'POST', body: { folder, enabled },
-      })
-      setSt(d)
-      if (!enabled) toast('Stopped watching that folder')
-    } catch (e) { toast(errorMessage(e)) }
-    finally { setBusy(false) }
+  const copy = (t: string) => {
+    navigator.clipboard?.writeText(t).then(() => toast('Copied')).catch(() => { })
   }
+  const Addr = ({ url }: { url: string }) => (
+    <button type="button" onClick={() => copy(url)}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        width: '100%', border: '1px solid var(--line)', borderRadius: 10,
+        background: 'var(--bg)', padding: '10px 12px', cursor: 'pointer', marginTop: 4,
+      }}>
+      <code style={{ fontSize: 13.5, color: 'var(--brand)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{url}</code>
+      <span style={{ fontSize: 12, color: 'var(--ink-soft)', flex: '0 0 auto' }}>Copy</span>
+    </button>
+  )
 
-  if (!st) return null
   return (
-    <SettingsGroup title="Import from a folder"
-      footer="Anything that appears in this folder is added to your gallery, on its own, for as long as it is switched on. Photos already here are skipped.">
+    <SettingsGroup title="Use it on your phone"
+      footer="Install the app on your phone, open it, type one of these addresses, and sign in with the same email and password you use here. This computer has to be switched on — your records live on it, not on any server.">
       <SettingsBlock>
-        <Field label="Folder on this computer">
-          <input className="input" value={folder} onChange={(e) => setFolder(e.target.value)}
-            placeholder="D:\Photos\iPhone" spellCheck={false} />
-        </Field>
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button className="btn sm" style={{ flex: 1 }} disabled={busy || !folder.trim()}
-            onClick={() => save(true)}>
-            {st.enabled ? 'Save' : 'Start watching'}
-          </button>
-          {st.enabled && (
-            <button className="btn sm ghost" disabled={busy} onClick={() => save(false)}>
-              Stop
-            </button>
-          )}
-        </div>
-        {st.enabled && (
-          <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '10px 0 0' }}>
-            {st.imported.toLocaleString()} imported
-            {st.skipped ? `, ${st.skipped.toLocaleString()} already here or unreadable` : ''}
-            {st.last_scan_at ? ` · last looked ${st.last_scan_at}` : ' · not looked yet'}
-          </p>
-        )}
-        {!!st.last_error && (
-          <p style={{ color: 'var(--danger)', fontSize: 13, margin: '8px 0 0' }}>{st.last_error}</p>
-        )}
+        <div style={{ fontWeight: 700, fontSize: 13.5 }}>On the same Wi-Fi (at home)</div>
+        {a?.lan
+          ? <Addr url={a.lan} />
+          : <p className="muted" style={{ fontSize: 13, margin: '4px 0 0' }}>
+              Open this app on the computer itself to see its Wi-Fi address here.
+            </p>}
+        <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 14 }}>From anywhere (outside home)</div>
+        {a?.public
+          ? <Addr url={a.public} />
+          : <p className="muted" style={{ fontSize: 13, margin: '4px 0 8px' }}>
+              Not set up yet.{' '}
+              <button type="button" className="btn ghost xs" onClick={onOpenWeb}>Set up a web address</button>
+            </p>}
       </SettingsBlock>
     </SettingsGroup>
   )
