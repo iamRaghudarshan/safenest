@@ -71,6 +71,9 @@ jobs:
           # is installed on customers' machines by setup.py.
           pip install pyinstaller nuitka
 
+      # Uses the system clang on macOS. build_exe.py passes Nuitka --zig only on
+      # Windows (which has no compiler by default); forcing zig here made its linker
+      # fail with "no such file or directory: '__constants.os'".
       - name: Compile
         run: python packaging/build_exe.py --native --no-models --clean
 

@@ -154,15 +154,18 @@ def compile_native() -> Path:
     out = ROOT / "build-app" / "native"
     out.mkdir(parents=True, exist_ok=True)
     print("  Compiling backend/app to native code (this takes a few minutes)...")
-    # --zig: compile with ziglang, which Nuitka downloads itself (~50 MB). Without a
-    # C compiler declared, Nuitka looks for Visual Studio and fails on a machine that
-    # has none ("cannot locate suitable C compiler") — and MinGW is Python <=3.12
-    # only, so on 3.13 zig is the one that works with no Build Tools installed.
-    subprocess.run(
-        [sys.executable, "-m", "nuitka", "--module", "app", "--zig",
-         "--include-package=app", "--assume-yes-for-downloads", "--remove-output",
-         f"--output-dir={out}"],
-        cwd=str(BACKEND), check=True)
+    # --zig ONLY on Windows. There, without a compiler declared Nuitka looks for
+    # Visual Studio and fails on a machine with none ("cannot locate suitable C
+    # compiler"), and MinGW is Python <=3.12 only — so on 3.13 zig is the one that
+    # works with no Build Tools installed. On macOS/Linux the system clang/gcc is
+    # present and correct; forcing zig there makes its linker fail ("no such file
+    # or directory: '__constants.os'"), which broke the Mac CI build.
+    cmd = [sys.executable, "-m", "nuitka", "--module", "app",
+           "--include-package=app", "--assume-yes-for-downloads", "--remove-output",
+           f"--output-dir={out}"]
+    if IS_WINDOWS:
+        cmd.insert(4, "--zig")
+    subprocess.run(cmd, cwd=str(BACKEND), check=True)
 
     built = sorted(out.glob("app.*.pyd")) or sorted(out.glob("app.*.so"))
     if not built:
