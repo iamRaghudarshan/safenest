@@ -524,6 +524,47 @@ def already_have(body: dict = Body(...),
     return {"have": have, "asked": len(wanted)}
 
 
+@router.post("/backfill-durations")
+def backfill_durations(body: dict = Body(...),
+                       user: User = Depends(guard("gallery", "view")),
+                       db: Session = Depends(get_db)):
+    """Fill in real durations for videos stored WITHOUT one.
+
+    Videos backed up before the phone sent its duration have a null duration and
+    show "0:01", because OpenCV can't read an iPhone HEVC clip's length. The phone
+    can — so it sends {source_hash: duration_ms} and we fill the gaps.
+
+    ONLY fills a MISSING duration (null or 0). A video that already has one — every
+    new upload — is never touched, so this cannot change a correct duration or a
+    length the phone happens to report differently. Matched on source_hash, the same
+    key /have uses.
+    """
+    raw = body.get("durations")
+    if not isinstance(raw, dict):
+        raise HTTPException(422, "durations must be an object of hash: milliseconds")
+    updated = 0
+    for h, ms in list(raw.items())[:1000]:
+        try:
+            ms = int(ms)
+        except (TypeError, ValueError):
+            continue
+        if ms <= 0:
+            continue
+        rows = (db.query(GalleryPhoto)
+                .filter(GalleryPhoto.user_id == user.id,
+                        GalleryPhoto.kind == "video",
+                        GalleryPhoto.source_hash == str(h)[:64],
+                        or_(GalleryPhoto.duration_ms.is_(None),
+                            GalleryPhoto.duration_ms == 0))
+                .all())
+        for r in rows:
+            r.duration_ms = ms
+            updated += 1
+    if updated:
+        db.commit()
+    return {"updated": updated}
+
+
 @router.get("/trash")
 def trash_list(user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
     rows = (db.query(GalleryPhoto)
