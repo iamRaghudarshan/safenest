@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .. import ist
 from .. import dialect
 from ..database import get_db
-from ..models import (CardPayment, CreditCard, Document, Expense, GalleryPhoto, Insurance,
+from ..models import (CardPayment, CreditCard, Document, Expense, GalleryPhoto, Habit, HabitLog, Insurance,
                       Investment, Loan, LoanPayment, Reminder, Todo, User, VaultItem)
 from ..security import get_current_user
 
@@ -61,6 +61,16 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
     todo_overdue = count(Todo, Todo.status == "pending", Todo.due_date != None, Todo.due_date < today)  # noqa: E711
     ins_expired = count(Insurance, Insurance.renewal_date != None, Insurance.renewal_date < today)  # noqa: E711
 
+    # Habits still to do today: active (non-archived) habits whose goal applies
+    # today and whose logged total has not yet reached the target. Reuses the
+    # router's own weekday logic so the badge agrees with the module.
+    from .habits import _active_on
+    active_habits = db.query(Habit).filter(Habit.user_id == uid, Habit.archived == 0).all()
+    today_done = {r.habit_id: (r.count or 0) for r in db.query(HabitLog)
+                  .filter(HabitLog.user_id == uid, HabitLog.log_date == today).all()}
+    habits_todo = sum(1 for h in active_habits if _active_on(h, today)
+                      and today_done.get(h.id, 0) < max(1, h.target_count or 1))
+
     return {
         "stats": {"investValue": inv_val, "investDelta": inv_delta, "monthSpend": spend,
                   "monthIncome": income, "outstanding": outstanding, "duesCount": dues},
@@ -71,6 +81,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             "expenses": spend,
             "reminders": count(Reminder, Reminder.is_done == 0),
             "todo": count(Todo, Todo.status == "pending"),
+            "habits": count(Habit, Habit.archived == 0),
             "gallery": count(GalleryPhoto, GalleryPhoto.is_trashed == 0),
             "vault": count(VaultItem),
             "documents": count(Document, Document.is_trashed == 0),
@@ -80,6 +91,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             "loans": loans_unpaid,
             "reminders": rem_overdue,
             "todo": todo_overdue,
+            "habits": habits_todo,
             "insurance": ins_expired,
             "documents": count(Document, Document.is_trashed == 0,
                                Document.expiry_date != None,  # noqa: E711

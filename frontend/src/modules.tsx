@@ -3,7 +3,7 @@
 import type { ModuleKey } from './types'
 import { money } from './format'
 import {
-  IcLoans, IcCards, IcShield, IcTrend, IcWallet, IcBell, IcCheck, IcImage, IcLock, IcDoc,
+  IcLoans, IcCards, IcShield, IcTrend, IcWallet, IcBell, IcCheck, IcHabits, IcImage, IcLock, IcDoc,
 } from './icons'
 
 interface ModuleDef {
@@ -53,6 +53,11 @@ export const MODULES: Record<ModuleKey, ModuleDef> = {
     label: 'To-Do', color: 'var(--c-todo)', Icon: IcCheck,
     metric: (n) => `${n} pending`, addLabel: 'Add task',
     blurb: 'Simple tasks with priorities and due dates, alongside everything else you track.',
+  },
+  habits: {
+    label: 'Habits', color: 'var(--c-habits)', Icon: IcHabits,
+    metric: (n) => `${n} today`, addLabel: 'Add habit',
+    blurb: 'Build a routine and keep the streak going — tick each day and watch the run grow.',
   },
   gallery: {
     label: 'Gallery', color: 'var(--c-gallery)', Icon: IcImage,

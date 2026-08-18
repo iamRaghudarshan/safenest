@@ -68,6 +68,7 @@ MODULES: dict[str, tuple[str, tuple[str, ...]]] = {
     "investments": ("Investments", ("investment",)),
     "reminders":   ("Reminders",   ("reminder",)),
     "todo":        ("Tasks",       ("task",)),
+    "habits":      ("Habits",      ("habit",)),
     "gallery":     ("Photos",      ("photo", "gallery", "album")),
     "documents":   ("Documents",   ("document",)),
     "vault":       ("Vault",       ("vault",)),
@@ -82,7 +83,7 @@ ENTITY_LABELS = {
     "loan": "Loan", "card": "Card", "policy": "Policy", "investment": "Investment",
     "expense": "Expense", "reminder": "Reminder", "task": "Task", "vault": "Vault item",
     "photo": "Photo", "gallery": "Gallery", "document": "Document", "album": "Album",
-    "master": "List", "user": "User", "system": "System",
+    "master": "List", "user": "User", "system": "System", "habit": "Habit",
 }
 
 # Field names as people know them, not as the database spells them.

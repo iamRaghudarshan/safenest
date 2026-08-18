@@ -2,7 +2,7 @@
 
 export type ModuleKey =
   | 'loans' | 'cards' | 'insurance' | 'investments' | 'expenses'
-  | 'reminders' | 'todo' | 'gallery' | 'vault' | 'documents'
+  | 'reminders' | 'todo' | 'habits' | 'gallery' | 'vault' | 'documents'
 
 export interface DocumentItem {
   id: number
@@ -152,6 +152,36 @@ export interface Todo {
   id: number; title: string; priority: 'low' | 'medium' | 'high'
   due_date: string | null; status: 'pending' | 'done'
   recurrence: string | null
+}
+
+export interface HabitDay {
+  date: string; active: boolean; done: boolean; count: number
+}
+
+export interface Habit {
+  id: number
+  name: string
+  icon: string
+  color: string
+  kind: 'build' | 'quit'
+  goal_type: 'daily' | 'weekdays' | 'weekly'
+  weekdays: string          // CSV of ISO weekday numbers, Mon=1…Sun=7
+  target_count: number
+  unit: string
+  weekly_target: number
+  reminder_time: string | null
+  note: string | null
+  archived: number
+  sort_order: number
+  // Computed by the server on every read:
+  target: number
+  today_count: number
+  done_today: boolean
+  active_today: boolean
+  current_streak: number
+  best_streak: number
+  rate30: number
+  week: HabitDay[]
 }
 
 export interface VaultItem {

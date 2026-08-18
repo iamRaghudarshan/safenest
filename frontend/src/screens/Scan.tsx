@@ -191,10 +191,10 @@ export function ScanFlow({ cats, onClose, onSaved }: {
         g.moveTo(pts[0].x, pts[0].y)
         for (let i = 1; i < 4; i++) g.lineTo(pts[i].x, pts[i].y)
         g.closePath()
-        g.fillStyle = good ? 'rgba(91,61,245,.20)' : 'rgba(255,255,255,.08)'
+        g.fillStyle = good ? 'rgba(1,118,211,.20)' : 'rgba(255,255,255,.08)'
         g.fill()
         g.lineWidth = 3
-        g.strokeStyle = good ? '#7c5cff' : 'rgba(255,255,255,.5)'
+        g.strokeStyle = good ? '#1B96FF' : 'rgba(255,255,255,.5)'
         g.stroke()
         if (good) {
           g.fillStyle = '#fff'

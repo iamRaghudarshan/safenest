@@ -3,6 +3,7 @@ import { SW_URL, SW_OPTIONS } from './swUrl'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { NatureBackdrop } from './NatureBackdrop'
 import { AuthProvider } from './auth'
 import { NavProvider } from './nav'
 import { ToastProvider } from './toast'
@@ -75,6 +76,7 @@ if ('serviceWorker' in navigator &&
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <NatureBackdrop />
     <AuthProvider>
       <NavProvider>
         <ToastProvider>

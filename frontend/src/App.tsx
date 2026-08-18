@@ -17,6 +17,7 @@ import Investments from './screens/Investments'
 import Expenses from './screens/Expenses'
 import Reminders from './screens/Reminders'
 import Todos from './screens/Todos'
+import Habits from './screens/Habits'
 import Vault from './screens/Vault'
 import Gallery from './screens/Gallery'
 import { UploadBar } from './screens/UploadBar'
@@ -39,7 +40,7 @@ import type { ModuleKey } from './types'
 const SCREENS: Record<string, () => React.ReactElement> = {
   home: Dashboard, modules: Modules, reminders: Reminders, profile: Profile,
   loans: Loans, cards: Cards, insurance: Insurance, investments: Investments,
-  expenses: Expenses, todo: Todos, vault: Vault, gallery: Gallery, documents: Documents,
+  expenses: Expenses, todo: Todos, habits: Habits, vault: Vault, gallery: Gallery, documents: Documents,
   masters: Masters, admin: Admin, activity: Activity, notifications: Notifications,
   licences: Licences, search: Search, analytics: AdminDashboard, mail: MailSettings, tickets: Tickets,
 }
@@ -77,7 +78,7 @@ const IcTicket = (p: { className?: string }) => (
 // Order for the desktop sidebar's module list (most-used first).
 const MODULE_ORDER: ModuleKey[] = [
   'expenses', 'loans', 'cards', 'insurance', 'investments',
-  'reminders', 'todo', 'gallery', 'vault', 'documents',
+  'reminders', 'todo', 'habits', 'gallery', 'vault', 'documents',
 ]
 
 /** The desktop web-app sidebar. Hidden on phones by CSS (the bottom tab bar wins

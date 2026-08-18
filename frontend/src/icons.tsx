@@ -24,3 +24,5 @@ export const IcLogout = S('M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4|M16 17l5-5-5-
 export const IcMoon = S('M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z')
 export const IcTrash = S('M4 7h16|M10 11v6|M14 11v6|M6 7l1 13h10l1-13|M9 7V4h6v3')
 export const IcEdit = S('M12 20h9|M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z')
+// A flame — the streak, which is what a habit tracker is really about.
+export const IcHabits = S('M12 22a7 7 0 0 0 7-7c0-3-2-5.2-3.3-7-1 1.1-2.2 1.6-3.2 1.6C13.4 6.3 12.3 3.2 10 2c.6 3-.9 4.7-2.4 6.2C6.1 9.8 5 11.8 5 15a7 7 0 0 0 7 7z')

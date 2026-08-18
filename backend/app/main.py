@@ -12,10 +12,10 @@ from sqlalchemy.exc import IntegrityError
 from .config import BACKEND_DIR, settings
 from .crypto import reencrypt_legacy_items
 from .database import Base, engine
-from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Hosting, License, LicenceRequest, MailLog, MailSettings, Release,
+from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Habit, HabitLog, Hosting, License, LicenceRequest, MailLog, MailSettings, Release,
                      Master, MasterList, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, Ticket, TicketMessage,
                      UserModule, User)
-from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, hosting, household, masters, briefing, cards, releases,
+from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, habits, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, mail, notifications, people, reminders,
                       resources, search, mobile, storefront, support, system, todos, vault)
 from . import autoimport, autostart, hosts, indexer, ist, licensing, mailer, scheduler, tunnelrun
@@ -286,6 +286,9 @@ def _migrate() -> None:
     DeviceToken.__table__.create(bind=engine, checkfirst=True)
     # A folder the app watches for new photos (added August 2026).
     AutoImport.__table__.create(bind=engine, checkfirst=True)
+    # Habit tracker: the habits and their daily check-ins (added August 2026).
+    Habit.__table__.create(bind=engine, checkfirst=True)
+    HabitLog.__table__.create(bind=engine, checkfirst=True)
     _seed_module_grants()
 
 
@@ -295,12 +298,16 @@ def _seed_module_grants() -> None:
     from .database import SessionLocal
     db = SessionLocal()
     try:
-        have = {uid for (uid,) in db.query(UserModule.user_id)
-                .filter(UserModule.module_key == "documents").all()}
-        for (uid,) in db.query(User.id).filter(User.role != "admin").all():
-            if uid not in have:
-                db.add(UserModule(user_id=uid, module_key="documents",
-                                  can_view=1, can_create=1, can_edit=1, can_delete=1))
+        # Modules added after the first release: grant them to every existing
+        # non-admin user on upgrade, or their copies would show a module the gate
+        # then 403s — the "shipped but unreachable" trap.
+        for module_key in ("documents", "habits"):
+            have = {uid for (uid,) in db.query(UserModule.user_id)
+                    .filter(UserModule.module_key == module_key).all()}
+            for (uid,) in db.query(User.id).filter(User.role != "admin").all():
+                if uid not in have:
+                    db.add(UserModule(user_id=uid, module_key=module_key,
+                                      can_view=1, can_create=1, can_edit=1, can_delete=1))
         db.commit()
 
         # Move any vault secrets still under a rotated-out key onto the current one.
@@ -776,7 +783,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports):
+for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, habits, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports):
     app.include_router(r.router)
 app.include_router(licences.public)   # /api/licence/... — customer-facing, separate prefix
 app.include_router(releases.public)   # /api/licence/update, /download

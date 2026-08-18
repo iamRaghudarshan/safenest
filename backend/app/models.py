@@ -247,6 +247,57 @@ class Todo(Base):
     updated_at = Column(FlexDateTime)
 
 
+class Habit(Base):
+    __tablename__ = "habits"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    name = Column(String(120))
+    # An emoji stored as text — the phone and the browser both render it directly,
+    # and it needs no icon set shipped. A blank falls back to a default in the UI.
+    icon = Column(String(16), default="")
+    # One of the --c-* tints, stored as the CSS var name (e.g. "var(--c-habits)")
+    # so both clients paint the same accent without a shared palette table.
+    color = Column(String(40), default="var(--c-habits)")
+    # "build" (do it) or "quit" (avoid it). Both track the same way — a quit habit
+    # is a day you stayed clean — but the wording and streak framing differ.
+    kind = Column(String(10), default="build")
+    # How often the goal applies: "daily" (every day), "weekdays" (only the days in
+    # `weekdays`), or "weekly" (any `weekly_target` days within a week). Strings, not
+    # a SQL ENUM — the same dialect trap as todos.status (see routers/todos.py).
+    goal_type = Column(String(10), default="daily")
+    # For goal_type="weekdays": a CSV of ISO weekday numbers Mon=1…Sun=7, e.g.
+    # "1,2,3,4,5" for weekdays only. Empty means every day.
+    weekdays = Column(String(20), default="")
+    # A day counts as done when its logged total reaches this. 1 is a plain tick;
+    # >1 with a `unit` is a measured goal (8 glasses, 30 minutes).
+    target_count = Column(Integer, default=1)
+    # What target_count counts — "glasses", "min", "pages". Blank = a simple tick.
+    unit = Column(String(24), default="")
+    # For goal_type="weekly": how many days in the week must be done.
+    weekly_target = Column(Integer, default=3)
+    # "HH:MM" reminder, same rationale as Reminder.due_time — a 5-char string agrees
+    # with both dialects and compares to the current minute exactly.
+    reminder_time = Column(String(5))
+    notified_on = Column(FlexDate)
+    note = Column(Text)
+    archived = Column(Integer, default=0)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class HabitLog(Base):
+    __tablename__ = "habit_logs"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    habit_id = Column(Integer)
+    # The day this check-in belongs to (not when it was recorded). One row per
+    # habit per day; `count` accumulates for measured goals.
+    log_date = Column(FlexDate)
+    count = Column(Integer, default=1)
+    created_at = Column(FlexDateTime)
+
+
 class GalleryPhoto(Base):
     __tablename__ = "gallery_photos"
     id = Column(Integer, primary_key=True)
