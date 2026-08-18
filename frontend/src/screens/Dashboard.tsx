@@ -176,89 +176,74 @@ export default function Dashboard() {
 function NatureHero({ greet, date }: { greet: string; date?: string }) {
   return (
     <div className="nature-hero">
-      <svg className="nh-scene" viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <svg className="nh-scene" viewBox="0 0 400 210" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
         <defs>
           <linearGradient id="nhSky" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="var(--sky1)" />
-            <stop offset="0.55" stopColor="var(--sky2)" />
+            <stop offset="0.6" stopColor="var(--sky2)" />
             <stop offset="1" stopColor="var(--sky3)" />
           </linearGradient>
         </defs>
-        <rect width="400" height="200" fill="url(#nhSky)" />
-        {/* sun with a breathing halo and soft rays */}
-        <circle className="nh-halo" cx="352" cy="36" r="36" fill="var(--sun)" />
-        <g stroke="var(--sun)" strokeWidth="3" strokeLinecap="round" opacity="0.5">
-          <line x1="352" y1="-6" x2="352" y2="4" /><line x1="384" y1="6" x2="377" y2="13" /><line x1="320" y1="6" x2="327" y2="13" />
-        </g>
-        <circle cx="352" cy="36" r="19" fill="var(--sun)" />
-        {/* a little flock of birds */}
-        <g stroke="#5b6b86" strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.5">
-          <path d="M104 30 q6 -6 12 0 q6 -6 12 0" /><path d="M132 24 q5 -5 10 0 q5 -5 10 0" /><path d="M156 32 q4 -4 8 0 q4 -4 8 0" />
-        </g>
-        {/* drifting clouds */}
-        <g className="nh-cloud1" fill="var(--cloud)" opacity="0.96">
-          <ellipse cx="74" cy="30" rx="27" ry="12" /><ellipse cx="98" cy="25" rx="18" ry="11" /><ellipse cx="50" cy="26" rx="15" ry="9" />
-        </g>
-        <g className="nh-cloud2" fill="var(--cloud)" opacity="0.8">
-          <ellipse cx="212" cy="22" rx="21" ry="9" /><ellipse cx="230" cy="18" rx="13" ry="8" />
-        </g>
-        {/* snow-capped mountains, far back */}
-        <g>
-          <path d="M14 116 L92 48 L170 116 Z" fill="var(--mtn1)" />
-          <path d="M92 48 L114 68 Q103 61 92 68 Q81 61 70 68 Z" fill="var(--snow)" />
-          <path d="M140 116 L226 40 L318 116 Z" fill="var(--mtn2)" />
-          <path d="M226 40 L250 63 Q237 55 226 63 Q214 55 202 63 Z" fill="var(--snow)" />
-        </g>
-        {/* three layered hills */}
-        <path d="M0 118 Q80 90 190 114 T400 106 V200 H0 Z" fill="var(--hill1)" />
-        <path d="M0 138 Q120 112 250 132 T400 126 V200 H0 Z" fill="var(--hill2)" />
-        <path d="M0 160 Q150 140 280 158 T400 152 V200 H0 Z" fill="var(--hill3)" />
+        <rect width="400" height="210" fill="url(#nhSky)" />
 
-        {/* a waterfall tumbling off a rocky cliff on the right, into a pond */}
-        <g>
-          <path d="M322 158 L322 76 Q344 70 366 80 L366 158 Z" fill="var(--rock)" />
-          <path d="M322 76 Q344 70 366 80 L366 90 Q344 84 322 90 Z" fill="var(--rock2)" />
-          <rect x="336" y="82" width="16" height="76" rx="6" fill="var(--water)" opacity="0.92" />
-          <g className="nh-fall" fill="var(--foam)" opacity="0.85">
-            <rect x="339" y="82" width="2.4" height="22" rx="1.2" />
-            <rect x="345" y="100" width="2.4" height="24" rx="1.2" />
-            <rect x="342" y="124" width="2.4" height="26" rx="1.2" />
-          </g>
-          <ellipse cx="344" cy="162" rx="31" ry="7" fill="var(--water2)" />
-          <ellipse cx="344" cy="156" rx="9" ry="3" fill="var(--foam)" opacity="0.9" />
-          <ellipse className="nh-ripple" cx="344" cy="163" rx="20" ry="4" fill="none" stroke="var(--foam)" strokeWidth="1.4" opacity="0.7" />
+        {/* sun */}
+        <circle className="nh-halo" cx="352" cy="40" r="34" fill="var(--sun)" />
+        <circle cx="352" cy="40" r="20" fill="var(--sun)" />
+
+        {/* fluffy flat clouds */}
+        <g className="nh-cloud1" fill="var(--cloud)">
+          <circle cx="70" cy="48" r="16" /><circle cx="92" cy="39" r="22" /><circle cx="117" cy="48" r="16" />
+          <rect x="64" y="46" width="60" height="16" rx="8" />
+        </g>
+        <g className="nh-cloud2" fill="var(--cloud)" opacity="0.94">
+          <circle cx="240" cy="34" r="12" /><circle cx="258" cy="26" r="17" /><circle cx="277" cy="34" r="12" />
+          <rect x="236" y="32" width="45" height="13" rx="6.5" />
+        </g>
+        {/* two birds */}
+        <g stroke="var(--mtn2)" strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.5">
+          <path d="M170 60 q6 -6 12 0 q6 -6 12 0" /><path d="M200 52 q5 -5 10 0 q5 -5 10 0" />
         </g>
 
-        {/* a small pine forest */}
-        {[[214, 150, 0.8], [250, 156, 1], [278, 162, 0.85]].map(([x, y, s], i) => (
+        {/* layered snow-capped mountains */}
+        <path d="M2 124 L96 50 L190 124 Z" fill="var(--mtn1)" />
+        <path d="M96 50 L118 74 Q106 66 96 74 Q86 66 74 74 Z" fill="var(--snow)" />
+        <path d="M118 124 L232 40 L346 124 Z" fill="var(--mtn2)" />
+        <path d="M232 40 L258 68 Q244 59 232 68 Q220 59 206 68 Z" fill="var(--snow)" />
+        <path d="M300 124 L366 66 L400 124 Z" fill="var(--mtn1)" opacity="0.85" />
+        <path d="M366 66 L384 86 Q375 79 366 86 Q357 79 348 86 Z" fill="var(--snow)" />
+
+        {/* meadow — three green layers */}
+        <path d="M0 126 Q100 114 200 124 T400 120 V210 H0 Z" fill="var(--hill1)" />
+        <path d="M0 152 Q120 140 240 150 T400 146 V210 H0 Z" fill="var(--hill2)" />
+        <path d="M0 180 Q140 170 280 180 T400 176 V210 H0 Z" fill="var(--hill3)" />
+
+        {/* a lake */}
+        <ellipse cx="300" cy="168" rx="48" ry="9" fill="var(--water2)" />
+        <ellipse cx="300" cy="166" rx="34" ry="5" fill="var(--water)" opacity="0.8" />
+
+        {/* a pine forest along the hills */}
+        {[[26, 132, 0.85], [58, 138, 1.05], [92, 132, 0.75], [340, 134, 1], [372, 130, 0.8], [216, 150, 0.7]].map(([x, y, s], i) => (
           <g key={i} transform={`translate(${x} ${y}) scale(${s})`}>
-            <rect x="-2" y="0" width="4" height="10" fill="var(--trunk)" />
-            <path d="M0 -28 L11 -8 L-11 -8 Z" fill="var(--pine)" />
-            <path d="M0 -20 L13 4 L-13 4 Z" fill="var(--pine2)" />
+            <rect x="-2.5" y="0" width="5" height="10" fill="var(--trunk)" />
+            <path d="M0 -30 L13 -7 L-13 -7 Z" fill="var(--pine)" />
+            <path d="M0 -20 L15 6 L-15 6 Z" fill="var(--pine2)" />
           </g>
         ))}
 
-        {/* a deer grazing on the middle hill */}
-        <g transform="translate(150 150)" fill="var(--deer)">
-          <ellipse cx="0" cy="-9" rx="10" ry="5.5" />
-          <rect x="-8" y="-6" width="2.3" height="9" rx="1" /><rect x="-3" y="-6" width="2.3" height="9" rx="1" />
-          <rect x="4" y="-6" width="2.3" height="9" rx="1" /><rect x="8" y="-6" width="2.3" height="9" rx="1" />
-          <path d="M9 -12 Q15 -13 15 -21 L18 -21 Q19 -12 12 -8 Z" />
-          <circle cx="17" cy="-22" r="3.1" />
-          <path d="M15 -25 l-2 -6 M19 -25 l2 -6" stroke="var(--deer)" strokeWidth="1.6" strokeLinecap="round" />
-        </g>
-
-        {/* a rabbit hopping in the foreground */}
-        <g className="nh-hop" transform="translate(96 184)" fill="var(--animal2)">
-          <ellipse cx="0" cy="-5" rx="6.5" ry="5.5" />
-          <circle cx="6" cy="-9" r="3.6" />
-          <ellipse cx="5" cy="-15" rx="1.5" ry="4.2" /><ellipse cx="8.6" cy="-15" rx="1.5" ry="4.2" />
-          <circle cx="-6" cy="-3" r="2.2" fill="var(--foam)" />
-          <circle cx="7.6" cy="-9.4" r="0.8" fill="#2a2a2a" />
+        {/* a cute bear on the meadow */}
+        <g transform="translate(150 188)">
+          <ellipse cx="-11" cy="5" rx="7" ry="4.5" fill="var(--bear2)" /><ellipse cx="11" cy="5" rx="7" ry="4.5" fill="var(--bear2)" />
+          <ellipse cx="0" cy="-6" rx="16" ry="14" fill="var(--bear)" />
+          <circle cx="-11" cy="-23" r="5" fill="var(--bear)" /><circle cx="11" cy="-23" r="5" fill="var(--bear)" />
+          <circle cx="-11" cy="-23" r="2.4" fill="var(--bear2)" /><circle cx="11" cy="-23" r="2.4" fill="var(--bear2)" />
+          <circle cx="0" cy="-19" r="12" fill="var(--bear)" />
+          <ellipse cx="0" cy="-14" rx="6.5" ry="5" fill="var(--bearface)" />
+          <circle cx="-4.5" cy="-21" r="1.6" fill="#3a2a1a" /><circle cx="4.5" cy="-21" r="1.6" fill="#3a2a1a" />
+          <ellipse cx="0" cy="-16" rx="1.9" ry="1.3" fill="#3a2a1a" />
         </g>
 
         {/* wildflowers */}
-        {[[54, 168], [176, 176], [300, 180]].map(([x, y], i) => (
+        {[[40, 194], [96, 200], [214, 190], [356, 194]].map(([x, y], i) => (
           <g key={i} transform={`translate(${x} ${y})`}>
             <line x1="0" y1="0" x2="0" y2="10" stroke="var(--stem)" strokeWidth="2" />
             <circle cx="0" cy="-2" r="3.6" fill={i % 2 ? 'var(--petal2)' : 'var(--petal)'} />
@@ -266,18 +251,16 @@ function NatureHero({ greet, date }: { greet: string; date?: string }) {
           </g>
         ))}
 
-        {/* the growing sprout — gently swaying */}
-        <g className="nh-sprout" transform="translate(40 158)">
-          <path d="M0 22 L0 -4" stroke="var(--stem)" strokeWidth="3" strokeLinecap="round" fill="none" />
-          <path d="M0 4 Q-16 0 -21 -14 Q-5 -14 0 3 Z" fill="var(--leaf)" />
-          <path d="M0 -2 Q16 -7 21 -21 Q5 -19 0 -4 Z" fill="var(--leaf)" />
+        {/* two butterflies */}
+        <g className="nh-fly" transform="translate(196 96)">
+          <path d="M0 0 Q-11 -9 -13 -1 Q-11 7 0 1 Z" fill="var(--petal)" opacity="0.92" />
+          <path d="M0 0 Q11 -9 13 -1 Q11 7 0 1 Z" fill="var(--brand)" opacity="0.8" />
+          <line x1="0" y1="-2" x2="0" y2="4" stroke="#3a2f66" strokeWidth="1.3" strokeLinecap="round" />
         </g>
-
-        {/* butterfly, floating */}
-        <g className="nh-fly" transform="translate(150 70)">
-          <path d="M0 0 Q-12 -10 -14 -1 Q-12 8 0 1 Z" fill="var(--petal)" opacity="0.9" />
-          <path d="M0 0 Q12 -10 14 -1 Q12 8 0 1 Z" fill="var(--brand)" opacity="0.8" />
-          <line x1="0" y1="-2" x2="0" y2="4" stroke="#4a3f7a" strokeWidth="1.4" strokeLinecap="round" />
+        <g className="nh-fly" transform="translate(268 120)" style={{ animationDelay: '-1.6s' }}>
+          <path d="M0 0 Q-9 -7 -11 -1 Q-9 6 0 1 Z" fill="var(--petal2)" opacity="0.92" />
+          <path d="M0 0 Q9 -7 11 -1 Q9 6 0 1 Z" fill="var(--water2)" opacity="0.85" />
+          <line x1="0" y1="-2" x2="0" y2="3" stroke="#3a2f66" strokeWidth="1.2" strokeLinecap="round" />
         </g>
       </svg>
       <div className="nh-copy">

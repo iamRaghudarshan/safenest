@@ -11,15 +11,15 @@ export function NatureBackdrop() {
         <circle className="nb-sun" cx="1210" cy="150" r="110" opacity="0.18" />
         <circle className="nb-sun" cx="1210" cy="150" r="66" />
 
-        {/* drifting clouds */}
-        <g className="nb-cloud nb-drift1" fill="var(--nb-cloud)">
-          <ellipse cx="300" cy="150" rx="95" ry="40" /><ellipse cx="380" cy="132" rx="64" ry="38" /><ellipse cx="228" cy="138" rx="52" ry="32" />
+        {/* fluffy flat clouds */}
+        <g className="nb-drift1" fill="var(--nb-cloud)">
+          <circle cx="250" cy="150" r="46" /><circle cx="312" cy="126" r="62" /><circle cx="384" cy="150" r="46" /><rect x="244" y="146" width="146" height="46" rx="23" />
         </g>
-        <g className="nb-cloud nb-drift2" fill="var(--nb-cloud)" opacity="0.8">
-          <ellipse cx="820" cy="120" rx="72" ry="30" /><ellipse cx="884" cy="104" rx="46" ry="26" />
+        <g className="nb-drift2" fill="var(--nb-cloud)" opacity="0.85">
+          <circle cx="820" cy="118" r="34" /><circle cx="868" cy="100" r="46" /><circle cx="918" cy="118" r="34" /><rect x="816" y="114" width="106" height="34" rx="17" />
         </g>
-        <g className="nb-cloud nb-drift1" fill="var(--nb-cloud)" opacity="0.7">
-          <ellipse cx="1080" cy="240" rx="60" ry="24" /><ellipse cx="1128" cy="228" rx="40" ry="20" />
+        <g className="nb-drift1" fill="var(--nb-cloud)" opacity="0.7">
+          <circle cx="1070" cy="238" r="30" /><circle cx="1110" cy="224" r="40" /><circle cx="1150" cy="238" r="30" /><rect x="1066" y="234" width="88" height="30" rx="15" />
         </g>
 
         {/* a flock of birds */}
@@ -36,6 +36,9 @@ export function NatureBackdrop() {
         {/* rolling hills */}
         <path className="nb-h1" d="M0 560 Q360 496 720 548 T1440 532 V900 H0 Z" />
         <path className="nb-h2" d="M0 630 Q360 582 720 620 T1440 606 V900 H0 Z" />
+        {/* a lake nestled in the hills */}
+        <ellipse cx="1040" cy="672" rx="180" ry="26" fill="var(--nb-water)" />
+        <ellipse cx="1040" cy="666" rx="130" ry="15" fill="var(--nb-cloud)" opacity="0.35" />
         <path className="nb-h3" d="M0 706 Q360 672 720 706 T1440 690 V900 H0 Z" />
 
         {/* a pine forest scattered over the hills */}

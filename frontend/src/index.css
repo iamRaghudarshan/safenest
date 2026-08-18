@@ -2398,30 +2398,33 @@ button.dash-row:hover { background: var(--bg); }
    driven by these vars so the same SVG reads as day in light mode and dusk in
    dark, without shipping two illustrations. */
 .nature-hero {
-  --sky1: #9fd4ff; --sky2: #d8ecff; --sky3: #eafaef; --sun: #ffcf4d; --cloud: #ffffff;
-  --mtn1: #7f9dc4; --mtn2: #5f7da8; --snow: #ffffff;
-  --rock: #7b8aa0; --rock2: #616f86; --water: #86cdf0; --water2: #4aa8e0; --foam: #ffffff;
-  --hill1: #9ee6a3; --hill2: #4fc98a; --hill3: #2fae76; --leaf: #37a869; --stem: #2f8f57;
-  --pine: #2c8a63; --pine2: #24734f; --trunk: #8a5a3b;
+  /* Bright, flat, Salesforce-poster palette. */
+  --sky1: #52aef2; --sky2: #a4daff; --sky3: #e9f7f1; --sun: #ffd23e; --cloud: #ffffff;
+  --mtn1: #a6c2ee; --mtn2: #7ea0e2; --snow: #ffffff;
+  --rock: #7b8aa0; --rock2: #616f86; --water: #7fd0f0; --water2: #3fa6e6; --foam: #ffffff;
+  --hill1: #a9e7a6; --hill2: #74d187; --hill3: #4cb972; --leaf: #35a865; --stem: #2c8a54;
+  --pine: #2f9c63; --pine2: #23794c; --trunk: #8a5a3b;
+  --bear: #d99f5c; --bear2: #bd8144; --bearface: #f2d7ab;
   --deer: #a9764e; --animal2: #6b7688;
-  --petal: #ff7eb0; --petal2: #ffd76b;
-  position: relative; height: 200px; border-radius: 24px; overflow: hidden;
+  --petal: #ff7eb0; --petal2: #ffd23e;
+  position: relative; height: 210px; border-radius: 24px; overflow: hidden;
   margin: 4px 0 8px; box-shadow: 0 10px 30px rgba(24, 22, 60, 0.14);
 }
 :root[data-theme='dark'] .nature-hero {
-  --sky1: #16305a; --sky2: #1e3d6b; --sky3: #204a3a; --sun: #ffd76b; --cloud: #3d5680;
-  --mtn1: #3b5170; --mtn2: #2c3e59; --snow: #c7d4ea;
-  --rock: #46536b; --rock2: #36415a; --water: #4aa8e0; --water2: #2f7fc0; --foam: #dbeafc;
-  --hill1: #2f6b4d; --hill2: #234f3a; --hill3: #1c4030; --leaf: #37a869; --stem: #2f8f57;
-  --pine: #276b4c; --pine2: #1e553c; --trunk: #6a452c; --deer: #8a5f3e; --animal2: #566072;
+  --sky1: #1a3866; --sky2: #244a80; --sky3: #204a3a; --sun: #ffd23e; --cloud: #47618f;
+  --mtn1: #45608c; --mtn2: #35496b; --snow: #d6e2f5;
+  --rock: #46536b; --rock2: #36415a; --water: #3f8fd0; --water2: #2f7fc0; --foam: #dbeafc;
+  --hill1: #338057; --hill2: #266647; --hill3: #1c5038; --leaf: #37a869; --stem: #2f8f57;
+  --pine: #2f8f5c; --pine2: #226b48; --trunk: #6a452c;
+  --bear: #b07f45; --bear2: #8f6534; --bearface: #d9bd8e; --deer: #8a5f3e; --animal2: #566072;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .nature-hero {
-    --sky1: #16305a; --sky2: #1e3d6b; --sky3: #204a3a; --cloud: #3d5680;
-    --mtn1: #3b5170; --mtn2: #2c3e59; --snow: #c7d4ea;
-    --rock: #46536b; --rock2: #36415a; --water: #4aa8e0; --water2: #2f7fc0; --foam: #dbeafc;
-    --hill1: #2f6b4d; --hill2: #234f3a; --hill3: #1c4030; --pine: #276b4c; --pine2: #1e553c;
-    --trunk: #6a452c; --deer: #8a5f3e; --animal2: #566072;
+    --sky1: #1a3866; --sky2: #244a80; --sky3: #204a3a; --cloud: #47618f;
+    --mtn1: #45608c; --mtn2: #35496b; --snow: #d6e2f5;
+    --rock: #46536b; --rock2: #36415a; --water: #3f8fd0; --water2: #2f7fc0; --foam: #dbeafc;
+    --hill1: #338057; --hill2: #266647; --hill3: #1c5038; --pine: #2f8f5c; --pine2: #226b48;
+    --trunk: #6a452c; --bear: #b07f45; --bear2: #8f6534; --bearface: #d9bd8e; --deer: #8a5f3e; --animal2: #566072;
   }
 }
 .nature-hero .nh-scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -2486,18 +2489,19 @@ button.dash-row:hover { background: var(--bg); }
    (via --nb-op) so cards and text stay legible; re-coloured to dusk in dark mode
    and on the sign-in screen. */
 :root {
-  --nb1: #bfe4ff; --nb2: #e2f1ff; --nb3: #eef7ef; --nb4: #dff1df;
-  --nb-sun: #ffd76b; --nb-far: #b9c9df; --nb-far2: #a7bad6; --nb-snow: #ffffff;
-  --nb-cloud: #ffffff; --nb-bird: #5b6b86;
-  --nb-h1: #c2e7c7; --nb-h2: #96d9a6; --nb-h3: #77c98b;
-  --nb-pine: #4faf7f; --nb-pine2: #3d9268; --nb-trunk: #8a5a3b;
-  --nb-deer: #b98a5e; --nb-rabbit: #9aa6ba; --nb-petal: #ff7eb0; --nb-petal2: #ffd76b;
+  /* Bright, flat Salesforce palette, faint via --nb-op so content stays legible. */
+  --nb1: #7fc4f5; --nb2: #c4e6ff; --nb3: #e9f7f0; --nb4: #dff1df;
+  --nb-sun: #ffd23e; --nb-far: #a6c2ee; --nb-far2: #7ea0e2; --nb-snow: #ffffff;
+  --nb-cloud: #ffffff; --nb-bird: #7ea0e2; --nb-water: #6fc3ea;
+  --nb-h1: #a9e7a6; --nb-h2: #74d187; --nb-h3: #4cb972;
+  --nb-pine: #2f9c63; --nb-pine2: #23794c; --nb-trunk: #8a5a3b;
+  --nb-deer: #d99f5c; --nb-rabbit: #9aa6ba; --nb-petal: #ff7eb0; --nb-petal2: #ffd23e;
   --nb-op: 0.5;
 }
 :root[data-theme='dark'] {
   --nb1: #0e1b34; --nb2: #122142; --nb3: #112a22; --nb4: #0e2318;
   --nb-sun: #d9be6a; --nb-far: #33435f; --nb-far2: #2b3a54; --nb-snow: #9fb0cc;
-  --nb-cloud: #3d5680; --nb-bird: #7a89a6;
+  --nb-cloud: #3d5680; --nb-bird: #7a89a6; --nb-water: #3f8fd0;
   --nb-h1: #244a37; --nb-h2: #1d3f2e; --nb-h3: #173425;
   --nb-pine: #2f7d59; --nb-pine2: #245f43; --nb-trunk: #6a452c;
   --nb-deer: #8a5f3e; --nb-rabbit: #59637a; --nb-petal: #d16b95; --nb-petal2: #d9be6a;
@@ -2507,7 +2511,7 @@ button.dash-row:hover { background: var(--bg); }
   :root:not([data-theme='light']) {
     --nb1: #0e1b34; --nb2: #122142; --nb3: #112a22; --nb4: #0e2318;
     --nb-sun: #d9be6a; --nb-far: #33435f; --nb-far2: #2b3a54; --nb-snow: #9fb0cc;
-    --nb-cloud: #3d5680; --nb-bird: #7a89a6;
+    --nb-cloud: #3d5680; --nb-bird: #7a89a6; --nb-water: #3f8fd0;
     --nb-h1: #244a37; --nb-h2: #1d3f2e; --nb-h3: #173425;
     --nb-pine: #2f7d59; --nb-pine2: #245f43; --nb-trunk: #6a452c;
     --nb-deer: #8a5f3e; --nb-rabbit: #59637a; --nb-petal: #d16b95; --nb-petal2: #d9be6a; --nb-op: 0.46;
@@ -2517,7 +2521,7 @@ button.dash-row:hover { background: var(--bg); }
 html.on-auth {
   --nb1: #0b1430; --nb2: #0f1d3e; --nb3: #0e2431; --nb4: #0b1c22;
   --nb-sun: #d9be6a; --nb-far: #2e3e5a; --nb-far2: #263450; --nb-snow: #93a6c4;
-  --nb-cloud: #33456a; --nb-bird: #6b7a98;
+  --nb-cloud: #33456a; --nb-bird: #6b7a98; --nb-water: #2f6ba8;
   --nb-h1: #1f4433; --nb-h2: #193a2b; --nb-h3: #143024;
   --nb-pine: #2b7150; --nb-pine2: #205a3f; --nb-trunk: #64432b;
   --nb-deer: #86593a; --nb-rabbit: #525c72; --nb-petal: #c76289; --nb-petal2: #d0b566; --nb-op: 0.6;
