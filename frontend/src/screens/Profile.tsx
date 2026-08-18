@@ -1127,6 +1127,16 @@ function StorageUse() {
  *  with no warning anyone could have acted on. */
 function MyLicence() {
   const [lic, setLic] = useState<LicenceStatus | null>(null)
+  // Replacing the key from here, at any time — not only when the gate is blocked.
+  // Activation.tsx covers the blocked case (a lapsed or never-activated copy). But
+  // a copy running a still-valid OLD key (e.g. one issued before a domain change,
+  // or a perpetual key being swapped for a dated one) never blocks, so the
+  // activation screen never appears — and the customer had no way in the app to
+  // move to the licence they were sent. This is that way in.
+  const [open, setOpen] = useState(false)
+  const [key, setKey] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     api<LicenceStatus>('/api/licence/status').then(setLic).catch(() => { })
@@ -1136,6 +1146,22 @@ function MyLicence() {
   const warn = lic.state === 'expiring' || lic.state === 'grace'
   const bad = lic.state === 'expired' || lic.state === 'revoked' || lic.state === 'invalid'
   const tint = bad ? 'var(--danger)' : warn ? 'var(--warn)' : 'var(--ok)'
+
+  async function update() {
+    setErr(''); setBusy(true)
+    try {
+      // The server verifies the signature and refuses a blocked/foreign token
+      // before writing anything (see licences.py::activate), so a bad paste
+      // cannot wedge a working copy.
+      await api('/api/licence/activate', { method: 'POST', body: { token: key.trim() } })
+      // Reload so the status row, the gate and every screen re-read the new key.
+      window.location.reload()
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Something went wrong')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <SettingsGroup title="Licence"
@@ -1157,6 +1183,21 @@ function MyLicence() {
           and landed as a warning: customers read "sent to <the supplier> once a
           day" as the app phoning home about them, on their own computer. The facts
           belong in the licence terms, not as an alarming line in Settings. */}
+      <SettingsRow icon="🔑" tint="var(--c-vault)" label="Update licence key"
+        sub="Enter a new key you were sent" onClick={() => setOpen((o) => !o)} />
+      {open && (
+        <SettingsBlock>
+          <textarea className="input" rows={4}
+            placeholder="Paste the licence key you were sent"
+            value={key} onChange={(e) => setKey(e.target.value)}
+            style={{ resize: 'vertical', fontFamily: 'monospace', wordBreak: 'break-all' }} />
+          {err && <p className="form-hint warn" style={{ marginTop: 8, marginBottom: 0 }}>{err}</p>}
+          <button className="btn block" style={{ marginTop: 8 }}
+            disabled={busy || !key.trim()} onClick={update}>
+            {busy ? 'Updating…' : 'Update licence'}
+          </button>
+        </SettingsBlock>
+      )}
     </SettingsGroup>
   )
 }
