@@ -887,6 +887,20 @@ def activate(request: Request, body: dict = Body(...),
         # and writing a key here would be meaningless.
         raise HTTPException(409, "This copy is not a licensed build")
 
+    # Only the LICENCE HOLDER may swap a live licence. A licensed copy has no admin
+    # (every account is `user` by design), so this cannot be role-gated — it is tied
+    # to the account whose email is inside the currently installed licence. First
+    # activation stays open: a fresh or lapsed copy has no holder to check against,
+    # and whoever is setting it up must be able to enter the key. So the check
+    # applies ONLY when a live (non-blocked) licence is already installed, i.e. a
+    # genuine replacement — a household member cannot repoint someone else's copy.
+    current = licensing.status(settings.license_path, settings.license_public_key_hex)
+    if not licensing.is_blocked(current.get("state", "")):
+        holder = (current.get("email") or "").strip().lower()
+        if holder and (user.email or "").strip().lower() != holder:
+            raise HTTPException(403,
+                "Only the licence holder can change the licence key on this copy.")
+
     token = (body.get("token") or body.get("key") or "").strip()
     if not token:
         raise HTTPException(422, "Paste the licence key you were sent")

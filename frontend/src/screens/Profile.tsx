@@ -1137,12 +1137,18 @@ function MyLicence() {
   const [key, setKey] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const { user } = useAuth()
 
   useEffect(() => {
     api<LicenceStatus>('/api/licence/status').then(setLic).catch(() => { })
   }, [])
 
   if (!lic?.licensed) return null
+  // Only the licence holder — the account whose email is inside the licence — may
+  // change the key. A licensed copy has no admin to gate on, so we tie it to the
+  // holder's email; the server enforces the same rule (licences.py::activate).
+  const isHolder = !!user?.email && !!lic.email
+    && user.email.trim().toLowerCase() === lic.email.trim().toLowerCase()
   const warn = lic.state === 'expiring' || lic.state === 'grace'
   const bad = lic.state === 'expired' || lic.state === 'revoked' || lic.state === 'invalid'
   const tint = bad ? 'var(--danger)' : warn ? 'var(--warn)' : 'var(--ok)'
@@ -1183,9 +1189,11 @@ function MyLicence() {
           and landed as a warning: customers read "sent to <the supplier> once a
           day" as the app phoning home about them, on their own computer. The facts
           belong in the licence terms, not as an alarming line in Settings. */}
+      {isHolder && (
       <SettingsRow icon="🔑" tint="var(--c-vault)" label="Update licence key"
         sub="Enter a new key you were sent" onClick={() => setOpen((o) => !o)} />
-      {open && (
+      )}
+      {isHolder && open && (
         <SettingsBlock>
           <textarea className="input" rows={4}
             placeholder="Paste the licence key you were sent"
