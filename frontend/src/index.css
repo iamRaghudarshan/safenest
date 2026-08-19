@@ -2547,3 +2547,36 @@ html.on-auth {
 /* The sign-in page painted its own dark orbs; the nature world is the atmosphere
    now, so quiet them right down. */
 html.on-auth .auth-bg { opacity: 0.3; }
+
+/* ---- Gallery view modes (list / small / medium / large) ---- */
+.photo-grid.small { grid-template-columns: repeat(5, 1fr); gap: 3px; }
+.photo-grid.grid  { grid-template-columns: repeat(3, 1fr); }
+.photo-grid.large { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.photo-list { display: flex; flex-direction: column; gap: 6px; }
+.photo-row { display: flex; align-items: center; gap: 12px; padding: 6px 8px; background: var(--card); border-radius: 12px; box-shadow: var(--shadow); text-align: left; width: 100%; }
+.photo-row img { width: 52px; height: 52px; border-radius: 9px; object-fit: cover; flex-shrink: 0; background: var(--bg-elev); }
+.photo-row .pr-main { flex: 1; min-width: 0; }
+.photo-row .pr-title { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.photo-row .pr-sub { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+.photo-row .pr-star { color: #ffcf4d; font-size: 15px; }
+.view-switch { display: flex; gap: 2px; background: var(--bg-elev); border-radius: 10px; padding: 2px; box-shadow: var(--shadow); }
+.view-switch .vs-btn { width: 30px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--ink-soft); }
+.view-switch .vs-btn .ic { width: 16px; height: 16px; }
+.view-switch .vs-btn.on { background: var(--brand); color: #fff; }
+
+/* ---- Gallery: sane widths on a wide desktop ----
+   The content column is up to 1240px; letting the toolbar, tabs, search and the
+   list rows fill all of it made a single "Add photos" button a metre wide. Cap
+   the controls to a comfortable size (left-aligned), and keep only the photo GRID
+   free to use the full width for more columns. */
+@media (min-width: 1024px) {
+  .gallery-actions { max-width: 440px; }
+  .seg4.five { max-width: 620px; }
+  .searchbar { max-width: 620px; }
+  .smart-row { max-width: 620px; }
+  .photo-list { max-width: 720px; }
+}
+
+/* The view switcher sits in a light toolbar above the grid (not in the header,
+   which is cramped on a phone). Right-aligned so it reads as a control, not content. */
+.gallery-toolbar { display: flex; justify-content: flex-end; padding: 10px 14px 2px; }

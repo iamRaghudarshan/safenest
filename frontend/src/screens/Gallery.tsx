@@ -269,22 +269,16 @@ export default function Gallery() {
 
           They sit here rather than in the TopBar because on a phone the header
           had to shrink them to a size that was easy to miss and hard to hit. */}
+      {/* One modern round + to add photos — no wide button, no folder-import row.
+          A <label> so the file picker opens without the `accept` attribute (see
+          the note on the input below). */}
       {canEdit && (
-        <div className="gallery-actions">
-          <label className="btn sm" htmlFor={FILE_INPUT_ID} role="button" tabIndex={0}
-            onClick={() => { backupIntent.current = false }}
-            onKeyDown={pickerKeys(false)}>
-            {u.uploading ? 'Uploading…' : '＋ Add photos'}
-          </label>
-          {!isIOS && (
-            <label className="btn sm ghost" htmlFor={DIR_INPUT_ID} role="button" tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dirRef.current?.click() }
-              }}>
-              🗂 Import a folder
-            </label>
-          )}
-        </div>
+        <label className="fab" htmlFor={FILE_INPUT_ID} role="button" tabIndex={0}
+          aria-label="Add photos" title="Add photos"
+          onClick={() => { backupIntent.current = false }}
+          onKeyDown={pickerKeys(false)}>
+          {u.uploading ? '…' : '＋'}
+        </label>
       )}
       {queueStatus && <div className="upload-inline" aria-live="polite">{queueStatus}</div>}
       {/* The next batch is one tap away and the running total is kept, so a
@@ -432,6 +426,8 @@ export default function Gallery() {
         : tab === 'people' ? <PeopleGrid onOpen={setPerson} />
         : tab === 'memories' ? <Memories onOpen={setView} />
         : (
+          <>
+          {shown.length > 0 && <div className="gallery-toolbar"><ViewSwitcher /></div>}
           <PullToRefresh onRefresh={refresh}>
             {loading ? <Spinner />
               : shown.length === 0 ? (
@@ -460,6 +456,7 @@ export default function Gallery() {
                     shown={shown.length} total={total} />
                 </>}
           </PullToRefresh>
+          </>
         )}
 
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)}
@@ -563,9 +560,58 @@ function InfiniteSentinel({ onHit, done, loading, shown, total }: {
   )
 }
 
-function PhotoGrid({ photos, onOpen }: { photos: Photo[]; onOpen: (p: Photo) => void }) {
+// How densely the grid is laid out — remembered across visits and shared by every
+// grid on the screen (a change in the header re-lays the album and person views too).
+type GView = 'list' | 'small' | 'grid' | 'large'
+function useGView(): [GView, (m: GView) => void] {
+  const [m, setM] = useState<GView>(() => (localStorage.getItem('gallery.view') as GView) || 'grid')
+  useEffect(() => {
+    const h = () => setM((localStorage.getItem('gallery.view') as GView) || 'grid')
+    window.addEventListener('gview', h)
+    return () => window.removeEventListener('gview', h)
+  }, [])
+  return [m, (v: GView) => { localStorage.setItem('gallery.view', v); window.dispatchEvent(new Event('gview')) }]
+}
+
+/** List / small / medium / large density toggle for the gallery header. */
+export function ViewSwitcher() {
+  const [mode, set] = useGView()
+  const opts: { k: GView; ic: React.ReactNode; label: string }[] = [
+    { k: 'list', label: 'List', ic: <svg viewBox="0 0 24 24" className="ic"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" /></svg> },
+    { k: 'small', label: 'Small', ic: <svg viewBox="0 0 24 24" className="ic"><path d="M3 3h6v6H3zM10 3h6v6h-6zM17 3h4v6h-4zM3 10h6v6H3zM10 10h6v6h-6zM17 10h4v6h-4zM3 17h6v4H3zM10 17h6v4h-6z" fill="currentColor" /></svg> },
+    { k: 'grid', label: 'Medium', ic: <svg viewBox="0 0 24 24" className="ic"><path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" fill="currentColor" /></svg> },
+    { k: 'large', label: 'Large', ic: <svg viewBox="0 0 24 24" className="ic"><path d="M3 3h18v18H3z" fill="none" stroke="currentColor" strokeWidth="2.4" /></svg> },
+  ]
   return (
-    <div className="photo-grid">
+    <div className="view-switch">
+      {opts.map((o) => (
+        <button key={o.k} className={`vs-btn${mode === o.k ? ' on' : ''}`} onClick={() => set(o.k)}
+          aria-label={o.label} title={o.label}>{o.ic}</button>
+      ))}
+    </div>
+  )
+}
+
+function PhotoGrid({ photos, onOpen }: { photos: Photo[]; onOpen: (p: Photo) => void }) {
+  const [mode] = useGView()
+  if (mode === 'list') {
+    return (
+      <div className="photo-list">
+        {photos.map((p) => (
+          <button key={p.id} onClick={() => onOpen(p)} className="photo-row">
+            <img src={p.thumb_url || p.url} loading="lazy" alt="" />
+            <div className="pr-main">
+              <div className="pr-title">{p.caption || p.taken_fmt || 'Photo'}</div>
+              {p.taken_fmt && <div className="pr-sub">{p.taken_fmt}</div>}
+            </div>
+            {!!p.is_favourite && <span className="pr-star">★</span>}
+          </button>
+        ))}
+      </div>
+    )
+  }
+  return (
+    <div className={`photo-grid ${mode}`}>
       {photos.map((p) => (
         <button key={p.id} onClick={() => onOpen(p)} className="thumb">
           <img src={p.thumb_url || p.url} loading="lazy" />

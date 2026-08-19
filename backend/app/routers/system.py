@@ -31,7 +31,12 @@ from ..security import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
-APP_VERSION = "2.0"
+# The real running version, resolved at call time (env → version.txt → VERSION),
+# not a hard-coded constant. The old `APP_VERSION = "2.0"` made the Profile screen
+# report 2.0 on every build, which is what sent a 3.14 copy chasing a phantom update.
+def _app_version() -> str:
+    from .. import updates
+    return updates.current_version()
 
 # Files that are NOT content-hashed and therefore the only ones a CDN can serve
 # stale. /assets/* carry a hash in the filename, so they are safe to leave cached.
@@ -48,7 +53,7 @@ def status(user: User = Depends(get_current_user), db: Session = Depends(get_db)
     which now lives in the database rather than in .env.
     """
     return {
-        "version": APP_VERSION,
+        "version": _app_version(),
         "cdnPurge": {
             "available": settings.cdn_purge_enabled,
             "isAdmin": user.role == "admin",
@@ -110,7 +115,7 @@ def host_info(user: User = Depends(get_current_user), db: Session = Depends(get_
     if current is None:
         # First request after an upgrade, before any restart recorded a host.
         info = hosts.describe(db)
-        current = {**info, "id": None, "app_version": APP_VERSION,
+        current = {**info, "id": None, "app_version": _app_version(),
                    "first_seen": None, "last_seen": None, "is_current": True}
         current.pop("fingerprint", None)
     return {"current": current, "history": rows, "moves": max(0, len(rows) - 1)}

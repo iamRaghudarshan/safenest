@@ -286,6 +286,14 @@ def _remember_revocation(path, kid: str, revoked: bool) -> None:
         pass                                    # a read-only disk must not stop the app
 
 
+def _running_version() -> str:
+    # Imported here, not at module top: licensing is imported very early and
+    # updates pulls in packaging paths; keeping it local avoids any import-order
+    # surprise at boot. updates has no app-internal imports, so this is cheap.
+    from . import updates
+    return updates.current_version()
+
+
 def about_this_copy() -> dict:
     """What a copy tells its supplier about itself.
 
@@ -301,7 +309,11 @@ def about_this_copy() -> dict:
                                                       else "linux"),
         "os": (f"macOS {_p.mac_ver()[0]}" if system == "darwin"
                else f"{_p.system()} {_p.release()}")[:120],
-        "version": "2.0",
+        # The REAL running version, not a constant. This value is stored as the
+        # copy's last_version on the publisher and shown to the owner, so a
+        # hard-coded "2.0" made every copy — 3.14 included — report as 2.0 and
+        # was mistaken for an out-of-date install.
+        "version": _running_version(),
         "host": _s.gethostname()[:120],
     }
 

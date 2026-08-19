@@ -106,8 +106,24 @@ def digest(path: Path, progress=lambda done, total: None) -> str:
 
 # --------------------------------------------------------------- versions
 def current_version() -> str:
-    """What this copy is running. Set at build time; "0" when running from source."""
-    return (os.environ.get("APP_VERSION") or "0").strip()
+    """What this copy is running.
+
+    APP_VERSION is set by runner.py in a packaged copy. When it is missing (running
+    from source, or a build that didn't stamp it) fall back to a version file rather
+    than returning "0" — several callers report this as the app version, and "0" (or
+    a hard-coded constant) is exactly what made a 3.14 copy look like 2.0."""
+    v = (os.environ.get("APP_VERSION") or "").strip()
+    if v:
+        return v
+    for p in (Path(sys.executable).resolve().parent / "version.txt",
+              Path(__file__).resolve().parents[2] / "VERSION"):
+        try:
+            t = p.read_text().strip()
+            if t:
+                return t
+        except Exception:
+            pass
+    return "0"
 
 
 def is_newer(candidate: str, running: str) -> bool:
