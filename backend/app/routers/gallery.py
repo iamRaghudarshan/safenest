@@ -566,21 +566,35 @@ def backfill_durations(body: dict = Body(...),
 
 
 def _mov_duration_from_file(path: str) -> int | None:
-    """`_mov_duration_ms` for a file already on disk, reading only its ends.
+    """`_mov_duration_ms` for a file already on disk, without loading the mdat.
 
-    The `moov`/`mvhd` atom sits at the very start or the very end of an MP4/MOV,
-    so reading ~1 MB from each is enough to find it without pulling a 100 MB clip
-    into memory. Used to repair videos stored before the container was read."""
+    Walks the top-level boxes by seeking over each one's size, so it never pulls
+    the 100 MB media payload into memory — it reads only the small `moov` box
+    wherever it sits (start of a fast-start clip, end of an iPhone one) and parses
+    that. Used to repair videos stored before the container was read."""
     try:
         size = os.path.getsize(path)
         with open(path, "rb") as f:
-            head = f.read(min(size, 1_000_000))
-            d = _mov_duration_ms(head)
-            if d:
-                return d
-            if size > 1_000_000:
-                f.seek(max(0, size - 8_000_000))
-                return _mov_duration_ms(f.read())
+            p = 0
+            while p + 8 <= size:
+                f.seek(p)
+                hdr = f.read(16)
+                if len(hdr) < 8:
+                    break
+                bsize = int.from_bytes(hdr[0:4], "big")
+                typ = hdr[4:8]
+                if bsize == 1:              # 64-bit largesize
+                    bsize = int.from_bytes(hdr[8:16], "big")
+                elif bsize == 0:            # to end of file
+                    bsize = size - p
+                if bsize < 8:
+                    break
+                if typ == b"moov":
+                    f.seek(p)
+                    # moov is metadata, not media — kilobytes; cap defensively.
+                    moov = f.read(min(bsize, 20_000_000))
+                    return _mov_duration_ms(moov)
+                p += bsize
     except Exception:
         return None
     return None
@@ -1133,6 +1147,16 @@ _VIDEO_MAGIC: tuple[tuple[int, bytes], ...] = (
 
 _VIDEO_EXT = {".mp4", ".mov", ".m4v", ".3gp", ".avi", ".mkv", ".webm", ".wmv", ".flv"}
 
+# HEIC/HEIF/AVIF stills are ISO base-media files too: their header is
+# `....ftyp<brand>`, the SAME box MP4/MOV use, so a bare "ftyp at offset 4" check
+# calls an iPhone photo a video. Then it is stored as kind=video, shows "0:01"
+# over a play button and cannot play — because it has no video track. The major
+# brand is what tells a still image apart from a clip. Found on a real upload: 19
+# of 20 "videos" were HEIC photos. (mif1/msf1/heics are image *sequences* — still
+# not something the video player can open, so they are excluded here too.)
+_IMAGE_FTYP_BRANDS = {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx",
+                      b"heif", b"mif1", b"msf1", b"avif", b"avis"}
+
 
 def looks_like_video(raw: bytes, filename: str = "") -> bool:
     head = raw[:32]
@@ -1141,6 +1165,10 @@ def looks_like_video(raw: bytes, filename: str = "") -> bool:
             # RIFF covers WAV and a dozen other things; only AVI is a video.
             if sig == b"RIFF":
                 return head[8:12] == b"AVI "
+            # ftyp is shared with HEIC/HEIF/AVIF still images — the brand decides.
+            # An image is not a video however much its container looks like one.
+            if sig == b"ftyp" and head[8:12] in _IMAGE_FTYP_BRANDS:
+                return False
             return True
     # Falls back to the extension only when the bytes said nothing, so an
     # unusual container is still accepted rather than refused outright.
@@ -1191,18 +1219,55 @@ def _video_poster(path: str) -> tuple[bytes | None, dict]:
         return None, meta
 
 
+def _find_atom(raw: bytes, want: bytes, start: int = 0,
+               end: int | None = None) -> tuple[int, int] | None:
+    """Walk ISO-BMFF boxes at one level and return (body_start, body_end) of the
+    first box of type `want`, or None.
+
+    A box is [4-byte size][4-byte type][body]. size==1 means a 64-bit size
+    follows the type; size==0 means "to the end". Walking the tree is the whole
+    point: the naive `raw.find(b"mvhd")` this replaces matched the bytes "mvhd"
+    sitting by chance inside the media data (mdat) and read a 29-second clip as
+    5.89 seconds. mvhd lives inside moov; nothing outside it counts."""
+    if end is None:
+        end = len(raw)
+    p = start
+    while p + 8 <= end:
+        size = int.from_bytes(raw[p:p + 4], "big")
+        typ = raw[p + 4:p + 8]
+        body = p + 8
+        if size == 1:                       # 64-bit largesize after the type
+            size = int.from_bytes(raw[p + 8:p + 16], "big")
+            body = p + 16
+        elif size == 0:                     # extends to the end of the parent
+            size = end - p
+        if size < 8 or p + size > end:
+            break                           # corrupt or truncated — stop walking
+        if typ == want:
+            return body, p + size
+        p += size
+    return None
+
+
 def _mov_duration_ms(raw: bytes) -> int | None:
     """Duration from an MP4/MOV container's `mvhd` atom, WITHOUT decoding.
 
     The container header carries duration + timescale independently of the video
     codec, so this reads an iPhone HEVC clip's real length where OpenCV cannot —
     OpenCV can't decode HEVC and returned a bogus ~1 second, which is what left
-    every clip showing "0:01". Reads the bytes already in memory; no ffmpeg."""
+    every clip showing "0:01". Reads the bytes already in memory; no ffmpeg.
+
+    Walks ftyp→moov→mvhd rather than searching for the bytes: an iPhone clip
+    keeps its moov at the END of the file, and a blind search hit a "mvhd"-shaped
+    run inside the media data first and read 29s as 5.89s."""
     try:
-        i = raw.find(b"mvhd")
-        if i < 0:
+        moov = _find_atom(raw, b"moov")
+        if moov is None:
             return None
-        p = i + 4
+        mvhd = _find_atom(raw, b"mvhd", moov[0], moov[1])
+        if mvhd is None:
+            return None
+        p = mvhd[0]
         version = raw[p]
         p += 4  # version(1) + flags(3)
         if version == 1:
