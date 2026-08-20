@@ -224,13 +224,24 @@ def unpack(archive: Path, into: Path) -> Path:
                     if not str((into / dest).resolve()).startswith(str(root)):
                         raise UpdateError("This update contains a link pointing "
                                           "outside itself and has been discarded.")
+        # The paths and links were validated above; extract with NATIVE tar where
+        # it exists. Python's tarfile with filter="data" re-checks and chmods
+        # every member, and on macOS — where the OS scans each of ~3,400 extracted
+        # files — that crawled for HOURS and left a customer stuck at "Unpacking…"
+        # for two. Native tar does the same job in seconds and preserves the
+        # Python.framework symlinks the bundle's signature depends on. The curl
+        # installer already uses native tar, which is why it never hung.
+        if os.name != "nt" and shutil.which("tar"):
+            subprocess.run(["tar", "-xzf", str(archive), "-C", str(into)],
+                           check=True, timeout=1200)
+        else:
             # `data` is the strict filter: it drops device nodes, setuid bits and
-            # absolute paths. The checks above stay because it is the archive's
-            # own shape being judged here, not just what tarfile will tolerate.
-            try:
-                tf.extractall(into, filter="data")
-            except TypeError:                       # older Pythons: no filters
-                tf.extractall(into)
+            # absolute paths. Only reached on Windows / a box without tar.
+            with tarfile.open(archive) as tf2:
+                try:
+                    tf2.extractall(into, filter="data")
+                except TypeError:                   # older Pythons: no filters
+                    tf2.extractall(into)
     else:
         with zipfile.ZipFile(archive) as zf:
             for member in zf.namelist():

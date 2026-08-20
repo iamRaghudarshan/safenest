@@ -10,7 +10,7 @@ import os
 import uuid
 from datetime import date, datetime
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from PIL import Image
 from sqlalchemy import func, or_
@@ -565,6 +565,88 @@ def backfill_durations(body: dict = Body(...),
     return {"updated": updated}
 
 
+def _mov_duration_from_file(path: str) -> int | None:
+    """`_mov_duration_ms` for a file already on disk, reading only its ends.
+
+    The `moov`/`mvhd` atom sits at the very start or the very end of an MP4/MOV,
+    so reading ~1 MB from each is enough to find it without pulling a 100 MB clip
+    into memory. Used to repair videos stored before the container was read."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            head = f.read(min(size, 1_000_000))
+            d = _mov_duration_ms(head)
+            if d:
+                return d
+            if size > 1_000_000:
+                f.seek(max(0, size - 8_000_000))
+                return _mov_duration_ms(f.read())
+    except Exception:
+        return None
+    return None
+
+
+@router.post("/rescan-durations")
+def rescan_durations(user: User = Depends(guard("gallery", "view")),
+                     db: Session = Depends(get_db)):
+    """Re-read every stored video's real length from its own container header.
+
+    The phone-driven backfill only ever FILLED a missing duration, so the clips
+    OpenCV had already stamped with a bogus ~1 second ("0:01") stayed wrong — and
+    an iCloud-optimised video the phone never had the length for could not be
+    filled at all. Reading the container works for HEVC where OpenCV does not and
+    needs nothing from the phone, so one press corrects the whole library. The
+    container is authoritative for the bytes we hold, so overwriting is always
+    right."""
+    rows = (db.query(GalleryPhoto)
+            .filter(GalleryPhoto.user_id == user.id,
+                    GalleryPhoto.kind == "video",
+                    GalleryPhoto.is_trashed == 0)
+            .all())
+    fixed = 0
+    for r in rows:
+        path = storage.media_path(storage.GALLERY, user.id, storage.ORIGINAL,
+                                  r.filename)
+        ms = _mov_duration_from_file(path)
+        if ms and ms != r.duration_ms:
+            r.duration_ms = ms
+            fixed += 1
+    if fixed:
+        db.commit()
+    return {"fixed": fixed, "scanned": len(rows)}
+
+
+@router.post("/poster")
+def set_poster(source_hash: str = Form(...), file: UploadFile = File(...),
+               user: User = Depends(guard("gallery", "create")),
+               db: Session = Depends(get_db)):
+    """Accept a poster frame the PHONE rendered for a video it uploaded.
+
+    OpenCV cannot decode iPhone HEVC, so its videos had no poster and showed the
+    neutral dark tile — the "black thumbnail". The phone decodes HEVC natively and
+    already holds a thumbnail, so it sends that here keyed by source_hash and it
+    becomes the video's poster and thumbnail. Fixes new and existing clips alike:
+    the phone re-offers a poster for anything it has backed up."""
+    row = (db.query(GalleryPhoto)
+           .filter(GalleryPhoto.user_id == user.id,
+                   GalleryPhoto.kind == "video",
+                   GalleryPhoto.source_hash == str(source_hash)[:64],
+                   GalleryPhoto.is_trashed == 0)
+           .first())
+    if not row:
+        raise HTTPException(404, "no video with that source hash")
+    poster_name = f"{os.path.splitext(row.filename)[0]}.jpg"
+    try:
+        pil = Image.open(io.BytesIO(file.file.read()))
+        pil.thumbnail((THUMB_MAX, THUMB_MAX))
+        buf = io.BytesIO(); pil.convert("RGB").save(buf, format="JPEG", quality=80)
+        storage.save(storage.GALLERY, user.id, storage.THUMB, poster_name,
+                     buf.getvalue())
+    except Exception as exc:
+        raise HTTPException(422, f"could not read poster image: {exc}")
+    return {"ok": True, "id": row.id}
+
+
 @router.get("/trash")
 def trash_list(user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
     rows = (db.query(GalleryPhoto)
@@ -1109,6 +1191,36 @@ def _video_poster(path: str) -> tuple[bytes | None, dict]:
         return None, meta
 
 
+def _mov_duration_ms(raw: bytes) -> int | None:
+    """Duration from an MP4/MOV container's `mvhd` atom, WITHOUT decoding.
+
+    The container header carries duration + timescale independently of the video
+    codec, so this reads an iPhone HEVC clip's real length where OpenCV cannot —
+    OpenCV can't decode HEVC and returned a bogus ~1 second, which is what left
+    every clip showing "0:01". Reads the bytes already in memory; no ffmpeg."""
+    try:
+        i = raw.find(b"mvhd")
+        if i < 0:
+            return None
+        p = i + 4
+        version = raw[p]
+        p += 4  # version(1) + flags(3)
+        if version == 1:
+            p += 16  # creation + modification times (8 + 8)
+            timescale = int.from_bytes(raw[p:p + 4], "big"); p += 4
+            duration = int.from_bytes(raw[p:p + 8], "big")
+        else:
+            p += 8   # creation + modification times (4 + 4)
+            timescale = int.from_bytes(raw[p:p + 4], "big"); p += 4
+            duration = int.from_bytes(raw[p:p + 4], "big")
+        # Sanity: a real clip is between a frame and a day long.
+        if timescale and 0 < duration < timescale * 86400:
+            return int(duration / timescale * 1000)
+    except Exception:
+        return None
+    return None
+
+
 def store_video(db: Session, user: User, raw: bytes, filename: str,
                 duration_ms: int = 0) -> dict:
     """Store one video, with a still image for the grid to show.
@@ -1158,9 +1270,13 @@ def store_video(db: Session, user: User, raw: bytes, filename: str,
         content_hash=content_hash, source_hash=source_hash, phash=None,
         orig_name=(filename or "")[-255:] or None,
         width=vmeta.get("width"), height=vmeta.get("height"),
-        # Prefer the duration the phone reported (accurate) over OpenCV's, which is
-        # unreliable on iPhone HEVC and left every clip showing "0:01".
-        kind="video", duration_ms=(duration_ms or vmeta.get("duration_ms")),
+        # Read the length from the container header first — it is correct for HEVC
+        # where OpenCV was not, and is what left every iPhone clip showing "0:01".
+        # Fall back to the phone's value, then to OpenCV's only if it actually
+        # decoded a frame (a poster means it could; no poster means don't trust it).
+        kind="video",
+        duration_ms=(_mov_duration_ms(raw) or duration_ms
+                     or (vmeta.get("duration_ms") if poster else None)),
         created_at=now, updated_at=now)
     db.add(item); db.commit(); db.refresh(item)
 

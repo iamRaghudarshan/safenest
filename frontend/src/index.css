@@ -6,8 +6,8 @@
   --bg-elev: #ffffff;
   --card: #ffffff;
   --ink: #12132a;
-  --ink-soft: #5a5d78;
-  --ink-faint: #9a9db5;
+  --ink-soft: #34364e;
+  --ink-faint: #5a5d78;
   --line: #e7e8f2;
   --ok: #16a06a;
   --warn: #e8a413;
@@ -57,7 +57,7 @@
 }
 :root[data-theme='light'] {
   --bg: #f4f5fb; --bg-elev: #ffffff; --card: #ffffff;
-  --ink: #12132a; --ink-soft: #5a5d78; --ink-faint: #9a9db5; --line: #e7e8f2;
+  --ink: #12132a; --ink-soft: #34364e; --ink-faint: #5a5d78; --line: #e7e8f2;
   --shadow: 0 6px 24px rgba(24, 22, 60, 0.08); --shadow-lg: 0 14px 40px rgba(24, 22, 60, 0.16);
 }
 
