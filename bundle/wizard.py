@@ -881,14 +881,14 @@ def free_space(path: str) -> str:
     return f"{gb:,.0f} GB free" if gb >= 1 else f"{gb * 1024:,.0f} MB free"
 
 
-def _risky_location(path: str) -> str:
-    """Why this folder would break the database, or "" if it is fine.
+def _blocked_location(path: str) -> str:
+    """Reasons a folder must be REFUSED outright — it corrupts records even while
+    it is connected, so no watchdog can make it safe. "" if it is fine.
 
-    SQLite memory-maps its write-ahead log. If the folder's storage goes away while
-    the app is running — a cloud folder evicting files to save space, or an external
-    /network drive disconnecting — that mapping faults and the app dies with a bus
-    error (SIGBUS: "the backing vnode was force unmounted"). A real customer hit
-    exactly this. The internal disk never does that, so it is the only safe home.
+    A cloud folder (iCloud, OneDrive, Dropbox…) silently evicts files to reclaim
+    space, so the database file can be pulled out from under the running app with
+    the drive still "connected". There is no guarding that — keep it off cloud
+    storage. A plain external disk is a different matter; see _caution_location.
     """
     p = path.replace("\\", "/").lower()
     for token in ("/library/mobile documents", "/library/cloudstorage", "/icloud",
@@ -896,14 +896,29 @@ def _risky_location(path: str) -> str:
         if token in p:
             return ("A cloud folder (iCloud, OneDrive, Dropbox…) removes files to "
                     "save space, which corrupts the records. Keep them on this "
-                    "computer's own disk instead.")
+                    "computer's own disk or a plain external drive instead.")
+    return ""
+
+
+def _caution_location(path: str) -> str:
+    """A folder that WORKS but can be pulled out — allowed, with a warning shown.
+
+    External and network drives are fine while connected; the historical danger was
+    a yank mid-write killing the app with a SIGBUS and corrupting the file. The app
+    now guards that on both sides: the database opens with memory-mapping off (a
+    vanished drive raises a catchable error, not a crash), and a watchdog closes the
+    app cleanly the instant the folder disappears. So these are now permitted —
+    the owner just has to know the drive must stay plugged in while the app is open.
+    """
+    p = path.replace("\\", "/").lower()
     if sys.platform == "darwin" and p.startswith("/volumes/"):
-        return ("An external or network drive can disconnect while the app is "
-                "running and corrupt the records. Keep them on this computer's own "
-                "disk (the suggested folder is best).")
+        return ("This is an external drive — fine to use. It must stay plugged in "
+                "while the app is open; if you unplug it, the app closes to protect "
+                "your records and reopens when you plug it back in.")
     if path.replace("/", "\\").startswith("\\\\"):
-        return ("A network location can drop while the app is running and corrupt "
-                "the records. Keep them on this computer's own disk.")
+        return ("This is a network location — fine to use. It must stay reachable "
+                "while the app is open; if the connection drops, the app closes to "
+                "protect your records.")
     return ""
 
 
@@ -975,16 +990,23 @@ def ask_location(default: str) -> str | None:
             if not path:
                 note.config(text="Choose a folder.", fg=WARN)
                 return
-            risky = _risky_location(path)
-            if risky:
-                note.config(text=risky, fg=WARN)
+            blocked = _blocked_location(path)
+            if blocked:
+                note.config(text=blocked, fg=WARN)
                 return
             ok, why = writability(path)
-            space = free_space(path)
-            if ok:
-                note.config(text=f"{space} on this drive." if space else "Ready.", fg=OK_)
-            else:
+            if not ok:
                 note.config(text=why, fg=WARN)
+                return
+            # Writable and not a cloud folder. An external/network drive is allowed
+            # now — show its caution (the drive must stay connected) but let it be
+            # chosen; the app guards the disconnect. Otherwise report the free space.
+            caution = _caution_location(path)
+            if caution:
+                note.config(text=caution, fg=WARN)
+            else:
+                space = free_space(path)
+                note.config(text=f"{space} on this drive." if space else "Ready.", fg=OK_)
 
         chosen.trace_add("write", review)
 
@@ -1002,14 +1024,17 @@ def ask_location(default: str) -> str | None:
 
         def finish():
             path = chosen.get().strip()
-            risky = _risky_location(path)
-            if risky:
-                note.config(text=risky, fg=WARN)
+            blocked = _blocked_location(path)   # cloud only — corrupts even connected
+            if blocked:
+                note.config(text=blocked, fg=WARN)
                 return
             ok, why = writability(path)
             if not ok:
                 note.config(text=why, fg=WARN)
                 return
+            # An external/network drive is permitted; its caution has already been
+            # shown in the note. The app closes cleanly if it is unplugged, so
+            # choosing it is a real choice, not a trap.
             out["path"] = path
             root.destroy()
 

@@ -17,6 +17,18 @@ if settings.is_sqlite:
         cur.execute("PRAGMA journal_mode=WAL")
         cur.execute("PRAGMA foreign_keys=ON")
         cur.execute("PRAGMA busy_timeout=8000")
+        # NO memory-mapped database file. This is what makes an external drive
+        # survivable: with mmap on, unplugging the drive mid-run faults the mapping
+        # and the process dies with a SIGBUS ("the backing vnode was force
+        # unmounted") that no `except` can catch and that can corrupt the file.
+        # With mmap off, the same unplug raises an ordinary "disk I/O error" that
+        # is catchable, and the drive watchdog (main.py) stops the app cleanly
+        # before it comes to that. Keep it 0.
+        cur.execute("PRAGMA mmap_size=0")
+        # Fold the WAL back into the main file often, so at any instant almost all
+        # the records live in the one .db file rather than a side WAL that a yank
+        # could strand.
+        cur.execute("PRAGMA wal_autocheckpoint=200")
         cur.close()
 else:
     engine = create_engine(settings.database_url, pool_pre_ping=True, pool_recycle=1800)

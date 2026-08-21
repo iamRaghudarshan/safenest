@@ -1,6 +1,7 @@
 import os
 import re
 import threading
+import time
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -464,6 +465,63 @@ def _enforce_licence_role() -> None:
         db.close()
 
 
+_data_gone = threading.Event()   # set once the records' drive is confirmed unplugged
+
+
+def _watch_data_drive() -> None:
+    """Stop cleanly the moment the drive holding the records is unplugged.
+
+    A customer may keep their records on an external disk (that is now allowed —
+    see bundle/wizard.py). The danger with SQLite on removable storage is that a
+    yank mid-write corrupts the file, and historically it also killed the process
+    with an uncatchable SIGBUS from the memory-mapped WAL. Two belts now handle
+    it: the database opens with mmap off (database.py), turning a vanished drive
+    into a catchable I/O error rather than a crash; and this watchdog notices the
+    folder disappear and shuts the app down at once, before another write can be
+    attempted against storage that is no longer there.
+
+    Only for SQLite on a folder that can actually go away — the internal disk
+    never does, so there is nothing to watch. The check is a cheap `os.stat` of
+    the data folder, and a single blip does not count: the drive must be missing
+    for two checks in a row (a brief bus reset or sleep/wake must not close the
+    app), after which we exit immediately. Exiting is safe for the records: every
+    committed transaction is already on the drive, and refusing to touch it again
+    is exactly the point. When the owner plugs the drive back in and reopens the
+    app, resolve_data_dir() finds their records untouched.
+    """
+    if not settings.is_sqlite:
+        return
+    data_dir = settings.sqlite_path.parent
+
+    def _reachable() -> bool:
+        try:
+            os.stat(data_dir)
+            return True
+        except OSError:
+            return False
+
+    def _loop() -> None:
+        misses = 0
+        while True:
+            time.sleep(3)
+            if _reachable():
+                misses = 0
+                continue
+            misses += 1
+            if misses < 2:
+                continue   # one blip is a bus reset or a wake, not an unplug
+            _data_gone.set()
+            print(f"\n[data] the drive holding your records ({data_dir}) is no "
+                  f"longer connected. Closing now to keep them safe — plug the "
+                  f"drive back in and reopen the app.\n", flush=True)
+            # Hard exit on purpose: do NOT let any shutdown handler run a query
+            # against storage that is gone. The last committed record is already
+            # written; nothing here is lost.
+            os._exit(3)
+
+    threading.Thread(target=_loop, name="finmate-drive-watch", daemon=True).start()
+
+
 @app.on_event("startup")
 def _on_startup() -> None:
     try:
@@ -557,6 +615,14 @@ def _on_startup() -> None:
                     # fault and neither should stop the app — try again next tick.
                     print(f"[licence] check skipped: {e}")
         threading.Thread(target=_check_licence, daemon=True).start()
+
+    # Watch the records' drive: if it is an external disk that gets unplugged,
+    # close cleanly before a write can corrupt the file. No-op on the internal
+    # disk (it never vanishes) and on MySQL.
+    try:
+        _watch_data_drive()
+    except Exception as e:
+        print(f"[data] drive watch could not start: {e}")
 
     scheduler.start()
     # The email queue worker — sends queued customer mail one at a time in the
