@@ -18,7 +18,7 @@ from datetime import date, datetime
 from sqlalchemy import or_
 
 from . import ist
-from . import digest, mailer, push
+from . import backup, digest, mailer, push
 from .config import settings
 from .database import SessionLocal
 from .models import NotificationPref, PushSubscription, Reminder, User
@@ -193,6 +193,13 @@ def _loop() -> None:
             run_reminders()
         except Exception as e:
             print(f"[reminders] pass failed: {e}")
+        # A daily backup to the internal disk. maybe_backup() is a cheap stat on
+        # every tick and a real copy only once the newest snapshot is ~a day old,
+        # so this costs nothing 1439 minutes out of 1440.
+        try:
+            backup.maybe_backup("daily")
+        except Exception as e:
+            print(f"[backup] pass failed: {e}")
         time.sleep(CHECK_SECONDS)
 
 

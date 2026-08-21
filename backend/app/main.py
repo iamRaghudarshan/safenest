@@ -19,7 +19,7 @@ from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport
 from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, habits, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, mail, notifications, people, reminders,
                       resources, search, mobile, storefront, support, system, todos, vault)
-from . import autoimport, autostart, hosts, indexer, ist, licensing, mailer, scheduler, tunnelrun
+from . import autoimport, autostart, backup, hosts, indexer, ist, licensing, mailer, scheduler, tunnelrun
 
 
 def _sqlite_topup() -> int:
@@ -524,6 +524,14 @@ def _watch_data_drive() -> None:
 
 @app.on_event("startup")
 def _on_startup() -> None:
+    # BEFORE anything opens the database: if the file is corrupt (a bad unplug of
+    # an external drive, a power cut mid-write), restore the newest good backup in
+    # its place rather than migrate and serve a broken or blank database over
+    # someone's real records. No-op when the database is fine or simply absent.
+    try:
+        backup.ensure_healthy_or_restore()
+    except Exception as e:
+        print(f"[backup] startup health check skipped: {e}")
     try:
         _migrate()
     except Exception as e:  # never block boot on a migration hiccup
@@ -623,6 +631,16 @@ def _on_startup() -> None:
         _watch_data_drive()
     except Exception as e:
         print(f"[data] drive watch could not start: {e}")
+
+    # Take a backup to the internal disk if the last one is a day old. Done after
+    # the migration so the snapshot matches the current schema, and on a thread so
+    # a large database never delays the app becoming reachable. The scheduler keeps
+    # it going daily thereafter.
+    try:
+        threading.Thread(target=lambda: backup.maybe_backup("startup"),
+                         name="finmate-backup", daemon=True).start()
+    except Exception as e:
+        print(f"[backup] startup backup skipped: {e}")
 
     scheduler.start()
     # The email queue worker — sends queued customer mail one at a time in the
