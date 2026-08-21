@@ -51,10 +51,14 @@ def run_once(now: datetime | None = None) -> dict:
             user = db.query(User).get(pref.user_id)
             if not user or user.status != "active":
                 continue
+            # No longer skipped when the user has no push device. push.notify()
+            # writes the in-app copy before it tries a device, so the daily summary
+            # waits in the bell for a phone that never registered for push — which
+            # is every iPhone here — instead of the summary simply never running
+            # for them. The `no_devices` count stays for the audit line.
             if not db.query(PushSubscription).filter(
                     PushSubscription.user_id == pref.user_id).count():
                 summary["no_devices"] += 1
-                continue
 
             payload = digest.build(db, pref.user_id, pref)
             # Nothing due is good news — don't interrupt anyone to say so, but do
@@ -153,11 +157,13 @@ def _loop() -> None:
         # Two independent passes, each in its own try. A digest that throws must
         # not take the reminders down with it — they are the half someone is
         # sitting there waiting for.
-        if settings.push_enabled:
-            try:
-                run_once()
-            except Exception as e:  # never let one bad pass kill the thread
-                print(f"[digest] pass failed: {e}")
+        # Runs whether or not push is configured, like the reminders pass below:
+        # the digest's in-app copy belongs in the bell even on an installation that
+        # never set up VAPID. The push attempt inside notify() just no-ops there.
+        try:
+            run_once()
+        except Exception as e:  # never let one bad pass kill the thread
+            print(f"[digest] pass failed: {e}")
         try:
             run_reminders()
         except Exception as e:
