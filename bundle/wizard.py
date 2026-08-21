@@ -525,14 +525,15 @@ class Wizard:
         box = tk.Frame(inner, bg="white", highlightthickness=1,
                        highlightbackground=LINE, highlightcolor=LINE)
         box.pack(side="left", fill="x", expand=True)
+        # Chosen with Browse (or a click), not typed — same reasoning as the
+        # first-run picker.
         folder = tk.Entry(box, textvariable=self.vars["data_dir"], font=F_BODY,
                           relief="flat", borderwidth=0, bg="white", fg=INK,
-                          highlightthickness=0, insertbackground=INK)
+                          highlightthickness=0, insertbackground=INK,
+                          state="readonly", readonlybackground="white",
+                          cursor="hand2")
         folder.pack(fill="x", padx=12, pady=10)
-        folder.bind("<FocusIn>",
-                    lambda e: box.config(highlightbackground=BRAND, highlightcolor=BRAND))
-        folder.bind("<FocusOut>",
-                    lambda e: box.config(highlightbackground=LINE, highlightcolor=LINE))
+        folder.bind("<Button-1>", lambda _e: self._browse())
         Btn(inner, "Browse…", self._browse, "quiet").pack(side="left", padx=(10, 0))
 
         chosen = self.vars["data_dir"].get() or "."
@@ -955,9 +956,14 @@ def ask_location(default: str) -> str | None:
         box = tk.Frame(row, bg="white", highlightthickness=1,
                        highlightbackground=LINE, highlightcolor=LINE)
         box.pack(side="left", fill="x", expand=True)
+        # Read-only on purpose: the folder is CHOSEN with Browse (or by clicking
+        # the field), never hand-typed. A typed path was the commonest way to
+        # point the app at a place that did not exist, was misspelt, or could not
+        # be written — and then the wizard had to reject it after the fact.
         entry = tk.Entry(box, textvariable=chosen, font=F_BODY, relief="flat",
                          borderwidth=0, bg="white", fg=INK, highlightthickness=0,
-                         insertbackground=INK)
+                         insertbackground=INK, state="readonly",
+                         readonlybackground="white", cursor="hand2")
         entry.pack(fill="x", padx=12, pady=10)
 
         note = tk.Label(card, text="", bg=CARD, fg=SOFT, font=F_HINT,
@@ -990,6 +996,9 @@ def ask_location(default: str) -> str | None:
                 chosen.set(str(Path(picked) / "data"))
 
         Btn(row, "Browse", browse, "ghost").frame.pack(side="left", padx=(10, 0))
+        # Clicking anywhere in the field opens the picker too, so the whole row
+        # reads as "choose a folder", not "type here".
+        entry.bind("<Button-1>", lambda _e: browse())
 
         def finish():
             path = chosen.get().strip()
