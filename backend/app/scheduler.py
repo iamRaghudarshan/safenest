@@ -15,8 +15,10 @@ import threading
 import time
 from datetime import date, datetime
 
+from sqlalchemy import or_
+
 from . import ist
-from . import digest, push
+from . import digest, mailer, push
 from .config import settings
 from .database import SessionLocal
 from .models import NotificationPref, PushSubscription, Reminder, User
@@ -93,9 +95,11 @@ def run_reminders(now: datetime | None = None) -> dict:
     summary = {"rang": 0}
     db = SessionLocal()
     try:
+        # Either channel is reason enough to fire: a reminder that asked only for
+        # an email must not be skipped because it did not also ask for a push.
         rows = db.query(Reminder).filter(
             Reminder.is_done == 0,
-            Reminder.notify_push == 1,
+            or_(Reminder.notify_push == 1, Reminder.notify_email == 1),
             Reminder.due_time.isnot(None),
             Reminder.due_date == today,
         ).all()
@@ -118,11 +122,24 @@ def run_reminders(now: datetime | None = None) -> dict:
             if not user or user.status != "active":
                 continue
 
-            # notify() writes the in-app copy before attempting the push, so the
-            # reminder is waiting in the bell even where push was never permitted.
-            push.notify(db, r.user_id, r.title or "Reminder",
-                        f"Due now — {digest.pretty_time(r.due_time)}",
-                        "/reminders", kind="reminder")
+            when = digest.pretty_time(r.due_time)
+            # The bell + push. notify() writes the in-app copy before attempting a
+            # device, so the reminder is waiting in the bell even where push was
+            # never permitted.
+            if r.notify_push:
+                push.notify(db, r.user_id, r.title or "Reminder",
+                            f"Due now — {when}", "/reminders", kind="reminder")
+            # And an email, if this reminder asked for one and mail is set up. The
+            # `notify_email` flag was a dead control until now — stored and shown on
+            # the form, acted on by nothing. Queued and best-effort, so a slow SMTP
+            # never holds up the ring, and skipped silently where mail is not
+            # configured (an end-user copy has no SMTP) rather than erroring.
+            if r.notify_email and (user.email or "").strip() \
+                    and mailer.is_configured(db):
+                mailer.enqueue(db, user.email,
+                               f"Reminder: {r.title or 'Reminder'}",
+                               f"{r.title or 'Reminder'} is due at {when} today.",
+                               kind="reminder")
             r.notified_on = today
             db.commit()
             summary["rang"] += 1
