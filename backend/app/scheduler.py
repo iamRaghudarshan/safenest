@@ -86,7 +86,8 @@ def run_once(now: datetime | None = None) -> dict:
                         db,
                         title="Your daily summary",
                         intro=f"{payload.get('headline') or 'Here is what is coming up'}.",
-                        items=payload.get("items")),
+                        items=payload.get("items"),
+                        accent="#0176D3", emoji="☀️"),
                 )
             pref.last_sent_on = now.date()
             db.commit()
@@ -165,7 +166,8 @@ def run_reminders(now: datetime | None = None) -> dict:
                         db,
                         title=title,
                         intro="This reminder is due today.",
-                        rows=[("When", f"Today at {when}")]),
+                        rows=[("When", f"Today at {when}")],
+                        accent="#8B5CF6", emoji="⏰"),
                 )
             r.notified_on = today
             db.commit()

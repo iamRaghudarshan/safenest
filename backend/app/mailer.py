@@ -89,48 +89,67 @@ def test(db, to: str) -> tuple[bool, str]:
 def alert_html(db, *, title: str, intro: str,
                rows: list[tuple[str, str]] | None = None,
                items: list[str] | None = None,
-               footer: str | None = None) -> str:
-    """A branded, single-column HTML email for an alert — a reminder, a summary.
+               footer: str | None = None,
+               accent: str = "#0176D3", emoji: str = "🔔") -> str:
+    """A branded, COLOURFUL single-column HTML email for an alert.
 
-    Inline styles only: email clients strip <style> and external CSS, so every
-    rule lives on the element. A coloured header carries the app's name, a white
-    card holds the message and an optional label/value list, and a quiet footer
-    says where it came from. Kept deliberately simple so it renders the same in
-    Gmail, Apple Mail and Outlook rather than cleverly in one and broken in two."""
+    Inline styles only — email clients strip <style> and external CSS, so every
+    rule lives on the element. A brand-gradient header carries the app name and an
+    emoji, a thin `accent` strip gives the alert its own colour, and the message
+    sits in a white card: values become tinted pills and a list gets accent
+    bullets. Gradients degrade to a solid colour in Outlook; everything else is
+    plain tables, so it renders the same in Gmail, Apple Mail and iOS."""
     from .routers.branding import app_name
     name = app_name(db)
-    accent = "#0176D3"
+    b1, b2 = "#0176D3", "#1B96FF"            # brand gradient
+    pill_bg = "#eef2f8"                       # safe neutral pill fill
+
     rows_html = ""
     if rows:
         cells = "".join(
             f'<tr>'
-            f'<td style="padding:5px 0;color:#5a5d78;font-size:13px">{_esc(k)}</td>'
-            f'<td style="padding:5px 0;text-align:right;font-weight:700;'
-            f'color:#1a1a2e;font-size:14px">{_esc(v)}</td></tr>'
+            f'<td style="padding:7px 0;color:#5a5d78;font-size:13px">{_esc(k)}</td>'
+            f'<td align="right" style="padding:7px 0">'
+            f'<span style="background:{pill_bg};color:{accent};font-weight:700;'
+            f'font-size:13px;padding:5px 13px;border-radius:999px;'
+            f'white-space:nowrap">{_esc(v)}</span></td></tr>'
             for k, v in rows)
-        rows_html = ('<table width="100%" style="margin-top:14px;'
+        rows_html = ('<table width="100%" style="margin-top:16px;'
                      f'border-collapse:collapse">{cells}</table>')
+
     items_html = ""
     if items:
         lis = "".join(
-            f'<li style="padding:5px 0;color:#1a1a2e;font-size:14px">{_esc(x)}</li>'
+            f'<tr>'
+            f'<td width="20" valign="top" style="color:{accent};font-size:17px;'
+            f'font-weight:900;padding:8px 0;line-height:1.2">&bull;</td>'
+            f'<td style="padding:8px 0;color:#1a1a2e;font-size:14px;'
+            f'border-bottom:1px solid #eef1f6">{_esc(x)}</td></tr>'
             for x in items)
-        items_html = ('<ul style="margin:14px 0 0;padding-left:20px;'
-                      f'line-height:1.4">{lis}</ul>')
+        items_html = ('<table width="100%" style="margin-top:12px;'
+                      f'border-collapse:collapse">{lis}</table>')
+
     foot = _esc(footer) if footer else f"Sent by {_esc(name)} from your own computer."
     return (
-        '<!doctype html><html><body style="margin:0;padding:0;background:#f2f4f8;'
+        '<!doctype html><html><body style="margin:0;padding:0;background:#eef1f6;'
         'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">'
         '<table width="100%" cellpadding="0" cellspacing="0" '
-        'style="background:#f2f4f8;padding:24px 12px"><tr><td align="center">'
+        'style="background:#eef1f6;padding:24px 12px"><tr><td align="center">'
         '<table width="100%" cellpadding="0" cellspacing="0" '
-        'style="max-width:480px;background:#ffffff;border-radius:16px;'
-        'overflow:hidden;box-shadow:0 6px 24px rgba(20,30,60,0.08)">'
-        f'<tr><td style="background:{accent};padding:18px 22px">'
-        f'<span style="color:#ffffff;font-size:17px;font-weight:800;'
-        f'letter-spacing:-0.3px">{_esc(name)}</span></td></tr>'
+        'style="max-width:480px;background:#ffffff;border-radius:18px;'
+        'overflow:hidden;box-shadow:0 8px 28px rgba(20,30,60,0.10)">'
+        # Brand gradient header (solid fallback for Outlook) with an emoji.
+        f'<tr><td style="background:{b1};'
+        f'background:linear-gradient(135deg,{b1},{b2});padding:20px 22px">'
+        f'<span style="font-size:22px;vertical-align:middle">{emoji}</span>'
+        f'<span style="color:#ffffff;font-size:18px;font-weight:800;'
+        f'letter-spacing:-0.3px;margin-left:9px;vertical-align:middle">{_esc(name)}</span>'
+        '</td></tr>'
+        # The alert's own colour, a thin strip.
+        f'<tr><td style="height:5px;background:{accent};line-height:5px;'
+        'font-size:0">&nbsp;</td></tr>'
         '<tr><td style="padding:24px 22px 8px">'
-        f'<div style="font-size:19px;font-weight:800;color:#1a1a2e;'
+        f'<div style="font-size:20px;font-weight:800;color:{accent};'
         f'margin-bottom:6px">{_esc(title)}</div>'
         f'<div style="font-size:14px;color:#34364e;line-height:1.5">{_esc(intro)}</div>'
         f'{rows_html}{items_html}</td></tr>'
