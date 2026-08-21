@@ -153,4 +153,7 @@ def build(db: Session, user_id: int, pref: NotificationPref | None = None) -> di
     # branded with whatever it used to be called.
     from .routers.branding import current as _branding
     name = _branding(db)["app_name"]
-    return {"title": f"{name} · {title}", "body": body, "url": "/", "count": count}
+    # `items` (the full list, not just the three shown) rides along for the email,
+    # which has room to list them all where a push notification does not.
+    return {"title": f"{name} · {title}", "body": body, "url": "/",
+            "count": count, "headline": title, "items": items}

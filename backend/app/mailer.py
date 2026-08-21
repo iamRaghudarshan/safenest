@@ -88,6 +88,7 @@ def test(db, to: str) -> tuple[bool, str]:
 # ------------------------------------------------------------- branded template
 def alert_html(db, *, title: str, intro: str,
                rows: list[tuple[str, str]] | None = None,
+               items: list[str] | None = None,
                footer: str | None = None) -> str:
     """A branded, single-column HTML email for an alert — a reminder, a summary.
 
@@ -109,6 +110,13 @@ def alert_html(db, *, title: str, intro: str,
             for k, v in rows)
         rows_html = ('<table width="100%" style="margin-top:14px;'
                      f'border-collapse:collapse">{cells}</table>')
+    items_html = ""
+    if items:
+        lis = "".join(
+            f'<li style="padding:5px 0;color:#1a1a2e;font-size:14px">{_esc(x)}</li>'
+            for x in items)
+        items_html = ('<ul style="margin:14px 0 0;padding-left:20px;'
+                      f'line-height:1.4">{lis}</ul>')
     foot = _esc(footer) if footer else f"Sent by {_esc(name)} from your own computer."
     return (
         '<!doctype html><html><body style="margin:0;padding:0;background:#f2f4f8;'
@@ -125,7 +133,7 @@ def alert_html(db, *, title: str, intro: str,
         f'<div style="font-size:19px;font-weight:800;color:#1a1a2e;'
         f'margin-bottom:6px">{_esc(title)}</div>'
         f'<div style="font-size:14px;color:#34364e;line-height:1.5">{_esc(intro)}</div>'
-        f'{rows_html}</td></tr>'
+        f'{rows_html}{items_html}</td></tr>'
         '<tr><td style="padding:18px 22px 24px;color:#8a8da3;font-size:12px;'
         f'line-height:1.5">{foot}</td></tr>'
         '</table></td></tr></table></body></html>')

@@ -73,6 +73,21 @@ def run_once(now: datetime | None = None) -> dict:
             # bell even on a day the push itself never reaches the phone.
             push.notify(db, pref.user_id, payload["title"], payload["body"],
                         payload.get("url", "/"), kind="digest")
+            # The same summary as a branded email, where mail is set up and the
+            # user has an address. Best-effort and queued; the bell copy above is
+            # what everyone gets regardless.
+            if (user.email or "").strip() and mailer.is_configured(db):
+                mailer.enqueue(
+                    db, user.email,
+                    payload["title"],
+                    payload["body"],  # plain-text fallback
+                    kind="digest",
+                    html=mailer.alert_html(
+                        db,
+                        title="Your daily summary",
+                        intro=f"{payload.get('headline') or 'Here is what is coming up'}.",
+                        items=payload.get("items")),
+                )
             pref.last_sent_on = now.date()
             db.commit()
             summary["sent"] += 1
