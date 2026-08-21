@@ -140,10 +140,18 @@ def run_reminders(now: datetime | None = None) -> dict:
             # configured (an end-user copy has no SMTP) rather than erroring.
             if r.notify_email and (user.email or "").strip() \
                     and mailer.is_configured(db):
-                mailer.enqueue(db, user.email,
-                               f"Reminder: {r.title or 'Reminder'}",
-                               f"{r.title or 'Reminder'} is due at {when} today.",
-                               kind="reminder")
+                title = r.title or "Reminder"
+                mailer.enqueue(
+                    db, user.email,
+                    f"Reminder: {title}",
+                    f"{title} — due today at {when}.",  # plain-text fallback
+                    kind="reminder",
+                    html=mailer.alert_html(
+                        db,
+                        title=title,
+                        intro="This reminder is due today.",
+                        rows=[("When", f"Today at {when}")]),
+                )
             r.notified_on = today
             db.commit()
             summary["rang"] += 1

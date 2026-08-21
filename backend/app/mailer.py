@@ -9,6 +9,7 @@ import smtplib
 import threading
 import time
 from email.message import EmailMessage
+from html import escape as _esc
 
 from . import crypto, ist
 from .database import SessionLocal
@@ -84,13 +85,61 @@ def test(db, to: str) -> tuple[bool, str]:
                 f"SMTP settings are working.")
 
 
+# ------------------------------------------------------------- branded template
+def alert_html(db, *, title: str, intro: str,
+               rows: list[tuple[str, str]] | None = None,
+               footer: str | None = None) -> str:
+    """A branded, single-column HTML email for an alert — a reminder, a summary.
+
+    Inline styles only: email clients strip <style> and external CSS, so every
+    rule lives on the element. A coloured header carries the app's name, a white
+    card holds the message and an optional label/value list, and a quiet footer
+    says where it came from. Kept deliberately simple so it renders the same in
+    Gmail, Apple Mail and Outlook rather than cleverly in one and broken in two."""
+    from .routers.branding import app_name
+    name = app_name(db)
+    accent = "#0176D3"
+    rows_html = ""
+    if rows:
+        cells = "".join(
+            f'<tr>'
+            f'<td style="padding:5px 0;color:#5a5d78;font-size:13px">{_esc(k)}</td>'
+            f'<td style="padding:5px 0;text-align:right;font-weight:700;'
+            f'color:#1a1a2e;font-size:14px">{_esc(v)}</td></tr>'
+            for k, v in rows)
+        rows_html = ('<table width="100%" style="margin-top:14px;'
+                     f'border-collapse:collapse">{cells}</table>')
+    foot = _esc(footer) if footer else f"Sent by {_esc(name)} from your own computer."
+    return (
+        '<!doctype html><html><body style="margin:0;padding:0;background:#f2f4f8;'
+        'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">'
+        '<table width="100%" cellpadding="0" cellspacing="0" '
+        'style="background:#f2f4f8;padding:24px 12px"><tr><td align="center">'
+        '<table width="100%" cellpadding="0" cellspacing="0" '
+        'style="max-width:480px;background:#ffffff;border-radius:16px;'
+        'overflow:hidden;box-shadow:0 6px 24px rgba(20,30,60,0.08)">'
+        f'<tr><td style="background:{accent};padding:18px 22px">'
+        f'<span style="color:#ffffff;font-size:17px;font-weight:800;'
+        f'letter-spacing:-0.3px">{_esc(name)}</span></td></tr>'
+        '<tr><td style="padding:24px 22px 8px">'
+        f'<div style="font-size:19px;font-weight:800;color:#1a1a2e;'
+        f'margin-bottom:6px">{_esc(title)}</div>'
+        f'<div style="font-size:14px;color:#34364e;line-height:1.5">{_esc(intro)}</div>'
+        f'{rows_html}</td></tr>'
+        '<tr><td style="padding:18px 22px 24px;color:#8a8da3;font-size:12px;'
+        f'line-height:1.5">{foot}</td></tr>'
+        '</table></td></tr></table></body></html>')
+
+
 # ---------------------------------------------------------------- queued sending
-def enqueue(db, to: str, subject: str, body: str, kind: str = "broadcast") -> int:
+def enqueue(db, to: str, subject: str, body: str, kind: str = "broadcast",
+            html: str | None = None) -> int:
     """Add one email to the queue (a mail_log row). A background worker sends it
-    one at a time, so a bulk send never blocks the request that started it."""
+    one at a time, so a bulk send never blocks the request that started it. An
+    optional HTML part rides alongside the plain-text body."""
     row = MailLog(to_addr=(to or "").strip()[:255], subject=(subject or "")[:255],
-                  body=body or "", kind=kind, status="queued", attempts=0,
-                  created_at=ist.now())
+                  body=body or "", html=html, kind=kind, status="queued",
+                  attempts=0, created_at=ist.now())
     db.add(row)
     db.commit()
     _wake.set()
@@ -110,7 +159,8 @@ def _worker_loop() -> None:
                 if not pending:
                     _wake.wait(timeout=30); _wake.clear(); continue
                 for row in pending:
-                    ok, msg = send(db, row.to_addr, row.subject, row.body)
+                    ok, msg = send(db, row.to_addr, row.subject, row.body,
+                                   html=row.html)
                     row.attempts = (row.attempts or 0) + 1
                     row.status = "sent" if ok else "failed"
                     row.error = None if ok else msg[:300]

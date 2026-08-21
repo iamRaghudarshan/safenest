@@ -194,6 +194,8 @@ def _migrate() -> None:
         # summary as they always did.
         ("reminders", "due_time", "ALTER TABLE reminders ADD COLUMN due_time VARCHAR(5) NULL"),
         ("reminders", "notified_on", "ALTER TABLE reminders ADD COLUMN notified_on DATE NULL"),
+        # Queued emails can carry a branded HTML part alongside the plain text.
+        ("mail_log", "html", "ALTER TABLE mail_log ADD COLUMN html TEXT NULL"),
         # Videos in the gallery. DEFAULT 'photo' rather than NULL: every row
         # that existed before videos did is a photo, and a NULL would make
         # every kind= filter say "or null" for the rest of the app's life.

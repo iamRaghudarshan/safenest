@@ -749,7 +749,8 @@ class MailLog(Base):
     id = Column(Integer, primary_key=True)
     to_addr = Column(String(255), index=True)
     subject = Column(String(255))
-    body = Column(Text)
+    body = Column(Text)                                    # plain-text fallback
+    html = Column(Text)                                    # optional branded HTML part
     kind = Column(String(20))                              # licence/broadcast/request/ticket/test
     status = Column(String(10), default="queued", index=True)  # queued/sent/failed
     error = Column(String(300))
