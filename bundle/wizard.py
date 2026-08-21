@@ -928,8 +928,9 @@ def ask_location(default: str) -> str | None:
     Asked because the app carries the whole of somebody's life admin — years of
     photos and scanned documents — and the folder it was unzipped into is often a
     Downloads folder on a full C: drive. The default is a stable spot on the
-    internal disk; a different LOCAL folder is fine, but cloud-synced and
-    external/network folders are refused — they disconnect and corrupt the database.
+    internal disk; another local folder is fine, and so is an external/USB drive
+    (the app closes cleanly if it is ever unplugged). Only cloud-synced folders are
+    refused — they evict files and corrupt the database even while connected.
     """
     if not HAVE_TK:
         return None
@@ -952,9 +953,11 @@ def ask_location(default: str) -> str | None:
         wrap = tk.Frame(root, bg=BG)
         wrap.pack(fill="both", expand=True, padx=24, pady=18)
         tk.Label(wrap, text="The suggested folder on this computer is best. You can "
-                            "pick another folder on this computer's own disk, but not "
-                            "a cloud (iCloud/OneDrive/Dropbox) or external/USB drive — "
-                            "those disconnect and corrupt your records.",
+                            "pick another local folder, or an external/USB drive — if "
+                            "the drive is ever unplugged the app closes cleanly and "
+                            "your records are safe. Only cloud folders "
+                            "(iCloud/OneDrive/Dropbox) are not allowed: they evict "
+                            "files and corrupt your records.",
                  bg=BG, fg=SOFT, font=F_HINT, anchor="w", justify="left",
                  wraplength=520).pack(fill="x", pady=(0, 12))
 

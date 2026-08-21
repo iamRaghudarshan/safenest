@@ -488,25 +488,21 @@ def records_location_check(body: dict = Body(...),
         raise HTTPException(422, "That is inside the application itself. Anything "
                                  "put there is destroyed by the next update.")
 
-    # Cloud-synced, external and network folders disconnect while the app is
-    # running, and SQLite's memory-mapped log then dies with a bus error (a real
-    # customer hit this). Records belong on this computer's own disk. Same guard as
-    # the first-run picker.
+    # A cloud-synced folder evicts files to reclaim space and corrupts the records
+    # even while "connected", so it stays refused. An external or network drive is
+    # ALLOWED now: the app opens SQLite with mmap off and a watchdog closes it
+    # cleanly if the drive is unplugged (database.py / main.py), and keeps backups
+    # on the internal disk (backup.py). Same policy as the first-run picker. The
+    # connected + writable check just below still refuses a read-only (NTFS-on-Mac)
+    # drive, which is a genuine "nothing can be saved here", not a policy choice.
     tgt = str(target).replace("\\", "/").lower()
     if any(t in tgt for t in ("/library/mobile documents", "/library/cloudstorage",
                               "/icloud", "/onedrive", "/dropbox", "/google drive",
                               "/googledrive", "/pcloud")):
         raise HTTPException(422, "A cloud folder (iCloud, OneDrive, Dropbox…) removes "
                                  "files to save space, which corrupts the records. "
-                                 "Keep them on this computer's own disk.")
-    if tgt.startswith("/volumes/"):
-        raise HTTPException(422, "An external or network drive can disconnect while "
-                                 "the app is running and corrupt the records. Keep "
-                                 "them on this computer's own disk.")
-    if str(target).startswith("\\\\"):
-        raise HTTPException(422, "A network location can drop while the app is running "
-                                 "and corrupt the records. Keep them on this computer's "
-                                 "own disk.")
+                                 "Keep them on this computer's own disk or a plain "
+                                 "external drive instead.")
 
     drive = target.anchor or str(target)
     if not os.path.isdir(drive):
