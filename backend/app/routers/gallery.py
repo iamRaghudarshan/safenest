@@ -630,6 +630,62 @@ def rescan_durations(user: User = Depends(guard("gallery", "view")),
     return {"fixed": fixed, "scanned": len(rows)}
 
 
+@router.post("/repair-videos")
+def repair_videos(user: User = Depends(guard("gallery", "create")),
+                  db: Session = Depends(get_db)):
+    """Repair videos stored before the classification and fast-start fixes.
+
+    Two faults live in older libraries and NEITHER corrects itself on a code
+    update, because the damage is in the stored file and row, not in the code:
+
+      * HEIC photos an earlier build mistook for videos (a 0:01 clip with a play
+        button that could not play, because it had no video track) — put back to
+        photos by re-running the photo path, which decodes and thumbnails them
+        properly, then dropping the video row and its files.
+      * real clips with their moov index at the END, so a player round-tripped to
+        the end of the file before it could show a frame — re-muxed to fast-start
+        in place, the same proven rewrite new uploads now get.
+
+    One press fixes a whole library and is safe to run again: an item already
+    right is skipped."""
+    rows = (db.query(GalleryPhoto)
+            .filter(GalleryPhoto.user_id == user.id,
+                    GalleryPhoto.kind == "video",
+                    GalleryPhoto.is_trashed == 0)
+            .all())
+    reclassified = faststarted = 0
+    for r in rows:
+        path = storage.media_path(storage.GALLERY, user.id, storage.ORIGINAL,
+                                  r.filename)
+        if not os.path.isfile(path):
+            continue
+        with open(path, "rb") as f:
+            raw = f.read()
+        if not looks_like_video(raw, r.filename):
+            # A still image mis-stored as a video. store_photo decodes HEIC,
+            # thumbnails and de-duplicates correctly and commits the photo; only
+            # if it did not raise do we remove the video row and its files, so an
+            # image that cannot be decoded is left as it was rather than lost.
+            try:
+                store_photo(db, user, raw, r.orig_name or "")
+            except Exception:
+                continue
+            storage.remove(storage.GALLERY, user.id, storage.ORIGINAL, r.filename)
+            storage.remove(storage.GALLERY, user.id, storage.THUMB,
+                           f"{os.path.splitext(r.filename)[0]}.jpg")
+            db.delete(r)
+            reclassified += 1
+        else:
+            fast = _faststart(raw)
+            if fast:
+                storage.save(storage.GALLERY, user.id, storage.ORIGINAL,
+                             r.filename, fast)
+                faststarted += 1
+    db.commit()
+    return {"reclassified": reclassified, "faststarted": faststarted,
+            "scanned": len(rows)}
+
+
 @router.post("/poster")
 def set_poster(source_hash: str = Form(...), file: UploadFile = File(...),
                user: User = Depends(guard("gallery", "create")),
@@ -1286,6 +1342,87 @@ def _mov_duration_ms(raw: bytes) -> int | None:
     return None
 
 
+# Container atoms that hold other atoms — the ones fast-start must descend into
+# to reach the chunk-offset tables. A leaf (mvhd, stco) is never opened as a box.
+_MP4_CONTAINERS = frozenset(
+    {b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"udta", b"mvex"})
+
+
+def _iter_atoms(raw: bytes, start: int, end: int):
+    """Yield (type, atom_start, atom_end, body_start) for boxes at one level."""
+    p = start
+    while p + 8 <= end:
+        size = int.from_bytes(raw[p:p + 4], "big")
+        typ = bytes(raw[p + 4:p + 8])
+        body = p + 8
+        if size == 1:
+            size = int.from_bytes(raw[p + 8:p + 16], "big")
+            body = p + 16
+        elif size == 0:
+            size = end - p
+        if size < 8 or p + size > end:
+            return
+        yield typ, p, p + size, body
+        p += size
+
+
+def _shift_chunk_offsets(buf: bytearray, shift: int, start: int, end: int) -> None:
+    """Add `shift` to every stco/co64 entry within [start, end), recursing into
+    container boxes. These tables record ABSOLUTE file positions of the media
+    chunks; moving moov ahead of mdat slides mdat forward by len(moov), so each
+    must move by the same amount or the player reads the wrong bytes."""
+    for typ, _ps, pe, body in _iter_atoms(buf, start, end):
+        if typ in (b"stco", b"co64"):
+            n = int.from_bytes(buf[body + 4:body + 8], "big")  # after version+flags
+            width = 4 if typ == b"stco" else 8
+            off = body + 8
+            for i in range(n):
+                pos = off + i * width
+                val = int.from_bytes(buf[pos:pos + width], "big") + shift
+                buf[pos:pos + width] = val.to_bytes(width, "big")
+        elif typ in _MP4_CONTAINERS:
+            _shift_chunk_offsets(buf, shift, body, pe)
+
+
+def _faststart(raw: bytes) -> bytes | None:
+    """Relocate the moov atom to the front so a player can begin at once.
+
+    An iPhone clip keeps moov (the index a player needs before it can show a
+    single frame) at the END of the file, so over a network the player must
+    round-trip to the end before playback starts — the delay people see. Moving
+    moov to the front is a pure re-mux: no re-encode, no ffmpeg, same bytes of
+    video. Verified byte-for-byte on real HEVC clips (every chunk offset locates
+    identical media after the move) before this shipped.
+
+    Returns the rewritten bytes, or None when it is already fast (H.264 exports
+    usually are), has no moov/mdat, or anything looks off — the caller stores the
+    original then, so a clip that cannot be safely rewritten is never corrupted."""
+    try:
+        atoms = list(_iter_atoms(raw, 0, len(raw)))
+        moov = next((a for a in atoms if a[0] == b"moov"), None)
+        mdat = next((a for a in atoms if a[0] == b"mdat"), None)
+        ftyp = next((a for a in atoms if a[0] == b"ftyp"), None)
+        if not moov or not mdat:
+            return None
+        if moov[1] < mdat[1]:
+            return None  # already fast-start — moov precedes the media
+        m_start, m_end = moov[1], moov[2]
+        shift = m_end - m_start
+        moov_buf = bytearray(raw[m_start:m_end])
+        _shift_chunk_offsets(moov_buf, shift, 0, len(moov_buf))
+        insert = ftyp[2] if ftyp else 0
+        # ftyp | moov | (everything that was between ftyp and moov) | (tail)
+        out = (raw[:insert] + bytes(moov_buf)
+               + raw[insert:m_start] + raw[m_end:])
+        # Never hand back something that is not still a valid, same-length file
+        # with a readable duration — a silent corruption is worse than no gain.
+        if len(out) != len(raw) or _mov_duration_ms(out) is None:
+            return None
+        return out
+    except Exception:
+        return None
+
+
 def store_video(db: Session, user: User, raw: bytes, filename: str,
                 duration_ms: int = 0) -> dict:
     """Store one video, with a still image for the grid to show.
@@ -1294,8 +1431,12 @@ def store_video(db: Session, user: User, raw: bytes, filename: str,
     URLs with photos rather than growing a second gallery beside the first. To
     everything except the viewer, a video IS a gallery item.
     """
+    # Hashes are of the bytes the DEVICE sent, NOT of what lands on disk: below,
+    # the file is re-muxed to fast-start, so the two differ. content_hash keeps a
+    # re-upload of the same clip de-duplicating, and source_hash lets the phone's
+    # /have check recognise a clip it already sent — both are the phone's own view.
     content_hash = hashlib.sha256(raw).hexdigest()
-    source_hash = content_hash          # a video is stored byte-for-byte
+    source_hash = content_hash
     dup = (db.query(GalleryPhoto)
            .filter(GalleryPhoto.user_id == user.id,
                    GalleryPhoto.content_hash == content_hash)
@@ -1309,7 +1450,11 @@ def store_video(db: Session, user: User, raw: bytes, filename: str,
 
     ext = (os.path.splitext(filename or "")[1].lower() or ".mp4")[:8]
     fname = f"{uuid.uuid4().hex}{ext}"
-    storage.save(storage.GALLERY, user.id, storage.ORIGINAL, fname, raw)
+    # Fast-start on the way in so playback begins without the player round-tripping
+    # to the end for the moov index. Falls back to the original bytes untouched
+    # when the clip is already fast or cannot be safely rewritten.
+    storage.save(storage.GALLERY, user.id, storage.ORIGINAL, fname,
+                 _faststart(raw) or raw)
 
     # The poster is written under the SAME name with a .jpg suffix, so the
     # thumbnail variant is found the way a photo's is and nothing downstream
