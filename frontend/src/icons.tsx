@@ -20,6 +20,8 @@ export const IcCheck = S('M9 11l3 3L22 4|M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V
 export const IcImage = S('M3 3h18v18H3z|M3 15l5-5 4 4 3-3 6 6')
 export const IcLock = S('M5 11h14v10H5z|M8 11V7a4 4 0 0 1 8 0v4')
 export const IcDoc = S('M6 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z|M14 2v6h6|M8 13h8|M8 17h5')
+// A lightbulb, the way Keep marks notes.
+export const IcNote = S('M9 18h6|M10 22h4|M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z')
 export const IcLogout = S('M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4|M16 17l5-5-5-5|M21 12H9')
 export const IcMoon = S('M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z')
 export const IcTrash = S('M4 7h16|M10 11v6|M14 11v6|M6 7l1 13h10l1-13|M9 7V4h6v3')

@@ -247,6 +247,39 @@ class Todo(Base):
     updated_at = Column(FlexDateTime)
 
 
+class Note(Base):
+    """A Google-Keep-style note: a free-text note OR a checklist, with a colour,
+    labels, pin and archive. Checklist items live in NoteItem. Images and a
+    per-note reminder are stage 2 (reminder_at is here already so the column need
+    not be added later)."""
+    __tablename__ = "notes"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    title = Column(String(255), default="")
+    body = Column(Text, default="")            # the text of a 'note'
+    kind = Column(String(16), default="note")  # 'note' | 'checklist'
+    color = Column(String(20), default="default")
+    labels = Column(Text, default="")          # JSON array of label strings
+    pinned = Column(Integer, default=0)
+    archived = Column(Integer, default=0)
+    is_trashed = Column(Integer, default=0)
+    reminder_at = Column(FlexDateTime)         # optional; wired to alarms in stage 2
+    position = Column(Integer, default=0)      # manual order within its bucket
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+
+class NoteItem(Base):
+    """One line of a checklist note."""
+    __tablename__ = "note_items"
+    id = Column(Integer, primary_key=True)
+    note_id = Column(Integer, index=True)
+    user_id = Column(Integer, index=True)      # carried so a stray query can scope
+    text = Column(String(1000), default="")
+    checked = Column(Integer, default=0)
+    position = Column(Integer, default=0)
+
+
 class Habit(Base):
     __tablename__ = "habits"
     id = Column(Integer, primary_key=True)

@@ -3,7 +3,7 @@ import { api } from '../api'
 import { useResource } from '../useResource'
 import { useToast } from '../toast'
 import { useAttention } from '../attention'
-import { money, dueLabel } from '../format'
+import { money, dueLabel, fmtDate } from '../format'
 import { Sheet, Field, Money } from '../ui'
 import { HistoryLink, ModuleScreen } from './Scaffold'
 import type { Card, CardPayment } from '../types'
@@ -67,7 +67,7 @@ function CardFace({ card, compact, onEdit, onPay }: {
       {onPay && (
         <div className="cc-pay">
           {paid ? (
-            <span className="cc-status"><span className="dot" style={{ background: '#4ade80' }} /> Paid{card.paid_date ? ` · ${card.paid_date}` : ''}</span>
+            <span className="cc-status"><span className="dot" style={{ background: '#4ade80' }} /> Paid{card.paid_date ? ` · ${fmtDate(card.paid_date)}` : ''}</span>
           ) : (
             <>
               <span className="cc-status"><span className="dot" style={{ background: '#fbbf24' }} /> Unpaid this month</span>
@@ -172,7 +172,7 @@ function CardForm({ initial, onSave, onDelete, onChanged, onClose }: {
                       <span className="dot" style={{ width: 8, height: 8, borderRadius: 999, background: 'var(--ok)', display: 'inline-block' }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>{h.period_label}</div>
-                        <div className="sub" style={{ fontSize: 12 }}>Paid {h.paid_date}{h.amount ? ` · ${money(h.amount)}` : ''}</div>
+                        <div className="sub" style={{ fontSize: 12 }}>Paid {fmtDate(h.paid_date)}{h.amount ? ` · ${money(h.amount)}` : ''}</div>
                       </div>
                       <button className="btn ghost sm" onClick={() => unpay(h.period)}>Undo</button>
                     </div>

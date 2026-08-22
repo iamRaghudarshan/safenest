@@ -59,7 +59,7 @@ export default function Loans() {
             </div>
             <div className="mcard-pay">
               {paid ? (
-                <span className="status" style={{ color: 'var(--ok)' }}><span className="dot" style={{ background: 'var(--ok)' }} /> EMI paid{l.paid_date ? ` · ${l.paid_date}` : ''}</span>
+                <span className="status" style={{ color: 'var(--ok)' }}><span className="dot" style={{ background: 'var(--ok)' }} /> EMI paid{l.paid_date ? ` · ${fmtDate(l.paid_date)}` : ''}</span>
               ) : (
                 <>
                   <span className="status" style={{ color: 'var(--warn)' }}><span className="dot" style={{ background: 'var(--warn)' }} /> EMI unpaid this month</span>
@@ -125,7 +125,7 @@ function LoanForm({ initial, onSave, onDelete, onChanged, onClose }: { initial: 
                       <span style={{ width: 8, height: 8, borderRadius: 999, background: 'var(--ok)', display: 'inline-block' }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>{h.period_label}</div>
-                        <div className="sub" style={{ fontSize: 12 }}>Paid {h.paid_date}{h.amount ? ` · ${money(h.amount)}` : ''}</div>
+                        <div className="sub" style={{ fontSize: 12 }}>Paid {fmtDate(h.paid_date)}{h.amount ? ` · ${money(h.amount)}` : ''}</div>
                       </div>
                       <button className="btn ghost sm" onClick={() => unpay(h.period)}>Undo</button>
                     </div>

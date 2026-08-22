@@ -30,7 +30,7 @@ MAX_ATTEMPTS = 5
 LOCK_MINUTES = 15
 AVATAR_MAX = 8 * 1024 * 1024  # 8 MB upload cap
 AVATAR_PX = 320               # stored size; avatars are only ever shown small
-ALL_MODULES = ["loans", "cards", "insurance", "investments", "expenses", "reminders", "todo", "habits", "gallery", "vault", "documents"]
+ALL_MODULES = ["loans", "cards", "insurance", "investments", "expenses", "reminders", "todo", "habits", "gallery", "vault", "documents", "notes"]
 
 # Compared against when the email doesn't exist, so a miss costs the same bcrypt
 # work as a hit — otherwise response timing alone reveals which emails are real.

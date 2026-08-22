@@ -1,6 +1,7 @@
 // Admin support-ticket console: list/filter tickets, open a thread, reply (emails
 // the customer), and set status/priority. Customers raise tickets from the website.
 import { useCallback, useEffect, useState } from 'react'
+import { fmtDateTime } from '../format'
 import { api, errorMessage } from '../api'
 import { useToast } from '../toast'
 import { TopBar, Sheet, Field } from '../ui'
@@ -39,7 +40,7 @@ export default function Tickets() {
             <button key={t.id} type="button" className="req-card" style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }} onClick={() => setOpen(t.id)}>
               <span className="lic-card-av" style={{ background: STC[t.status] || 'var(--brand)' }}>{(t.name || '?').trim().charAt(0).toUpperCase()}</span>
               <div className="req-body">
-                <div className="req-top"><b>{t.subject}</b><span className="muted">{t.updated_at}</span></div>
+                <div className="req-top"><b>{t.subject}</b><span className="muted">{fmtDateTime(t.updated_at)}</span></div>
                 <div className="req-mail">{t.name} · {t.email}{t.source === 'web' ? ' · web' : ''}{t.priority === 'high' ? ' · ⚠ high' : ''}</div>
               </div>
               <span className="tag" style={{ color: STC[t.status], borderColor: STC[t.status] }}>{t.status}</span>

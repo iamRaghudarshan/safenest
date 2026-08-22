@@ -5,6 +5,7 @@
 // places is how a customer ends up with a licence and no app, or an app whose
 // licence was never signed.
 import { useCallback, useEffect, useState } from 'react'
+import { fmtDateTime } from '../format'
 import { api, errorMessage } from '../api'
 import { useToast } from '../toast'
 import { TopBar, Sheet, Field } from '../ui'
@@ -218,7 +219,7 @@ function RequestsSection({ requests, onApprove, onChanged }: {
         <div key={r.id} className="req-card">
           <span className="lic-card-av" style={{ background: 'var(--c-reminders)' }}>{initials(r.name)}</span>
           <div className="req-body">
-            <div className="req-top"><b>{r.name}</b><span className="muted">{r.created_at}</span></div>
+            <div className="req-top"><b>{r.name}</b><span className="muted">{fmtDateTime(r.created_at)}</span></div>
             <div className="req-mail">{r.email}{r.platform ? ` · ${r.platform}` : ''}</div>
             {r.message && <div className="req-msg">“{r.message}”</div>}
           </div>
@@ -945,7 +946,7 @@ function SentMessage({ item, onResent }: { item: BroadcastItem; onResent: () => 
         <div className="msg-headings">
           <h4 className="msg-title">{item.title}</h4>
           <p className="msg-meta">
-            {item.created_at}
+            {fmtDateTime(item.created_at)}
             {item.delivered_local > 0 && ` · ${item.delivered_local} notified here`}
           </p>
         </div>

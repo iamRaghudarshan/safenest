@@ -3,7 +3,7 @@
 import type { ModuleKey } from './types'
 import { money } from './format'
 import {
-  IcLoans, IcCards, IcShield, IcTrend, IcWallet, IcBell, IcCheck, IcHabits, IcImage, IcLock, IcDoc,
+  IcLoans, IcCards, IcShield, IcTrend, IcWallet, IcBell, IcCheck, IcHabits, IcImage, IcLock, IcDoc, IcNote,
 } from './icons'
 
 interface ModuleDef {
@@ -73,5 +73,10 @@ export const MODULES: Record<ModuleKey, ModuleDef> = {
     label: 'Documents', color: 'var(--c-documents)', Icon: IcDoc,
     metric: (n) => `${n} files`, addLabel: 'Add document',
     blurb: 'ID cards, policies and certificates — scanned, searchable and kept off the public web.',
+  },
+  notes: {
+    label: 'Notes', color: '#f5c518', Icon: IcNote,
+    metric: (n) => `${n} notes`, addLabel: 'Add note',
+    blurb: 'Quick notes and checklists — colour them, pin the ones that matter, and find them by a word inside.',
   },
 }

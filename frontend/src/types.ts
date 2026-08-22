@@ -2,7 +2,29 @@
 
 export type ModuleKey =
   | 'loans' | 'cards' | 'insurance' | 'investments' | 'expenses'
-  | 'reminders' | 'todo' | 'habits' | 'gallery' | 'vault' | 'documents'
+  | 'reminders' | 'todo' | 'habits' | 'gallery' | 'vault' | 'documents' | 'notes'
+
+export interface NoteItem {
+  id?: number
+  text: string
+  checked: boolean
+  position?: number
+}
+
+export interface Note {
+  id: number
+  title: string
+  body: string
+  kind: 'note' | 'checklist'
+  color: string
+  labels: string[]
+  pinned: boolean
+  archived: boolean
+  is_trashed: number
+  items: NoteItem[]
+  created_at?: string
+  updated_at?: string
+}
 
 export interface DocumentItem {
   id: number

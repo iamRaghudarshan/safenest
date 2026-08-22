@@ -14,10 +14,10 @@ from .config import BACKEND_DIR, settings
 from .crypto import reencrypt_legacy_items
 from .database import Base, engine
 from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Habit, HabitLog, Hosting, License, LicenceRequest, MailLog, MailSettings, Release,
-                     Master, MasterList, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, Ticket, TicketMessage,
+                     Master, MasterList, Note, NoteItem, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, Ticket, TicketMessage,
                      UserModule, User)
 from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, habits, hosting, household, masters, briefing, cards, releases,
-                      expenses, gallery, licences, loans, mail, notifications, people, reminders,
+                      expenses, gallery, licences, loans, mail, notes, notifications, people, reminders,
                       resources, search, mobile, storefront, support, system, todos, vault)
 from . import autoimport, autostart, backup, hosts, indexer, ist, licensing, mailer, scheduler, tunnelrun
 
@@ -261,6 +261,9 @@ def _migrate() -> None:
     # Photo albums (added July 2026).
     Album.__table__.create(bind=engine, checkfirst=True)
     AlbumPhoto.__table__.create(bind=engine, checkfirst=True)
+    # Notes module — Keep-style notes + checklist lines (added August 2026).
+    Note.__table__.create(bind=engine, checkfirst=True)
+    NoteItem.__table__.create(bind=engine, checkfirst=True)
     # Which computers the app has run on (added July 2026).
     AppHost.__table__.create(bind=engine, checkfirst=True)
     # Licences issued to other people (added July 2026, publisher side only).
@@ -304,7 +307,7 @@ def _seed_module_grants() -> None:
         # Modules added after the first release: grant them to every existing
         # non-admin user on upgrade, or their copies would show a module the gate
         # then 403s — the "shipped but unreachable" trap.
-        for module_key in ("documents", "habits"):
+        for module_key in ("documents", "habits", "notes"):
             have = {uid for (uid,) in db.query(UserModule.user_id)
                     .filter(UserModule.module_key == module_key).all()}
             for (uid,) in db.query(User.id).filter(User.role != "admin").all():
@@ -869,7 +872,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, habits, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports):
+for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, habits, notes, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports):
     app.include_router(r.router)
 app.include_router(licences.public)   # /api/licence/... — customer-facing, separate prefix
 app.include_router(releases.public)   # /api/licence/update, /download

@@ -3,6 +3,7 @@
 // each feature; report cards summarise licences, versions, activity and releases.
 // Charts are inline CSS/SVG — no library, CSP-safe (script-src 'self').
 import { useCallback, useEffect, useState } from 'react'
+import { fmtDateTime } from '../format'
 import { api, errorMessage } from '../api'
 import { useToast } from '../toast'
 import { useNav } from '../nav'
@@ -258,7 +259,7 @@ export default function AdminDashboard() {
               <div className="table-wrap"><table className="dtable">
                 <thead><tr><th>Name</th><th>Email</th><th>Requested</th><th></th></tr></thead>
                 <tbody>{pending.map((r) => (
-                  <tr key={r.id}><td>{r.name}</td><td className="muted">{r.email}</td><td className="muted">{r.created_at}</td>
+                  <tr key={r.id}><td>{r.name}</td><td className="muted">{r.email}</td><td className="muted">{fmtDateTime(r.created_at)}</td>
                     <td><div className="row-act">
                       <button className="btn xs" onClick={() => go('licences')}>Approve</button>
                       <button className="btn ghost xs" disabled={busy === r.id} onClick={() => act(r.id, `/api/licence-requests/${r.id}/reject`, 'Request rejected')}>Reject</button>
