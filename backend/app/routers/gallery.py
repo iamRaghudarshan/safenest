@@ -364,6 +364,7 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
         kind=located       photos that know where they were taken
         near=lat,lon[,km]  one place, as returned by /places
         sort=added         newest BACKED UP first, not newest taken
+        sort=oldest        oldest TAKEN first (reverse of the default)
         person=<id>        every photo one person appears in
 
     `person` exists so the gallery can filter by a FACE rather than a name.
@@ -466,9 +467,15 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
             raise HTTPException(404, "Person not found")
         sel = sel.filter(GalleryPhoto.id.in_(
             db.query(PhotoPerson.photo_id).filter(PhotoPerson.person_id == person)))
-    order = ([GalleryPhoto.created_at.desc(), GalleryPhoto.id.desc()]
-             if (sort or "").strip().lower() == "added"
-             else [GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc()])
+    _sort = (sort or "").strip().lower()
+    if _sort == "added":
+        order = [GalleryPhoto.created_at.desc(), GalleryPhoto.id.desc()]
+    elif _sort == "oldest":
+        # Oldest TAKEN first — the reverse of the default, for someone reading a
+        # library forwards in time. Ascending id breaks ties the same direction.
+        order = [GalleryPhoto.taken_at.asc(), GalleryPhoto.id.asc()]
+    else:
+        order = [GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc()]
 
     if near_centre:
         # The box over-selects at its corners, so page after the real distance
