@@ -257,9 +257,26 @@ def unpack(archive: Path, into: Path) -> Path:
     return into
 
 
-def _swap_script(new_root: Path, app_root: Path, exe: Path) -> Path:
-    """The script that does the replacing once this program has exited."""
+def _swap_script(new_root: Path, app_root: Path, exe: Path,
+                 src_exe_name: str | None = None) -> Path:
+    """The script that does the replacing once this program has exited.
+
+    `src_exe_name` is what the executable is called INSIDE the update — the build
+    ships it as the generic `App.exe`, while an issued copy was renamed to the
+    brand (`SafeNest.exe`) when it was licensed. If those differ the swap has to
+    rename the incoming file to the customer's name, or robocopy would leave the
+    new `App.exe` sitting beside the stale `SafeNest.exe`, `start` would relaunch
+    the OLD one, and every update check afterwards would offer the same version
+    again — the update appearing to reach 100% and then never take.
+    """
+    src_exe_name = src_exe_name or exe.name
     if os.name == "nt":
+        rename = ""
+        if src_exe_name.lower() != exe.name.lower():
+            rename = (
+                f'if exist "{app_root}\\{exe.name}" del /q "{app_root}\\{exe.name}"\r\n'
+                f'if exist "{app_root}\\{src_exe_name}" '
+                f'move /y "{app_root}\\{src_exe_name}" "{app_root}\\{exe.name}" >nul\r\n')
         script = app_root.parent / f".{app_root.name}-apply.cmd"
         script.write_text(
             "@echo off\r\n"
@@ -276,6 +293,8 @@ def _swap_script(new_root: Path, app_root: Path, exe: Path) -> Path:
             # is left exactly where it is.
             f'if exist "{app_root}\\_internal" rmdir /s /q "{app_root}\\_internal"\r\n'
             f'robocopy "{new_root}" "{app_root}" /E /XD data /NFL /NDL /NJH /NJS >nul\r\n'
+            # The build's App.exe carries the customer's brand name back.
+            f'{rename}'
             f'start "" "{exe}"\r\n'
             f'rmdir /s /q "{new_root.parent}"\r\n'
             'del "%~f0"\r\n',
@@ -398,14 +417,25 @@ def apply_staged(new_root: Path) -> Path:
                 raise UpdateError("This update does not contain an application.")
             source = found[0]
     else:
+        src_exe_name = exe.name
         if not (new_root / exe.name).exists():
-            # Renamed per customer, so a mismatch means the wrong archive entirely.
-            names = [p.name for p in new_root.iterdir() if p.suffix in (".exe", "")]
-            raise UpdateError(f"This update does not contain {exe.name} "
-                              f"(found: {', '.join(names[:4]) or 'nothing'}).")
+            # The update ships the generic App.exe; an issued copy was renamed to
+            # the brand (SafeNest.exe) when it was licensed. A single top-level .exe
+            # IS that file under its build name — so match on "there is exactly one
+            # executable", not on a name that was deliberately changed. Requiring the
+            # renamed name here refused every real customer's update, since the
+            # artifact is one build shared by everyone and cannot carry each brand.
+            # More than one .exe, or none, is a genuinely wrong archive.
+            exes = [p for p in new_root.iterdir() if p.suffix.lower() == ".exe"]
+            if len(exes) == 1:
+                src_exe_name = exes[0].name
+            else:
+                names = [p.name for p in new_root.iterdir() if p.suffix in (".exe", "")]
+                raise UpdateError(f"This update does not contain {exe.name} "
+                                  f"(found: {', '.join(names[:4]) or 'nothing'}).")
         source = new_root
 
-    script = _swap_script(source, app_root, exe)
+    script = _swap_script(source, app_root, exe, src_exe_name=src_exe_name)
     flags = 0
     if os.name == "nt":
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | \
