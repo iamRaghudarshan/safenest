@@ -55,6 +55,19 @@ def public_download(request: Request, platform: str = "", db: Session = Depends(
     per-licence check that guards the customer update download.
     """
     rate_limit(request, "public-download", limit=30, window=3600)
+
+    # Android is a plain APK download (Apple forbids the same for iOS, which goes
+    # through TestFlight). The CI Android job attaches app-release.apk to the
+    # GitHub release; it is dropped into releases/ as SafeNest-android.apk and
+    # served here. Not part of the desktop Release table — it is one file, replaced
+    # in place, with no per-platform version row.
+    if platform == "android":
+        apk = bundler.PROJECT_ROOT / "releases" / "SafeNest-android.apk"
+        if not apk.is_file():
+            raise HTTPException(404, "No Android build is available yet.")
+        return FileResponse(str(apk), filename="SafeNest.apk",
+                            media_type="application/vnd.android.package-archive")
+
     rel = _current_for(platform, db)
     if not rel or not (rel.path and Path(rel.path).is_file()):
         raise HTTPException(404, "No download is available yet.")
@@ -80,8 +93,13 @@ def public_download(request: Request, platform: str = "", db: Session = Depends(
 def public_download_meta(request: Request, db: Session = Depends(get_db)):
     """Version, size and checksum per platform, for the download page to render."""
     rate_limit(request, "public-download-meta", limit=120, window=3600)
-    return {"app_name": app_name(db),
-            "platforms": {p: _rel_meta(_current_for(p, db)) for p in bundler.TEMPLATES}}
+    plats = {p: _rel_meta(_current_for(p, db)) for p in bundler.TEMPLATES}
+    # Android is a standalone APK in releases/, not a desktop Release row.
+    apk = bundler.PROJECT_ROOT / "releases" / "SafeNest-android.apk"
+    plats["android"] = ({"available": True, "version": "",
+                         "size_bytes": apk.stat().st_size}
+                        if apk.is_file() else {"available": False})
+    return {"app_name": app_name(db), "platforms": plats}
 
 
 @public.post("/licence-request")
