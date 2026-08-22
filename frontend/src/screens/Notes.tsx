@@ -80,6 +80,18 @@ export default function Notes() {
         )}
       </div>
 
+      {/* The "Take a note…" bar, the way Google Keep opens. */}
+      {bucket === 'active' && (
+        <div onClick={() => setEditing('new')} style={{
+          display: 'flex', alignItems: 'center', gap: 10, cursor: 'text',
+          background: 'var(--card)', border: '1px solid var(--line)',
+          borderRadius: 10, padding: '12px 16px', marginBottom: 12, maxWidth: 620,
+        }}>
+          <span style={{ flex: 1, color: 'var(--ink-soft)' }}>Take a note…</span>
+          <span style={{ fontSize: 18, color: 'var(--ink-faint)' }}>☑</span>
+        </div>
+      )}
+
       {/* Buckets — Notes / Archive / Bin */}
       <div className="doc-cats" style={{ marginBottom: 4 }}>
         {(['active', 'archived', 'trashed'] as Bucket[]).map((b) => (
