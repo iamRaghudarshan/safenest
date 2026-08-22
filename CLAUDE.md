@@ -1225,19 +1225,45 @@ the operator sees.
 
 ---
 
-## 14. Current state (11 August 2026)
+## 14. Current state (22 August 2026)
+
+### "Build the app" / "build all" = EVERY platform
+
+When the owner says **build the app**, build and ship the WHOLE product so a user
+can get it from the website OR a command — never just one half:
+
+- **Desktop** — Windows (`packaging/build_exe.py --native --no-models`) **and** Mac
+  (GitHub CI on a VERSION bump, fetched with `fetch_mac_build.py`), then
+  `POST /api/releases` + `release-to-all` so it lands on the website `/get`,
+  `install-mac.sh` (the `curl | bash` command), and the in-app updater.
+- **Mobile — iOS (TestFlight) AND Android.** iOS cannot be a plain website
+  download (Apple), so it ships via TestFlight (push a `vX.Y.Z` tag). **Android
+  should be a downloadable APK on the website** (and/or Play Store). CAVEAT: the
+  Android CI job has never yet succeeded (it is off by default in
+  `safenest-mobile/.github/workflows/release.yml`); it must be fixed to actually
+  deliver Android — do not claim Android is shipped until that job is green and an
+  APK is downloadable.
+
+Latest shipped (22 Aug 2026): **Desktop 3.26**, **Mobile 1.44.0 (iOS)** — Android
+NOT yet building. New this run: the **Notes** module (Google-Keep style: notes,
+checklists, colours, labels, pin, archive, bin, search — web + phone), phone
+sign-ins now last **1 year** (config `jwt_expire_minutes`, override in
+`backend/.env`), and records may live on an **external drive** with auto-backups
++ corruption recovery. See the memory index for details.
 
 - Branding: **SafeNest**, theme `#1656C6`, custom icon uploaded (`icon_version 1`)
 - Users: `admin@finmate.app` (admin, 141 photos), `raghudarshan10@gmail.com`
   (user, **0 photos** — see below)
-- Desktop **3.3**, built for BOTH platforms: Windows compiled here with
-  `--native`, Mac fetched from CI. `dist-app/App` and `dist-app/mac/mac-app.tar.gz`
+- Desktop **3.26** (was 3.3), built for BOTH desktop platforms: Windows compiled
+  here with `--native`, Mac fetched from CI. `dist-app/App` and
+  `dist-app/mac/mac-app.tar.gz`. Android desktop-equivalent N/A.
 - Live licences:
   - `L-218E2470` Raghudarshan S — **perpetual**, seats 0 (unlimited)
   - `L-118D98BF` Ashok — expired 10 Aug. **The owner said on 10 Aug to ignore
     this one.** Do not act on it.
-- Phone app **1.16.0** on TestFlight. Repo `D:\AI PRO\safenest-mobile`, which
-  now has **its own CLAUDE.md** — read it before touching the phone.
+- Phone app **1.44.0** on TestFlight (iOS only; **Android not yet building**). Repo
+  `D:\AI PRO\safenest-mobile`, which now has **its own CLAUDE.md** — read it before
+  touching the phone.
 - Public URL: **`safenest.raghudarshan.online`** via the named tunnel
   `b6ea7271-4d37-414e-9899-55be7f3903c5` (changed from `finmate.raghudarshan.online`
   on 15 Aug — DB `public_url`, `.env`, and the tunnel config all switched; the old
