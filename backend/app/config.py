@@ -42,7 +42,12 @@ class Settings(BaseSettings):
     # --- session tokens ---
     jwt_secret: str                        # required
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 8       # 8h
+    # A YEAR, not 8 hours. A phone is a personal device the owner expects to stay
+    # signed in on — an 8-hour token meant re-typing the password almost every time
+    # the app was opened. Safe to make long-lived: users.token_version is bumped on
+    # any password change, which kills every existing token at once, and the token
+    # lives in the Keychain/Keystore, not anywhere world-readable.
+    jwt_expire_minutes: int = 60 * 24 * 365   # 1 year
 
     # --- vault encryption (AES-256-GCM) ---
     vault_key_hex: str                     # required, 32 bytes hex
