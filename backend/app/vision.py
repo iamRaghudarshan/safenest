@@ -15,13 +15,53 @@ requests never touch them and they cost ~190 MB of RAM once resident:
 If a model file is absent the corresponding feature reports itself unavailable
 rather than raising — a fresh checkout without the models must still run.
 """
+import os
+import sys
 import threading
+from pathlib import Path
 
 import numpy as np
 
 from .config import BACKEND_DIR
 
-MODELS = BACKEND_DIR / "models"
+
+def _resolve_models_dir() -> "Path":
+    """Find the models wherever the build actually put them.
+
+    A packaged app does NOT keep data beside the code. PyInstaller drops `datas`
+    into `_internal` on Windows and into `Contents/Resources` on a macOS .app,
+    while the compiled code lives in `Contents/Frameworks`. So `BACKEND_DIR/models`
+    — derived from the module's __file__ — points at neither in a frozen build.
+    Guessing one path is exactly how face grouping stayed dead on every customer
+    copy: the models were bundled (3.29) but `faces_available()` still looked in
+    the wrong place. This SEARCHES the places they can be and returns the one that
+    actually holds them.
+    """
+    marker = "face_detection_yunet_2023mar.onnx"
+    cands: list[Path] = []
+    env = os.environ.get("MODELS_DIR")
+    if env:
+        cands.append(Path(env))
+    cands.append(BACKEND_DIR / "models")
+    if getattr(sys, "frozen", False):
+        meip = getattr(sys, "_MEIPASS", "")
+        if meip:
+            m = Path(meip)
+            cands.append(m / "backend" / "models")                      # Win _internal
+            cands.append(m.parent / "Resources" / "backend" / "models")  # .app: Frameworks -> Resources
+        exe = Path(sys.executable).resolve()
+        cands.append(exe.parent / "_internal" / "backend" / "models")
+        cands.append(exe.parent.parent / "Resources" / "backend" / "models")  # Contents/MacOS -> Contents/Resources
+    for c in cands:
+        try:
+            if (c / marker).is_file():
+                return c
+        except OSError:
+            pass
+    return BACKEND_DIR / "models"
+
+
+MODELS = _resolve_models_dir()
 CLIP_DIR = MODELS / "clip"
 
 YUNET = MODELS / "face_detection_yunet_2023mar.onnx"
