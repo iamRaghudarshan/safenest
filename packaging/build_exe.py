@@ -295,6 +295,19 @@ def spec_text(with_models: bool, native: Path | None = None) -> str:
     ]
     if with_models and MODELS.is_dir():
         datas.append((str(MODELS), "backend/models"))
+    else:
+        # Even a "no models" build carries the two FACE models (~40 MB). Without
+        # them the Gallery cannot group people AT ALL, and nothing in the app
+        # downloads them on demand — so every customer copy had face grouping
+        # permanently dead and "Find people" did nothing. CLIP (the ~150 MB
+        # content-search pair) stays opt-in behind --with-models. The build machine
+        # must have these present; CI fetches them with download_models.py
+        # --faces-only before building.
+        for face in ("face_detection_yunet_2023mar.onnx",
+                     "face_recognition_sface_2021dec.onnx"):
+            f = MODELS / face
+            if f.is_file():
+                datas.append((str(f), "backend/models"))
 
     icon = ROOT / "frontend" / "public" / "icon-512.png"
     icon_line = ""      # a .png is not a valid icon on either platform; skipped

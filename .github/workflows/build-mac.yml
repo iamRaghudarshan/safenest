@@ -71,6 +71,14 @@ jobs:
           # is installed on customers' machines by setup.py.
           pip install pyinstaller nuitka
 
+      # The vision models are not in git. Fetch JUST the two face models (~40 MB,
+      # plain HTTPS from OpenCV Zoo) so --no-models still bundles them — otherwise
+      # the Gallery cannot group people on any customer Mac and "Find people" does
+      # nothing. CLIP (150 MB) stays out.
+      - name: Fetch face models
+        working-directory: backend
+        run: python download_models.py --faces-only
+
       # Uses the system clang on macOS. build_exe.py passes Nuitka --zig only on
       # Windows (which has no compiler by default); forcing zig here made its linker
       # fail with "no such file or directory: '__constants.os'".

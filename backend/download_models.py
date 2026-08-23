@@ -120,11 +120,19 @@ def _get(url: str, dest: Path, force: bool) -> bool:
 
 def main() -> int:
     force = "--force" in sys.argv
+    # --faces-only: fetch just the two OpenCV Zoo face models (~40 MB, plain
+    # HTTPS, no huggingface_hub). This is what the release build bundles so People
+    # works on customer copies; CI runs it before building the packaged app.
+    faces_only = "--faces-only" in sys.argv
     ok = True
 
     print("\nFace grouping (OpenCV Zoo)")
     for dest, url in FACE_FILES:
         ok &= _get(url, dest, force)
+
+    if faces_only:
+        print("\n(faces-only) skipping CLIP")
+        return 0 if ok else 1
 
     print("\nSearch by content (CLIP)")
     try:
