@@ -1225,7 +1225,7 @@ the operator sees.
 
 ---
 
-## 14. Current state (22 August 2026)
+## 14. Current state (23 August 2026)
 
 ### "Build the app" / "build all" = EVERY platform
 
@@ -1237,31 +1237,53 @@ can get it from the website OR a command — never just one half:
   `POST /api/releases` + `release-to-all` so it lands on the website `/get`,
   `install-mac.sh` (the `curl | bash` command), and the in-app updater.
 - **Mobile — iOS (TestFlight) AND Android.** iOS cannot be a plain website
-  download (Apple), so it ships via TestFlight (push a `vX.Y.Z` tag). **Android
-  should be a downloadable APK on the website** (and/or Play Store). CAVEAT: the
-  Android CI job has never yet succeeded (it is off by default in
-  `safenest-mobile/.github/workflows/release.yml`); it must be fixed to actually
-  deliver Android — do not claim Android is shipped until that job is green and an
-  APK is downloadable.
+  download (Apple), so it ships via TestFlight (push a `vX.Y.Z` tag). **Android is
+  a downloadable APK on the website**: push an `android-X.Y.Z` tag, download the
+  `safenest-android` artifact, and place `app-release.apk` at
+  `releases/SafeNest-android.apk` (served by `storefront.py` at
+  `/api/public/download?platform=android`). **Every mobile release MUST refresh
+  that APK.** (Android CI works now; the keystore was restored 22 Aug.)
 
-Latest shipped (22 Aug 2026): **Desktop 3.26**, **Mobile 1.44.0 (iOS)** — Android
-NOT yet building. New this run: the **Notes** module (Google-Keep style: notes,
-checklists, colours, labels, pin, archive, bin, search — web + phone), phone
-sign-ins now last **1 year** (config `jwt_expire_minutes`, override in
-`backend/.env`), and records may live on an **external drive** with auto-backups
-+ corruption recovery. See the memory index for details.
+Latest shipped (23 Aug 2026): **Desktop Windows 3.30 / Mac 3.31**, **Mobile
+1.50.0** (iOS TestFlight + Android APK). Big things this run:
+- **Gallery People finally works on customer copies (3.30).** It never had before:
+  releases build `--no-models` and the app never downloaded them, so the face
+  models were absent and `faces_available()` was always False. 3.30 bundles the
+  ~40 MB face models AND makes `vision.py` SEARCH for them (frozen apps put data in
+  `_internal`/`Contents/Resources`, not beside the code). Verified by launching the
+  frozen exe: `models.faces=True`. CLIP content-search stays opt-in (`--with-models`).
+  See the memory `customer-builds-had-no-face-models`.
+- **Mac in-app updater made reliable (3.31, Mac-only).** The swap now `xattr -cr`
+  + ad-hoc `codesign` ALWAYS (matching `install-mac.sh`), so Profile → App &
+  updates installs with no Terminal. A customer must curl-install 3.31 ONCE to land
+  on the good updater. UNVERIFIED (no Mac here) but matches the proven curl steps.
+  Windows stayed 3.30 (its updater already works; the fix is Mac-specific).
+- **Mobile 1.45–1.50:** colourful bottom bar; **fully customisable bottom bar**
+  (add/remove/reorder tabs, incl. Notes/Documents/Habits/Vault) + Profile →
+  **Personalise** (colourful/plain icons, nature/plain background); redesigned
+  Profile hero card; gallery count matches the Modules tile; notifications
+  read/unread fixed (server sends `read`/`at`, not `is_read`/`created_at`); iOS
+  push APNs-token await fix.
+
+Earlier this cycle: **Notes** module (Google-Keep style, web+phone), 1-year phone
+sign-ins (`jwt_expire_minutes`), external-drive records + auto-backups.
 
 - Branding: **SafeNest**, theme `#1656C6`, custom icon uploaded (`icon_version 1`)
-- Users: `admin@finmate.app` (admin, 141 photos), `raghudarshan10@gmail.com`
-  (user, **0 photos** — see below)
-- Desktop **3.26** (was 3.3), built for BOTH desktop platforms: Windows compiled
+- Users on THIS machine's DB: `admin@finmate.app` (admin, 141 photos),
+  `raghudarshan2014@gmail.com` (user, 77 photos). **The owner's phone connects to a
+  SEPARATE Mac** (1116 photos) — a different installation than this Windows box; the
+  domain points here (218 photos total), so People fixes must reach that Mac.
+- Desktop **Windows 3.30 / Mac 3.31**, built for BOTH platforms: Windows compiled
   here with `--native`, Mac fetched from CI. `dist-app/App` and
-  `dist-app/mac/mac-app.tar.gz`. Android desktop-equivalent N/A.
+  `dist-app/mac/mac-app.tar.gz`. NOTE: `dist-app/App` may be left locked by
+  orphaned build processes after a frozen-app verification run — kill stray
+  `python.exe`/`App.exe` (keep the :8080 owner) or reboot before the next Windows
+  build.
 - Live licences:
   - `L-218E2470` Raghudarshan S — **perpetual**, seats 0 (unlimited)
   - `L-118D98BF` Ashok — expired 10 Aug. **The owner said on 10 Aug to ignore
     this one.** Do not act on it.
-- Phone app **1.44.0** on TestFlight (iOS only; **Android not yet building**). Repo
+- Phone app **1.50.0** on TestFlight (iOS) **and Android APK on the website**. Repo
   `D:\AI PRO\safenest-mobile`, which now has **its own CLAUDE.md** — read it before
   touching the phone.
 - Public URL: **`safenest.raghudarshan.online`** via the named tunnel
