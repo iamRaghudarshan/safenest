@@ -298,10 +298,24 @@ def _run(jobs: tuple[str, ...]):
                 if not total:
                     continue
 
+                # Rows already attempted in THIS pass. A photo whose CLIP embedding
+                # fails — a missing or unreadable thumbnail — is not written to
+                # PhotoVector, so _pending_clip keeps handing it back. Without this
+                # guard the batch re-query returned the same unfixable rows for ever:
+                # the live indexer was found spinning on ten of them at
+                # done=136017/total=10, wedged on "clip" so the faces pass that
+                # follows it never ran and every "Find people" was refused with
+                # "already running". Attempting each row at most once per pass
+                # guarantees the loop drains even when some rows can never succeed;
+                # a genuinely transient failure is retried on the next pass, which
+                # starts with a fresh set.
+                attempted: set[int] = set()
                 while not _stop.is_set():
                     # Re-query each batch: the "not yet done" set shrinks as we go,
-                    # and new uploads land in it while we work.
-                    batch = pending(db).limit(20).all()
+                    # and new uploads land in it while we work. Skip anything already
+                    # tried this pass so a row that never clears cannot loop.
+                    batch = [r for r in pending(db).limit(20).all()
+                             if r.id not in attempted]
                     if not batch:
                         break
                     for row in batch:
@@ -317,6 +331,7 @@ def _run(jobs: tuple[str, ...]):
                         except Exception as exc:
                             db.rollback()
                             print(f"[indexer] {job} failed on row {row.id}: {exc}")
+                        attempted.add(row.id)
                         _state["done"] += 1
                         time.sleep(REST_SECONDS)
     except Exception as exc:
