@@ -367,7 +367,14 @@ def _swap_script(new_root: Path, app_root: Path, exe: Path,
             '  fi\n'
             "fi\n"
             f'rm -rf "{app_root}.old"\n'
-            f'xattr -dr com.apple.quarantine "{app_root}" 2>/dev/null\n'
+            # Match the proven curl installer (storefront.install-mac.sh), which is
+            # why THAT works while an in-app update "did not take": strip ALL
+            # extended attributes (not just the quarantine flag) and ad-hoc re-sign
+            # the whole bundle ALWAYS, not only when the name changed. ditto copies
+            # the freshly downloaded bundle; without a clean re-sign macOS can refuse
+            # to launch it, the swap "fails", and the same version is offered again.
+            f'xattr -cr "{app_root}" 2>/dev/null || true\n'
+            f'codesign --force --deep -s - "{app_root}" 2>/dev/null || true\n'
             f'open "{app_root}"\n'
             f'rm -rf "{new_root.parent}"\n'
             'rm -- "$0"\n')
