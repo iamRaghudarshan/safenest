@@ -16,7 +16,8 @@ export function istNow(from: Date = new Date()): Date {
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
-const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+/** Y-M-D from a Date's LOCAL fields. Pair with istNow() to get an IST day key. */
+export const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
 
 export function money(n: number | string | null | undefined, compact = false): string {

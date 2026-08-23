@@ -6,6 +6,7 @@ import { Sheet, Field, Segment } from '../ui'
 import { useAttention } from '../attention'
 import { ModuleScreen } from './Scaffold'
 import { IcEdit, IcTrash } from '../icons'
+import { istNow, isoOf } from '../format'
 import type { Habit, HabitDay } from '../types'
 
 // A small palette and emoji set so a habit can be made distinct at a glance,
@@ -310,8 +311,12 @@ function HabitDetail({ h, onClose }: { h: Habit; onClose: () => void }) {
   }, [h.id])
 
   // Build 13 columns ending this week; each column is Mon…Sun.
-  const today = new Date()
-  const iso = (d: Date) => d.toISOString().slice(0, 10)
+  // IST, not UTC: the server keys habit days in IST, and toISOString() is UTC —
+  // which returns YESTERDAY between IST midnight and 05:30, so today's cell and
+  // the tooltip could line up with the wrong day. istNow() + isoOf() keep the
+  // grid on the same calendar day the server recorded.
+  const today = istNow()
+  const iso = (d: Date) => isoOf(d)
   const start = new Date(today)
   start.setDate(start.getDate() - ((start.getDay() + 6) % 7) - 12 * 7) // Monday, 12 weeks back
   const weeks: Date[][] = []
