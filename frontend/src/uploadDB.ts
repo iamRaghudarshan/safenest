@@ -27,7 +27,7 @@ function run<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore)
   }))
 }
 
-export interface QueuedFile { id?: number; blob: Blob; name: string; size: number; sig: string }
+export interface QueuedFile { id?: number; blob: Blob; name: string; size: number; sig: string; albumId?: number }
 
 export const uploadDB = {
   addFile: (rec: Omit<QueuedFile, 'id'>) => run<number>('files', 'readwrite', (s) => s.add(rec)),

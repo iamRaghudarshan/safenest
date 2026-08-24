@@ -23,12 +23,14 @@ interface Item {
   key: number; blob: Blob; name: string; sig: string; tries: number; status: Status
   /** Why it failed, in words. Without this the UI can only say "failed". */
   reason?: string
+  /** Destination album — the server attaches the photo after storing it. */
+  albumId?: number
 }
 
 interface UploadState {
   total: number; done: number; failed: number; dupes: number; pending: number; active: number
   uploading: boolean; paused: boolean; offline: boolean
-  enqueue: (files: FileList | File[], opts?: { persist?: boolean }) => Promise<number>
+  enqueue: (files: FileList | File[], opts?: { persist?: boolean; albumId?: number }) => Promise<number>
   /** Distinct reasons the failed uploads gave, for showing the user. */
   reasons: string[]
   pause: () => void; resume: () => void; cancelAll: () => void; retryFailed: () => void
@@ -68,7 +70,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       }
       const fd = new FormData()
       fd.append('file', item.blob, item.name || 'photo.jpg')
-      const res = await fetch(ENDPOINT, { method: 'POST', headers: { Authorization: `Bearer ${tokenStore.get()}` }, body: fd })
+      const url = item.albumId ? `${ENDPOINT}&album_id=${item.albumId}` : ENDPOINT
+      const res = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${tokenStore.get()}` }, body: fd })
       if (res.status === 401) { paused.current = true; throw new Error('Signed out — sign in again') }
       if (!res.ok) {
         const detail = (await res.json().catch(() => ({}))).detail
@@ -130,8 +133,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   }
   pumpRef.current = pump
 
-  async function enqueue(files: FileList | File[], opts?: { persist?: boolean }) {
+  async function enqueue(files: FileList | File[], opts?: { persist?: boolean; albumId?: number }) {
     let added = 0
+    const albumId = opts?.albumId || 0
     // How many bytes this batch may copy into IndexedDB before it stops.
     //
     // Persisting every blob up front is what breaks a big selection from a phone.
@@ -177,7 +181,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         pumpRef.current()
         await new Promise((r) => setTimeout(r, 0))
       }
-      const sig = sigOf(f)
+      // An album upload gets its own signature. Plain dedup would skip a photo
+      // that was ever uploaded before — but "put this in the album" still has to
+      // reach the server, which dedupes by content and just attaches the photo
+      // it already holds. Suffixing keeps repeats into the SAME album a no-op.
+      const sig = albumId ? `${sigOf(f)}|album${albumId}` : sigOf(f)
       if (doneSigs.current.has(sig)) continue
       // Picking a photo again after it failed means "try this one again", not
       // "ignore me". Skipping it because its signature is still in the queue is
@@ -207,14 +215,14 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         counts.current.total++; counts.current.failed++; added++
         continue
       }
-      const item: Item = { key: -1, blob: f, name: f.name, sig, tries: 0, status: 'pending' }
+      const item: Item = { key: -1, blob: f, name: f.name, sig, tries: 0, status: 'pending', albumId: albumId || undefined }
       items.current.push(item)
       queuedSigs.current.add(sig)
       counts.current.total++
       added++
       if (persist && budget - f.size >= 0) {
         budget -= f.size
-        try { item.key = await uploadDB.addFile({ blob: f, name: f.name, size: f.size, sig }) }
+        try { item.key = await uploadDB.addFile({ blob: f, name: f.name, size: f.size, sig, albumId: albumId || undefined }) }
         catch { item.key = -1 /* quota exceeded: in-memory only */ }
       }
     }
@@ -258,7 +266,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           uploadDB.deleteFile(p.id!).catch(() => {})
           continue
         }
-        items.current.push({ key: p.id!, blob: p.blob, name: p.name, sig: p.sig, tries: 0, status: 'pending' })
+        items.current.push({ key: p.id!, blob: p.blob, name: p.name, sig: p.sig, tries: 0, status: 'pending', albumId: p.albumId })
         queuedSigs.current.add(p.sig)
         counts.current.total++
       }

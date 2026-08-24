@@ -1152,6 +1152,7 @@ def _read_capped(file: UploadFile, limit: int) -> bytes:
 
 @router.post("/upload")
 def upload(file: UploadFile = File(...), faces: int = 1, duration_ms: int = 0,
+           album_id: int = 0,
            user: User = Depends(guard("gallery", "create")),
            db: Session = Depends(get_db)):
     """Take one photo in, normalise it, store it, thumbnail it.
@@ -1178,6 +1179,10 @@ def upload(file: UploadFile = File(...), faces: int = 1, duration_ms: int = 0,
     Pillow releases the GIL for encode and decode, so this is real parallelism and
     not just tidier queueing.
     """
+    # Resolve the album before touching the file: a large upload aimed at an
+    # album that is not the caller's should cost one query, not a whole decode.
+    album = _own_album(db, user.id, album_id) if album_id else None
+
     # Peek the first chunk to tell a video (which may be far larger than a photo)
     # from a photo, so a real phone clip isn't rejected by the 30 MB photo cap.
     head = file.file.read(1024 * 1024)
@@ -1192,7 +1197,12 @@ def upload(file: UploadFile = File(...), faces: int = 1, duration_ms: int = 0,
             raise HTTPException(413, f"File too large (max {limit // (1024 * 1024)} MB)")
         chunks.append(chunk)
     raw = b"".join(chunks)
-    return store_photo(db, user, raw, file.filename or "", duration_ms=duration_ms)
+    out = store_photo(db, user, raw, file.filename or "", duration_ms=duration_ms)
+    # A duplicate lands in the album too: "put this photo in the album" is what
+    # was asked, and the library already holding a copy is not a reason to say no.
+    if album:
+        _album_add(db, user.id, album, [out["item"]["id"]])
+    return out
 
 
 # Videos, by the container's own magic bytes rather than by filename.

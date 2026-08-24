@@ -24,6 +24,8 @@ type Tab = 'all' | 'fav' | 'albums' | 'people' | 'memories'
 // click's own default action rather than through a scripted .click().
 const FILE_INPUT_ID = 'gallery-file-input'
 const DIR_INPUT_ID = 'gallery-folder-input'
+// The album view's own picker, so photos can be uploaded straight into an album.
+const ALBUM_INPUT_ID = 'album-file-input'
 
 // Stands in for the `accept` attribute the input deliberately does not have.
 //
@@ -1091,10 +1093,12 @@ function AlbumView({ album, onBack, canEdit }: {
   album: AlbumSummary; onBack: () => void; canEdit: boolean
 }) {
   const toast = useToast()
+  const u = useUpload()
   const [name, setName] = useState(album.name)
   const [view, setView] = useState<Photo | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [addChoice, setAddChoice] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
 
   // Was a single `limit=300`. An album past 300 photos showed 300 of them and
@@ -1102,6 +1106,33 @@ function AlbumView({ album, onBack, canEdit }: {
   const { items, total, more, done, loadMore, reload, drop, patch } =
     usePagedPhotos(`/api/gallery?album=${album.id}`)
   const load = reload
+
+  // Uploads aimed at this album land here as each batch completes.
+  useEffect(() => u.onBatchDone(() => reload()), []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function uploadInto(all: File[]) {
+    if (!all.length) return   // the picker was dismissed; nothing happened, say nothing
+    const arr = all.filter(looksLikeImage)
+    const notPhotos = all.length - arr.length
+    if (!arr.length) {
+      toast(notPhotos === 1 ? 'That is not a photo' : 'None of those are photos')
+      return
+    }
+    if (notPhotos > 0) {
+      toast(`Skipped ${notPhotos} item${notPhotos === 1 ? '' : 's'} that ${notPhotos === 1 ? 'is' : 'are'} not a photo`)
+    }
+    const CHUNK = 30
+    const persist = arr.length <= CHUNK
+    let queued = 0
+    for (let i = 0; i < arr.length; i += CHUNK) {
+      queued += await u.enqueue(arr.slice(i, i + CHUNK), { persist, albumId: album.id })
+    }
+    if (queued > 0) {
+      toast(`Uploading ${queued.toLocaleString()} photo${queued === 1 ? '' : 's'} into “${name}”`)
+    } else {
+      toast('Those photos are already in this album')
+    }
+  }
 
   async function rename(v: string) {
     try {
@@ -1155,7 +1186,7 @@ function AlbumView({ album, onBack, canEdit }: {
         right={canEdit ? (
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn ghost sm" onClick={() => setRenaming(true)}>Rename</button>
-            <button className="btn sm" onClick={() => setAdding(true)}>＋ Add</button>
+            <button className="btn sm" onClick={() => setAddChoice(true)}>＋ Add</button>
           </div>
         ) : undefined} />
 
@@ -1177,8 +1208,43 @@ function AlbumView({ album, onBack, canEdit }: {
         </button>
       )}
 
+      {/* NO `accept` here either — same iOS HEIC transcode trap as the main
+          input; see the long note above the gallery picker. */}
+      <input id={ALBUM_INPUT_ID} type="file" multiple className="file-offscreen"
+        onChange={(e) => {
+          const files = e.target.files
+          const snapshot = files ? Array.from(files) : []
+          e.currentTarget.value = ''   // so picking the same photo again re-fires change
+          setAddChoice(false)
+          uploadInto(snapshot).catch(() => toast('Those photos could not be queued'))
+        }} />
+
       {renaming && <NameSheet title="Rename album" label="Album name" cta="Save" initial={name}
         onClose={() => setRenaming(false)} onSave={rename} />}
+      {addChoice && (
+        <Sheet title="Add photos" onClose={() => setAddChoice(false)}>
+          <p className="muted" style={{ fontSize: 13.5, marginBottom: 16 }}>
+            Add photos already in your gallery, or upload new ones from this
+            {isIOS ? ' device' : ' computer'} straight into “{name}”.
+          </p>
+          <div style={{ display: 'grid', gap: 10 }}>
+            <button className="btn block" onClick={() => { setAddChoice(false); setAdding(true) }}>
+              Choose from your gallery
+            </button>
+            {/* A <label for>, like every other picker trigger here, so the tap
+                opens the file dialog as its own default action. */}
+            <label className="btn ghost block" htmlFor={ALBUM_INPUT_ID} role="button" tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  document.getElementById(ALBUM_INPUT_ID)?.click()
+                }
+              }}>
+              Upload from this {isIOS ? 'device' : 'computer'}
+            </label>
+          </div>
+        </Sheet>
+      )}
       {adding && <PhotoPicker exclude={new Set((items ?? []).map((p) => p.id))}
         onClose={() => setAdding(false)} onAdd={addPhotos} />}
       {confirmDel && (
