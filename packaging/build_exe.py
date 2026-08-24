@@ -39,6 +39,19 @@ IS_WINDOWS = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
 APP_NAME = "App"
 
+# Files that live in frontend/dist but are NOT this app's web build.
+#
+# That directory is mounted as StaticFiles, so dropping a file in it publishes it
+# with no restart — which is why the website's other downloads are staged there.
+# None of it belongs in a customer's copy: the AI BIT APKs alone are ~228 MB of a
+# different application, they triple the download, and handing every customer a
+# second product they never asked for is not something a build should do quietly.
+#
+# Found in a real 3.32 build, which carried three APKs into
+# _internal/backend/frontend/dist. Prefix-matched rather than by extension: the
+# manifest and the gate script are just as foreign as the .apk files.
+FOREIGN_DIST_PREFIXES = ("ai-bit", "aibit")
+
 # The version this build reports. Read from VERSION at the project root so the
 # number lives in one place -- the customer's copy compares it against what the
 # publisher offers, and a build that does not know its own version treats every
@@ -291,7 +304,7 @@ def spec_text(with_models: bool, native: Path | None = None) -> str:
     # (setup.py does run them as files with subprocess -- but that is the source
     # bundle, which ships its own copies and does not use this build.)
     datas = [
-        (str(FRONTEND_DIST), "backend/frontend/dist"),
+        (str(packaged_dist()), "backend/frontend/dist"),
     ]
     if with_models and MODELS.is_dir():
         datas.append((str(MODELS), "backend/models"))
@@ -513,6 +526,35 @@ def _apply_brand() -> dict:
     print(f"  Branded as: {brand.get('app_name')}"
           + (f" ({stamped} icons stamped in)" if stamped else " (no icon)"))
     return brand
+
+
+def packaged_dist() -> Path:
+    """frontend/dist with everything that is not this app's own web build removed.
+
+    A staged copy rather than a filter at the far end, because PyInstaller's
+    `datas` takes a directory and copies all of it. The SPA itself is under a
+    megabyte, so copying it per build costs nothing worth measuring — and the
+    thing being excluded is hundreds of megabytes, which is the whole point.
+    """
+    staged = WORK / "web"
+    if staged.exists():
+        shutil.rmtree(staged)
+    staged.parent.mkdir(parents=True, exist_ok=True)
+
+    dropped: list[str] = []
+
+    def skip(_dir: str, names: list[str]) -> set[str]:
+        out = {n for n in names
+               if n.lower().startswith(FOREIGN_DIST_PREFIXES)}
+        dropped.extend(sorted(out))
+        return out
+
+    shutil.copytree(FRONTEND_DIST, staged, ignore=skip)
+    if dropped:
+        # Said out loud. A build that silently drops files is indistinguishable
+        # from one that silently ships them, and both are worth knowing about.
+        print(f"  Not customer files, left out of the build: {', '.join(dropped)}")
+    return staged
 
 
 def build(with_models: bool, native: bool = False) -> Path:
