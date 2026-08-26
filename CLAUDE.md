@@ -1172,6 +1172,28 @@ folders look empty of Python. That check alone cost 35 of the 57 packages.
 - **A migration entry keys on a COLUMN existing.** Adding an index that way —
   `("gallery_photos", "source_hash_idx", "ALTER TABLE ... ADD INDEX ...")` —
   re-runs on every single startup, because no column of that name ever appears.
+- **A media URL from this server is RELATIVE, and a phone cannot resolve one.**
+  `media_url()` mints `/api/gallery/media/<variant>/<name>?t=<signature>`, which
+  is right for the web app — same origin — and useless to Flutter, where
+  `Image.network` simply fails. The phone's faces strip passed `cover_url`
+  straight through and every face fell to its errorBuilder, so the top of the
+  gallery was a row of grey silhouettes. It read as "face detection is broken"
+  when every face had been found and the pictures were merely never fetched.
+  The rule was written out in four widgets already; the fifth forgot it. It is
+  now one function, `absoluteMedia()` in `photo_tile.dart`. **Any new field
+  carrying a media URL to a client that is not same-origin has to go through
+  it.**
+- **The phone talks to whatever server version the owner is running, so it must
+  not depend on a new endpoint or parameter.** `album_id` was added to the
+  upload and the phone was written to use it. FastAPI ignores a query parameter
+  no argument claims, so against an older installation the photos uploaded
+  perfectly and the album stayed empty — no error anywhere, on either side.
+  Reported off a real phone: two photos sent, both visible in the gallery, the
+  album still reading "0 photos". The app now attaches them itself through
+  `/albums/{id}/photos`, which has existed as long as albums have. **A server
+  feature and a phone release do not ship together; assume the far end is
+  older, and fall back to what has always been there.** (There is more than one
+  installation in this household, which is how this surfaced at all.)
 - **`.btn.primary` does not exist in the CSS.** `.btn` is already the filled style;
   `.btn.ghost` is the quiet one.
 - **`tk.Button` ignores `bg` on macOS** — the installer uses a drawn `Btn`
@@ -1244,8 +1266,29 @@ can get it from the website OR a command — never just one half:
   `/api/public/download?platform=android`). **Every mobile release MUST refresh
   that APK.** (Android CI works now; the keystore was restored 22 Aug.)
 
-Latest shipped (23 Aug 2026): **Desktop Windows 3.30 / Mac 3.31**, **Mobile
-1.50.0** (iOS TestFlight + Android APK). Big things this run:
+Latest shipped (25 Aug 2026): **Desktop 3.32 (both platforms)**, **Mobile
+1.52.1** (iOS TestFlight + Android APK). 3.32 is `is_current` for Windows AND
+Mac, and was released to all. Big things this run:
+- **Photos can be uploaded straight into an album.** `POST /api/gallery/upload`
+  takes an optional `album_id`; the album is resolved BEFORE the file is read,
+  so an upload aimed at somebody else's album costs one query and stores
+  nothing. A duplicate still lands in the album — the library already holding a
+  copy is not a reason to refuse "put this in the album". Both clients offer the
+  two things the button implies: photos already in the gallery, or files from
+  the device.
+- **The phone attaches album photos ITSELF** (1.52.1), through
+  `/albums/{id}/photos`, instead of trusting `album_id`. See §12 — this is the
+  version-drift trap and it reached a real phone.
+- **The faces strip never loaded a single face** (1.52.1). See §12.
+- **Customer builds carried 228 MB of another product.** `frontend/dist` is
+  where the website stages its other downloads, and PyInstaller copies the whole
+  directory, so three unrelated APKs shipped inside 3.32.
+  `build_exe.py::packaged_dist()` now stages a filtered copy and prints what it
+  left out. The build went from 677 MB to 449 MB. **Anything dropped into
+  `frontend/dist` that is not the SPA will ship to customers unless it matches
+  that filter.**
+
+Earlier (23 Aug 2026): Desktop Windows 3.30 / Mac 3.31, Mobile 1.50.0.
 - **Gallery People finally works on customer copies (3.30).** It never had before:
   releases build `--no-models` and the app never downloaded them, so the face
   models were absent and `faces_available()` was always False. 3.30 bundles the
@@ -1339,7 +1382,12 @@ sign-ins (`jwt_expire_minutes`), external-drive records + auto-backups.
    Headers".
 5. `CF_ACCOUNT_ID` unset, so per-customer subdomains are built but disabled.
 6. ~5,002 orphaned `photo_vectors` rows.
-7. Desktop 3.3 has not been released to `L-218E2470`.
+7. **A second installation in this household is behind on server code.** The
+   owner's phone talks to it, not to this machine — this database holds 218
+   photos and the phone shows 1,118 — so a backend change made here does not
+   reach the app the owner actually uses until that copy updates itself
+   (Profile → App & updates). This is what made the `album_id` trap in §12 show
+   up as a bug rather than as a working feature.
 8. The phone app's minimum iOS is 13.0; Apple requires 15.0 from Spring 2027.
 
 ### One piece of history worth keeping, because it looked like a bug and was not
