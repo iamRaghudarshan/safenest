@@ -108,6 +108,104 @@ if not u2:
     db.add(u2); db.commit()
 check("same uuid, other user, unknown", prior(db, u2.id, UUID) is None)
 
+
+def post(path, payload):
+    r = urllib.request.Request("http://127.0.0.1:%s" % PORT + path,
+                               data=json.dumps(payload).encode(),
+                               headers={"Authorization": "Bearer " + tok,
+                                        "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(r, timeout=60) as resp:
+            return resp.status, json.load(resp)
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b"{}")
+
+
+def replay(ops):
+    st, out = post("/api/sync/replay", {"ops": ops})
+    return st, (out.get("results") or [])
+
+
+import uuid as _uuid
+def U():
+    return str(_uuid.uuid4())
+
+# NOTE: expenses has no "title" -- it is category/note/amount/txn_date. This
+# script was first written from memory and got it wrong, which is precisely the
+# trap safenest-mobile/CLAUDE.md 9 records for the phone's field tables. Read
+# the router before writing a payload.
+print("6) an offline create reaches the server")
+u1 = U()
+op = {"client_uuid": u1, "module": "expenses", "op": "create",
+      "payload": {"note": "Chai", "amount": 40, "category": "Food",
+                  "txn_date": "2026-08-20"}}
+st, res = replay([op])
+check("replay answers 200", st == 200, st)
+check("the create is accepted", bool(res) and res[0]["status"] == "ok", res)
+made = res[0].get("server_id") if res else None
+check("and reports the row it made", isinstance(made, int), made)
+
+print("7) THE POINT: replaying it does not make a second one")
+st, res2 = replay([op])
+check("the retry is recognised", bool(res2) and res2[0]["status"] == "already", res2)
+check("and points at the SAME row", res2[0].get("server_id") == made,
+      "%s vs %s" % (res2[0].get("server_id"), made))
+st, listed = get("/api/expenses")
+titles = [e.get("note") for e in (listed.get("items") or [])]
+check("exactly one Chai exists", titles.count("Chai") == 1, titles)
+
+print("8) an edit made offline lands")
+st, res = replay([{"client_uuid": U(), "module": "expenses", "op": "update",
+                   "server_id": made, "payload": {"note": "Chai and samosa"}}])
+check("the edit is accepted", bool(res) and res[0]["status"] == "ok", res)
+st, listed = get("/api/expenses")
+now = [e for e in listed["items"] if e["id"] == made]
+check("the record actually changed", bool(now) and now[0].get("note") == "Chai and samosa", now)
+
+print("9) an edit based on a stale copy is reported, not applied blindly")
+st, res = replay([{"client_uuid": U(), "module": "expenses", "op": "update",
+                   "server_id": made, "base_updated_at": "2020-01-01T00:00:00",
+                   "payload": {"note": "SHOULD NOT WIN"}}])
+check("it comes back as a conflict", bool(res) and res[0]["status"] == "conflict", res)
+check("carrying the server's own copy",
+      (res[0].get("server_row") or {}).get("note") == "Chai and samosa",
+      res[0].get("server_row"))
+st, listed = get("/api/expenses")
+now = [e for e in listed["items"] if e["id"] == made]
+check("and the record was NOT overwritten",
+      bool(now) and now[0].get("note") == "Chai and samosa", now)
+
+print("10) a delete lands, and deleting twice is not an error")
+st, res = replay([{"client_uuid": U(), "module": "expenses", "op": "delete",
+                   "server_id": made}])
+check("the delete is accepted", bool(res) and res[0]["status"] == "ok", res)
+st, res = replay([{"client_uuid": U(), "module": "expenses", "op": "delete",
+                   "server_id": made}])
+check("deleting an already-deleted row is not a failure",
+      bool(res) and res[0]["status"] in ("already", "ok"), res)
+
+print("11) one bad op does not take the good ones down with it")
+st, res = replay([
+    {"client_uuid": U(), "module": "expenses", "op": "create",
+     "payload": {"note": "Bus", "amount": 20, "category": "Travel",
+                  "txn_date": "2026-08-21"}},
+    {"client_uuid": U(), "module": "vault", "op": "create", "payload": {}},
+])
+check("both are reported separately", len(res) == 2, res)
+check("the good one landed", res[0]["status"] == "ok", res[0])
+check("VAULT IS REFUSED", res[1]["status"] == "rejected", res[1])
+
+print("12) rubbish is refused rather than crashing the batch")
+st, res = replay([{"client_uuid": U(), "module": "expenses", "op": "update",
+                   "payload": {"note": "no id"}}])
+check("an update with no target is rejected",
+      bool(res) and res[0]["status"] == "rejected", res)
+st, res = replay([{"client_uuid": U(), "module": "expenses", "op": "update",
+                   "server_id": 999999, "payload": {"note": "x"}}])
+check("editing a row that is not there says so",
+      bool(res) and res[0]["status"] == "gone", res)
+
 db.close()
-print(f"\n{ok} passed, {fail} failed")
+print("")
+print("%d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)

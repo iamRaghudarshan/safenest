@@ -19,7 +19,7 @@ reimplemented any of that would drift from the one the web app uses — which is
 how two clients end up disagreeing about what a valid record is. This module
 supplies the memory; the replay endpoint uses it.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import ist
@@ -118,3 +118,191 @@ def capabilities(user: User = Depends(get_current_user),
         "pending_known": db.query(SyncOp).filter(
             SyncOp.user_id == user.id).count(),
     }
+
+
+# --------------------------------------------------------------------- replay
+
+#: Module -> the RBAC key it guards on. NOT always the route name — todos guards
+#: on "todo", singular — and getting one wrong here would hand somebody a module
+#: the web app refuses them.
+_GUARD = {
+    "expenses": "expenses", "todos": "todo", "loans": "loans", "cards": "cards",
+    "reminders": "reminders", "notes": "notes", "habits": "habits",
+    "insurance": "insurance", "investments": "investments",
+}
+
+
+def _model(module: str):
+    from ..models import (CreditCard, Expense, Habit, Insurance, Investment,
+                          Loan, Note, Reminder, Todo)
+    return {"expenses": Expense, "todos": Todo, "loans": Loan,
+            "cards": CreditCard, "reminders": Reminder, "notes": Note,
+            "habits": Habit, "insurance": Insurance,
+            "investments": Investment}[module]
+
+
+def _handlers(module: str):
+    """The very functions the web app's own requests go through.
+
+    Not a reimplementation. What counts as a valid record — the writable-field
+    allow-lists, the required fields, the NOT NULL defaults, the audit rows —
+    lives in those routers, and a replay path that restated any of it would
+    drift until the phone and the browser disagreed about what can be saved.
+    `resources._make()` hands back the same closures it registers, so the two
+    generic modules come through the identical code.
+    """
+    from . import (cards, expenses, habits, loans, notes, reminders, resources,
+                   todos)
+    if module in resources.CONFIG:
+        _, create, update, delete = resources._make(module)
+        return create, update, delete
+    mod = {"expenses": expenses, "todos": todos, "loans": loans, "cards": cards,
+           "reminders": reminders, "notes": notes, "habits": habits}[module]
+    return mod.create, mod.update, mod.delete
+
+
+@router.post("/replay")
+def replay(body: dict = Body(...), user: User = Depends(get_current_user),
+           db: Session = Depends(get_db)):
+    """Apply what the phone did while this computer was unreachable.
+
+    ONE OPERATION AT A TIME, EACH REPORTED SEPARATELY, and that shape is the
+    point. A batch that succeeded or failed as a unit would let one refused
+    record throw away nine good ones, and leave the phone with nothing to say
+    beyond "sync failed". Every op comes back with its own outcome, so the phone
+    can forget exactly the ones that landed and keep exactly the ones that did
+    not — which is the difference between a queue and a data loss.
+    """
+    ops = body.get("ops") or []
+    if not isinstance(ops, list):
+        raise HTTPException(422, "ops must be a list")
+    # Bounded so one call cannot run for minutes. The phone sends the rest in
+    # the next round, and a progress bar that moves beats one long silence.
+    results = []
+    for raw in ops[:200]:
+        if not isinstance(raw, dict):
+            continue
+        results.append(_one(
+            db, user,
+            str(raw.get("client_uuid") or "")[:64],
+            str(raw.get("module") or ""),
+            str(raw.get("op") or ""),
+            raw))
+    return {"results": results}
+
+
+def _one(db: Session, user: User, uuid: str, module: str, op: str,
+         raw: dict) -> dict:
+    out = {"client_uuid": uuid, "module": module, "op": op}
+
+    if module not in SYNCABLE or op not in OPS or not uuid:
+        return {**out, "status": "rejected",
+                "message": f"Cannot sync {op or 'that'} on {module or 'that'}"}
+
+    seen = prior(db, user.id, uuid)
+    if seen:
+        # Already honoured. Nearly always a reply that never arrived rather than
+        # the phone doing anything odd, so this is an ordinary outcome and not
+        # an error — but it must not run the write a second time.
+        return {**out, "status": "already", "server_id": seen.server_id}
+
+    from ..security import guard
+    try:
+        action = {"create": "create", "update": "edit", "delete": "delete"}[op]
+        guard(_GUARD[module], action)(user=user, db=db)
+    except HTTPException as exc:
+        return {**out, "status": "refused", "code": exc.status_code,
+                "message": str(exc.detail)}
+
+    create, update, delete = _handlers(module)
+    target = raw.get("server_id")
+    payload = raw.get("payload") or {}
+
+    try:
+        if op in ("update", "delete"):
+            if not target:
+                return {**out, "status": "rejected",
+                        "message": "No record to change"}
+            Model = _model(module)
+            row = (db.query(Model)
+                   .filter(Model.id == int(target), Model.user_id == user.id)
+                   .first())
+            if not row:
+                # Gone on this side. Deleting something already deleted is the
+                # outcome the phone was asking for, so it is not a failure.
+                # Editing one is, and the owner has to hear about it rather than
+                # watch the change quietly evaporate.
+                if op == "delete":
+                    remember(db, user.id, uuid, module, op, None)
+                    db.commit()
+                    return {**out, "status": "already", "server_id": None}
+                return {**out, "status": "gone",
+                        "message": "That record no longer exists here"}
+
+            clash = _conflict(row, raw.get("base_updated_at"))
+            if clash:
+                return {**out, "status": "conflict", "server_id": int(target),
+                        "server_updated_at": clash, "server_row": _safe(row),
+                        "message": "Changed on the computer as well"}
+
+        # The memory goes in BEFORE the handler, so the handler's own commit
+        # carries the record and the record-of-it in one transaction. Written
+        # after, a crash in between leaves a saved record with nothing saying it
+        # was accepted — and the next replay makes a second one, which is the
+        # entire failure this module exists to prevent.
+        memo = SyncOp(user_id=user.id, client_uuid=uuid, module=module[:40],
+                      op=op[:10], server_id=None, processed_at=ist.now())
+        db.add(memo)
+
+        if op == "create":
+            res = create(body=payload, user=user, db=db)
+            sid = ((res or {}).get("item") or {}).get("id")
+        elif op == "update":
+            update(id=int(target), body=payload, user=user, db=db)
+            sid = int(target)
+        else:
+            delete(id=int(target), user=user, db=db)
+            sid = None
+
+        # A second commit, only to fill in what the row turned out to be. If
+        # THIS one is lost the uuid is still recorded, so a replay answers
+        # "already" with no id: the phone cannot learn the id, but it cannot
+        # double-create either, and that is the right way round to fail.
+        memo.server_id = sid
+        db.commit()
+        return {**out, "status": "ok", "server_id": sid}
+
+    except HTTPException as exc:
+        db.rollback()
+        return {**out, "status": "refused", "code": exc.status_code,
+                "message": str(exc.detail)}
+    except Exception as exc:                       # pragma: no cover
+        db.rollback()
+        print(f"[sync] {module}.{op} failed: {exc}")
+        return {**out, "status": "error",
+                "message": "The computer could not save that"}
+
+
+def _conflict(row, base) -> str | None:
+    """Whether the record moved under the phone's feet while it was away.
+
+    Returns the server's `updated_at` when it did, so the phone can show what it
+    is up against rather than just refusing. A MISSING base counts as no
+    conflict: an older phone that does not send one still has to be able to
+    sync, and refusing every edit from it would be a worse failure than the rare
+    overwrite it prevents.
+    """
+    have = getattr(row, "updated_at", None)
+    if not base or have is None:
+        return None
+    theirs = str(have)[:19].replace(" ", "T")
+    mine = str(base)[:19].replace(" ", "T")
+    return theirs if theirs > mine else None
+
+
+def _safe(row) -> dict:
+    from ..helpers import to_dict
+    try:
+        return to_dict(row)
+    except Exception:                              # pragma: no cover
+        return {"id": getattr(row, "id", None)}
