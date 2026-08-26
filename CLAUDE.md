@@ -1172,6 +1172,20 @@ folders look empty of Python. That check alone cost 35 of the 57 packages.
 - **A migration entry keys on a COLUMN existing.** Adding an index that way —
   `("gallery_photos", "source_hash_idx", "ALTER TABLE ... ADD INDEX ...")` —
   re-runs on every single startup, because no column of that name ever appears.
+- **`sync_ops` is what stops the phone creating a record twice, and the records
+  themselves cannot do that job.** A phone that saved something while this
+  machine was asleep replays it later, and cannot tell "it never arrived" from
+  "it arrived and I missed the reply" — so it retries. Asking "does a record
+  like this exist?" gets it wrong both ways: two identical expenses on one day
+  is an ordinary thing to enter twice. So the phone mints a uuid per operation
+  and `sync_ops` remembers the honoured ones. **One table for every module** on
+  purpose — a `client_uuid` column on nine tables is nine migrations across two
+  dialects to keep in step forever, and v7 in §6 is what happens when one is
+  missed. `routers/sync.py::replay` writes the uuid BEFORE the handler runs so
+  the handler's own commit carries both; written after, a crash between them
+  leaves a record nothing marks as accepted. Verified by `backend/verify_sync.py`
+  against a running server — 35 checks, including that replaying a create leaves
+  exactly one record, and that **vault is refused**.
 - **A media URL from this server is RELATIVE, and a phone cannot resolve one.**
   `media_url()` mints `/api/gallery/media/<variant>/<name>?t=<signature>`, which
   is right for the web app — same origin — and useless to Flutter, where
