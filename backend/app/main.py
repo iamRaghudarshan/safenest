@@ -14,11 +14,11 @@ from .config import BACKEND_DIR, settings
 from .crypto import reencrypt_legacy_items
 from .database import Base, engine
 from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Habit, HabitLog, Hosting, License, LicenceRequest, MailLog, MailSettings, Release,
-                     Master, MasterList, Note, NoteItem, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, Ticket, TicketMessage,
+                     Master, MasterList, Note, NoteItem, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, SyncOp, Ticket, TicketMessage,
                      UserModule, User)
 from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, habits, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, mail, notes, notifications, people, reminders,
-                      resources, search, mobile, storefront, support, system, todos, vault)
+                      resources, search, mobile, storefront, support, sync, system, todos, vault)
 from . import autoimport, autostart, backup, hosts, indexer, ist, licensing, mailer, scheduler, tunnelrun
 
 
@@ -295,6 +295,10 @@ def _migrate() -> None:
     # Habit tracker: the habits and their daily check-ins (added August 2026).
     Habit.__table__.create(bind=engine, checkfirst=True)
     HabitLog.__table__.create(bind=engine, checkfirst=True)
+    # What the phone has already had accepted while it was offline (added
+    # August 2026). Without it a retried replay makes a second copy of a real
+    # record -- see the model.
+    SyncOp.__table__.create(bind=engine, checkfirst=True)
     _seed_module_grants()
 
 
@@ -872,7 +876,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, habits, notes, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports):
+for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, habits, notes, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports, sync):
     app.include_router(r.router)
 app.include_router(licences.public)   # /api/licence/... — customer-facing, separate prefix
 app.include_router(releases.public)   # /api/licence/update, /download

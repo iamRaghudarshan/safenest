@@ -1003,3 +1003,43 @@ class BroadcastReceipt(Base):
     __table_args__ = (
         UniqueConstraint("broadcast_id", "key_id", name="uq_receipt_broadcast_key"),
     )
+
+
+class SyncOp(Base):
+    """One offline operation the phone has already had accepted.
+
+    THE FAILURE THIS EXISTS TO PREVENT. A phone that saves a record while the
+    server is unreachable replays it later. If the network drops *after* the
+    server committed the row but *before* the phone read the reply, the phone
+    cannot tell "it never arrived" from "it arrived and I missed the answer" —
+    and retrying is the only safe-looking option. Without a record of what has
+    already been accepted, every such retry silently creates a second copy of a
+    real record, which is worse than the outage that caused it.
+
+    So the phone mints a uuid per operation and the server remembers it. A
+    replay of a uuid already here returns the server_id it produced the first
+    time, and writes nothing.
+
+    ONE TABLE FOR EVERY MODULE, deliberately. The alternative — a client_uuid
+    column on expenses, loans, cards, insurance, investments, reminders, todos,
+    habits and notes — is nine migrations to keep in step, on both dialects,
+    forever, and one of them WILL be forgotten (see the v7 note in the phone's
+    own history: is_short reached history's table and not the other two, and
+    every download then failed silently).
+
+    Kept per user because a uuid is generated on a device and two households
+    must never be able to collide, however unlikely a v4 collision is.
+    """
+    __tablename__ = "sync_ops"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    client_uuid = Column(String(64), index=True)
+    module = Column(String(40))
+    #: What the operation produced, so a replay can answer with it rather than
+    #: repeating the work. Null for a delete, which has nothing to point at.
+    server_id = Column(Integer)
+    op = Column(String(10))          # create | update | delete
+    processed_at = Column(FlexDateTime)
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_uuid", name="uq_sync_user_uuid"),
+    )
