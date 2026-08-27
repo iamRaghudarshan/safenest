@@ -56,7 +56,32 @@ PROTOCOL = 1
 SYNCABLE = ("expenses", "loans", "cards", "insurance", "investments",
             "reminders", "todos", "notes", "habits", "vault")
 
-OPS = ("create", "update", "delete")
+OPS = ("create", "update", "delete", "action")
+
+#: The named actions a phone may replay, and nothing else.
+#:
+#: create/update/delete does not describe what people actually DO to some
+#: records: a habit is ticked, a note is pinned, a to-do is toggled. A habit
+#: tracker that cannot be ticked away from the computer is not working offline
+#: in any sense its owner would recognise.
+#:
+#: AN ALLOW-LIST, NOT A PATH. The obvious shape is to let the client say "post
+#: to /api/habits/7/check" and forward it — which hands anyone with a token the
+#: run of every POST route on this server, including ones that were never meant
+#: for a phone. The client names an action; this decides whether it exists,
+#: which function it is, and what permission it needs.
+#:
+#: (name -> function on the router, takes_body, RBAC verb)
+_ACTIONS: dict[str, dict[str, tuple[str, bool, str]]] = {
+    "habits": {"check": ("check", True, "edit"),
+               "archive": ("archive", False, "edit")},
+    "notes": {"pin": ("pin", False, "edit"),
+              "archive": ("archive", False, "edit"),
+              "trash": ("trash", False, "delete"),
+              "restore": ("restore", False, "edit")},
+    "todos": {"toggle": ("toggle", False, "edit")},
+    "reminders": {"toggle": ("toggle", False, "edit")},
+}
 
 
 def prior(db: Session, user_id: int, client_uuid: str) -> SyncOp | None:
@@ -215,10 +240,21 @@ def _one(db: Session, user: User, uuid: str, module: str, op: str,
         # an error — but it must not run the write a second time.
         return {**out, "status": "already", "server_id": seen.server_id}
 
+    want = str(raw.get("action") or "")
+    if op == "action":
+        allowed = _ACTIONS.get(module) or {}
+        if want not in allowed:
+            # Not "refused" — refused means the computer considered it. This
+            # one it will not consider at all, and no amount of retrying
+            # changes that, so the phone must stop rather than keep it queued.
+            return {**out, "status": "rejected",
+                    "message": f"Cannot do '{want}' on {module} from a phone"}
+
     from ..security import guard
     try:
-        action = {"create": "create", "update": "edit", "delete": "delete"}[op]
-        guard(_GUARD[module], action)(user=user, db=db)
+        verb = ({"create": "create", "update": "edit", "delete": "delete"}[op]
+                if op != "action" else _ACTIONS[module][want][2])
+        guard(_GUARD[module], verb)(user=user, db=db)
     except HTTPException as exc:
         return {**out, "status": "refused", "code": exc.status_code,
                 "message": str(exc.detail)}
@@ -228,7 +264,7 @@ def _one(db: Session, user: User, uuid: str, module: str, op: str,
     payload = raw.get("payload") or {}
 
     try:
-        if op in ("update", "delete"):
+        if op in ("update", "delete", "action"):
             if not target:
                 return {**out, "status": "rejected",
                         "message": "No record to change"}
@@ -248,7 +284,11 @@ def _one(db: Session, user: User, uuid: str, module: str, op: str,
                 return {**out, "status": "gone",
                         "message": "That record no longer exists here"}
 
-            clash = _conflict(row, raw.get("base_updated_at"))
+            # An action is not an edit of fields, so a newer copy on the
+            # computer is not a conflict — ticking a habit that was renamed
+            # elsewhere is still exactly what was meant.
+            clash = (None if op == "action"
+                     else _conflict(row, raw.get("base_updated_at")))
             if clash:
                 return {**out, "status": "conflict", "server_id": int(target),
                         "server_updated_at": clash, "server_row": _safe(row),
@@ -263,7 +303,18 @@ def _one(db: Session, user: User, uuid: str, module: str, op: str,
                       op=op[:10], server_id=None, processed_at=ist.now())
         db.add(memo)
 
-        if op == "create":
+        if op == "action":
+            fn_name, takes_body, _verb = _ACTIONS[module][want]
+            from . import cards, expenses, habits, loans, notes, reminders, todos
+            mod = {"habits": habits, "notes": notes, "todos": todos,
+                   "reminders": reminders}[module]
+            fn = getattr(mod, fn_name)
+            if takes_body:
+                fn(id=int(target), body=payload, user=user, db=db)
+            else:
+                fn(id=int(target), user=user, db=db)
+            sid = int(target)
+        elif op == "create":
             res = create(body=payload, user=user, db=db)
             sid = _new_id(res)
         elif op == "update":

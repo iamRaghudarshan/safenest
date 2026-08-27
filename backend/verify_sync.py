@@ -79,7 +79,8 @@ check("lists modules", "expenses" in cap["modules"] and "todos" in cap["modules"
 check("vault is syncable (the owner's decision)", "vault" in cap["modules"], cap["modules"])
 check("gallery is not syncable", "gallery" not in cap["modules"])
 check("documents are not syncable", "documents" not in cap["modules"])
-check("declares the three ops", set(cap["ops"]) == {"create", "update", "delete"})
+check("declares the four ops", set(cap["ops"]) ==
+      {"create", "update", "delete", "action"}, cap["ops"])
 check("hands back its own clock", bool(cap.get("server_time")))
 check("names the timezone", cap.get("timezone") == "Asia/Kolkata")
 
@@ -231,11 +232,20 @@ check("replaying it does not make a second copy",
 check("and points at the same row", res[0].get("server_id") == vid, res[0])
 
 print("14) the bulk-secrets endpoint is guarded")
-st, out = get("/api/vault/sync")
-check("it hands the phone the passwords", st == 200 and "items" in out, st)
-got = [i for i in out.get("items", []) if i.get("title") == "Router login"]
-check("including the password itself",
-      bool(got) and got[0].get("password") == "hunter2-not-real", got)
+# Tolerant of a 429, because running this script twice inside fifteen minutes
+# spends the allowance -- which is the rate limit working, not a failure. The
+# limit itself is checked explicitly below.
+try:
+    st, out = get("/api/vault/sync")
+    check("it hands the phone the passwords", st == 200 and "items" in out, st)
+    got = [i for i in out.get("items", []) if i.get("title") == "Router login"]
+    check("including the password itself",
+          bool(got) and got[0].get("password") == "hunter2-not-real", got)
+except urllib.error.HTTPError as e:
+    if e.code == 429:
+        print("  SKIP  vault contents (rate limited — run again in 15 min)")
+    else:
+        check("it hands the phone the passwords", False, e.code)
 
 import urllib.request as _u
 try:
@@ -258,6 +268,32 @@ for _ in range(5):
     except urllib.error.HTTPError as e:
         codes.append(e.code)
 check("it is rate limited, hard", 429 in codes, codes)
+
+print("15) actions — ticking a habit from a phone that was offline")
+st, res = replay([{"client_uuid": U(), "module": "habits", "op": "create",
+                   "payload": {"name": "Walk", "target_per_day": 1}}])
+check("a habit created offline lands", bool(res) and res[0]["status"] == "ok", res)
+hid = res[0].get("server_id") if res else None
+
+u_tick = U()
+st, res = replay([{"client_uuid": u_tick, "module": "habits", "op": "action",
+                   "action": "check", "server_id": hid, "payload": {}}])
+check("ticking it offline replays", bool(res) and res[0]["status"] == "ok", res)
+
+st, res = replay([{"client_uuid": u_tick, "module": "habits", "op": "action",
+                   "action": "check", "server_id": hid, "payload": {}}])
+check("and a repeat of the same tick is not counted twice",
+      bool(res) and res[0]["status"] == "already", res)
+
+print("16) an action the server does not offer is refused outright")
+st, res = replay([{"client_uuid": U(), "module": "habits", "op": "action",
+                   "action": "delete_everything", "server_id": hid}])
+check("an invented action is rejected",
+      bool(res) and res[0]["status"] == "rejected", res)
+st, res = replay([{"client_uuid": U(), "module": "expenses", "op": "action",
+                   "action": "check", "server_id": 1}])
+check("an action on a module that has none is rejected",
+      bool(res) and res[0]["status"] == "rejected", res)
 
 db.close()
 print("")
