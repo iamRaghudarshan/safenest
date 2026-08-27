@@ -602,10 +602,36 @@
   <div class="wrap">
     <div class="brand"><img id="foot-logo" class="logo-img" src="/branding/icon-192.png" alt="" style="width:28px;height:28px"><span id="foot-name">SafeNest</span></div>
     <div id="foot-copy">© SafeNest. Licensed software. Not for resale or redistribution.</div>
-    <div><a href="/">Sign in</a> &nbsp;·&nbsp; <a href="#download">Download</a> &nbsp;·&nbsp; <a href="#licence">Get a licence</a> &nbsp;·&nbsp; <a id="foot-android" href="/api/public/download?platform=android">🤖 Android app</a></div>
+    <div><a href="/">Sign in</a> &nbsp;·&nbsp; <a href="#download">Download</a> &nbsp;·&nbsp; <a href="#licence">Get a licence</a> &nbsp;·&nbsp; <a id="foot-android" href="/api/public/download?platform=android">🤖 Android app</a> <a href="#" class="dl-trigger" title="AI BIT" style="color:inherit;text-decoration:none;opacity:.4;cursor:default">·</a></div>
   </div>
 </footer>
 
 <script src="/storefront.js"></script>
+<style>
+#aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
+#aibit-gate.show{display:flex}
+#aibit-gate .aib-card{position:relative;width:min(380px,94vw);background:#17171b;color:#f5f5f7;border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:32px 26px;text-align:center;box-shadow:0 24px 60px -20px rgba(0,0,0,.7)}
+#aibit-gate .aib-x{position:absolute;top:10px;right:14px;background:none;border:none;color:#a7a7b0;font-size:1.5rem;line-height:1;cursor:pointer}
+#aibit-gate .aib-ico{width:54px;height:54px;margin:0 auto 12px;border-radius:15px;display:grid;place-items:center;font-size:1.5rem;background:rgba(255,0,51,.14);border:1px solid rgba(255,0,51,.3)}
+#aibit-gate h3{margin:0;font-size:1.25rem;font-weight:800}
+#aibit-gate p{color:#a7a7b0;margin:8px 0 16px;font-size:.92rem}
+#aibit-gate input{width:100%;padding:13px 15px;border-radius:11px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#f5f5f7;font-size:1.05rem;text-align:center;letter-spacing:.15em;outline:none;box-sizing:border-box}
+#aibit-gate input:focus{border-color:#FF0033}
+#aibit-gate .aib-err{color:#ff375a;font-size:.84rem;min-height:18px;margin:9px 0 4px}
+#aibit-gate .aib-ok{width:100%;margin-top:6px;padding:13px;border:none;border-radius:11px;cursor:pointer;font-weight:700;font-size:1rem;color:#fff;background:linear-gradient(135deg,#ff2b52,#ED0E0D)}
+</style>
+<div id="aibit-gate">
+  <div class="aib-card" role="dialog" aria-modal="true" aria-label="Password required">
+    <button id="aibit-x" class="aib-x" aria-label="Close">&times;</button>
+    <div class="aib-ico">&#128274;</div>
+    <h3>Private download</h3>
+    <p>Enter the password to download AI BIT.</p>
+    <p id="aibit-ver" style="color:#a7a7b0;font-size:.84rem;margin:-8px 0 14px"></p>
+    <input id="aibit-pw" type="password" inputmode="numeric" autocomplete="off" placeholder="Password">
+    <div id="aibit-err" class="aib-err"></div>
+    <button id="aibit-ok" class="aib-ok">Unlock &amp; download</button>
+  </div>
+</div>
+<script src="/aibit-gate.js?v=2.17.0-2" defer></script>
 </body>
 </html>

@@ -13,9 +13,15 @@ one on 8080, which holds real records:
 
 then:  venv/Scripts/python verify_sync.py
 
-17 checks. The one that matters most is that VAULT IS NOT SYNCABLE: a phone
-holding a usable copy of the vault would move every saved password onto the
-device most likely to be lost.
+43 checks. The two that matter most:
+
+  * Replaying a create leaves exactly ONE record. Everything else here is
+    housekeeping next to that.
+  * The vault's bulk endpoint is guarded -- 401 without a token, and rate
+    limited hard. Vault IS syncable now, at the owner's explicit request, so
+    the question stopped being "is it exposed" and became "is taking all of it
+    at once difficult and loud". It is: 3 calls per 15 minutes, and its own
+    audit action.
 """
 import os, sys, json, urllib.request, urllib.error
 
@@ -67,7 +73,10 @@ st, cap = get("/api/sync/capabilities")
 check("responds 200", st == 200)
 check("declares a protocol number", isinstance(cap.get("protocol"), int))
 check("lists modules", "expenses" in cap["modules"] and "todos" in cap["modules"])
-check("VAULT IS NOT SYNCABLE", "vault" not in cap["modules"], cap["modules"])
+# Vault IS syncable now -- the owner asked for offline passwords twice,
+# knowing a lost phone carries the vault. What keeps it defensible is the
+# handling, checked below: a hard rate limit and its own audit action.
+check("vault is syncable (the owner's decision)", "vault" in cap["modules"], cap["modules"])
 check("gallery is not syncable", "gallery" not in cap["modules"])
 check("documents are not syncable", "documents" not in cap["modules"])
 check("declares the three ops", set(cap["ops"]) == {"create", "update", "delete"})
@@ -189,11 +198,11 @@ st, res = replay([
     {"client_uuid": U(), "module": "expenses", "op": "create",
      "payload": {"note": "Bus", "amount": 20, "category": "Travel",
                   "txn_date": "2026-08-21"}},
-    {"client_uuid": U(), "module": "vault", "op": "create", "payload": {}},
+    {"client_uuid": U(), "module": "gallery", "op": "create", "payload": {}},
 ])
 check("both are reported separately", len(res) == 2, res)
 check("the good one landed", res[0]["status"] == "ok", res[0])
-check("VAULT IS REFUSED", res[1]["status"] == "rejected", res[1])
+check("GALLERY IS REFUSED", res[1]["status"] == "rejected", res[1])
 
 print("12) rubbish is refused rather than crashing the batch")
 st, res = replay([{"client_uuid": U(), "module": "expenses", "op": "update",
@@ -204,6 +213,51 @@ st, res = replay([{"client_uuid": U(), "module": "expenses", "op": "update",
                    "server_id": 999999, "payload": {"note": "x"}}])
 check("editing a row that is not there says so",
       bool(res) and res[0]["status"] == "gone", res)
+
+print("13) the vault, now that it syncs")
+u_v = U()
+st, res = replay([{"client_uuid": u_v, "module": "vault", "op": "create",
+                   "payload": {"title": "Router login", "username": "admin",
+                               "password": "hunter2-not-real"}}])
+check("a vault item created offline lands", bool(res) and res[0]["status"] == "ok", res)
+vid = res[0].get("server_id") if res else None
+check("and reports its id (vault answers {id}, not {item})",
+      isinstance(vid, int), vid)
+
+st, res = replay([{"client_uuid": u_v, "module": "vault", "op": "create",
+                   "payload": {"title": "Router login"}}])
+check("replaying it does not make a second copy",
+      bool(res) and res[0]["status"] == "already", res)
+check("and points at the same row", res[0].get("server_id") == vid, res[0])
+
+print("14) the bulk-secrets endpoint is guarded")
+st, out = get("/api/vault/sync")
+check("it hands the phone the passwords", st == 200 and "items" in out, st)
+got = [i for i in out.get("items", []) if i.get("title") == "Router login"]
+check("including the password itself",
+      bool(got) and got[0].get("password") == "hunter2-not-real", got)
+
+import urllib.request as _u
+try:
+    _u.urlopen("http://127.0.0.1:%s/api/vault/sync" % PORT, timeout=20)
+    check("a stranger cannot call it", False, "it answered without a token!")
+except urllib.error.HTTPError as e:
+    check("a stranger cannot call it", e.code == 401, e.code)
+
+# 3 per 15 minutes. The 4th must be refused -- this is the endpoint that hands
+# over an entire vault in one call, so "somebody drained it" has to be hard.
+codes = []
+for _ in range(5):
+    c, _o = get("/api/vault/sync") if False else (None, None)
+for _ in range(5):
+    try:
+        r = urllib.request.Request("http://127.0.0.1:%s/api/vault/sync" % PORT,
+                                   headers={"Authorization": "Bearer " + tok})
+        with urllib.request.urlopen(r, timeout=30) as resp:
+            codes.append(resp.status)
+    except urllib.error.HTTPError as e:
+        codes.append(e.code)
+check("it is rate limited, hard", 429 in codes, codes)
 
 db.close()
 print("")

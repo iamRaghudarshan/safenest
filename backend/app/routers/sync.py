@@ -38,15 +38,23 @@ PROTOCOL = 1
 
 #: The modules a client may hold and replay.
 #:
-#: Vault is absent on purpose and must stay absent: its contents are decrypted
-#: on this machine and the key never leaves it, so a phone holding a usable copy
-#: would move every saved password onto the device most likely to be lost. See
-#: CLAUDE.md §7.
+#: VAULT IS HERE, AND THAT WAS A DECISION, NOT AN OVERSIGHT. It was excluded at
+#: first on the reasoning that passwords decrypted on this machine should never
+#: rest on a phone. The owner asked for offline passwords twice, knowing what it
+#: costs: a lost phone carries the vault, and recovery is changing every
+#: password. What makes it defensible rather than reckless is how it travels and
+#: where it lands -- `vault.sync_out` is rate limited to 3 calls per 15 minutes
+#: and audited as its own action, and the phone keeps the payload encrypted
+#: under a key held in the Keychain / EncryptedSharedPreferences.
+#:
+#: If that decision is ever revisited, removing "vault" from this tuple is the
+#: whole of it on this side: the replay endpoint refuses anything not named
+#: here, and the phone asks this list what it may hold.
 #:
 #: Gallery and documents are absent because they are large binaries with their
 #: own transfer machinery, not because they are secret.
 SYNCABLE = ("expenses", "loans", "cards", "insurance", "investments",
-            "reminders", "todos", "notes", "habits")
+            "reminders", "todos", "notes", "habits", "vault")
 
 OPS = ("create", "update", "delete")
 
@@ -128,17 +136,17 @@ def capabilities(user: User = Depends(get_current_user),
 _GUARD = {
     "expenses": "expenses", "todos": "todo", "loans": "loans", "cards": "cards",
     "reminders": "reminders", "notes": "notes", "habits": "habits",
-    "insurance": "insurance", "investments": "investments",
+    "insurance": "insurance", "investments": "investments", "vault": "vault",
 }
 
 
 def _model(module: str):
     from ..models import (CreditCard, Expense, Habit, Insurance, Investment,
-                          Loan, Note, Reminder, Todo)
+                          Loan, Note, Reminder, Todo, VaultItem)
     return {"expenses": Expense, "todos": Todo, "loans": Loan,
             "cards": CreditCard, "reminders": Reminder, "notes": Note,
             "habits": Habit, "insurance": Insurance,
-            "investments": Investment}[module]
+            "investments": Investment, "vault": VaultItem}[module]
 
 
 def _handlers(module: str):
@@ -152,12 +160,13 @@ def _handlers(module: str):
     generic modules come through the identical code.
     """
     from . import (cards, expenses, habits, loans, notes, reminders, resources,
-                   todos)
+                   todos, vault)
     if module in resources.CONFIG:
         _, create, update, delete = resources._make(module)
         return create, update, delete
     mod = {"expenses": expenses, "todos": todos, "loans": loans, "cards": cards,
-           "reminders": reminders, "notes": notes, "habits": habits}[module]
+           "reminders": reminders, "notes": notes, "habits": habits,
+           "vault": vault}[module]
     return mod.create, mod.update, mod.delete
 
 
@@ -256,7 +265,7 @@ def _one(db: Session, user: User, uuid: str, module: str, op: str,
 
         if op == "create":
             res = create(body=payload, user=user, db=db)
-            sid = ((res or {}).get("item") or {}).get("id")
+            sid = _new_id(res)
         elif op == "update":
             update(id=int(target), body=payload, user=user, db=db)
             sid = int(target)
@@ -281,6 +290,26 @@ def _one(db: Session, user: User, uuid: str, module: str, op: str,
         print(f"[sync] {module}.{op} failed: {exc}")
         return {**out, "status": "error",
                 "message": "The computer could not save that"}
+
+
+def _new_id(res) -> int | None:
+    """The id a create produced, whichever shape its router answers in.
+
+    Eight of the nine return {"item": {...}}; **vault returns {"id": n}**. Read
+    only the first shape and a vault create comes back with no id — which the
+    phone then cannot point its later edits at, so an edit made offline right
+    after a create replays against nothing. Checked against every router rather
+    than assumed, because this is precisely the kind of difference that is
+    invisible until one module misbehaves.
+    """
+    if not isinstance(res, dict):
+        return None
+    item = res.get("item")
+    if isinstance(item, dict) and item.get("id") is not None:
+        return int(item["id"])
+    if res.get("id") is not None:
+        return int(res["id"])
+    return None
 
 
 def _conflict(row, base) -> str | None:
