@@ -24,7 +24,20 @@ export function ConnectionBanner() {
     if (manual) setChecking(true)
     const ok = await ping()
     if (manual) setChecking(false)
-    if (ok) { attempt.current = 0; setDown(false) }
+    // A REPLY IS PROOF, and it outranks navigator.onLine.
+    //
+    // `offline` starts from navigator.onLine and used to be cleared ONLY by the
+    // browser's `online` event. That event does not always arrive — a Mac that
+    // slept and woke, a changed network, a browser whose idea of connectivity
+    // got stuck — and the flag then stayed false for ever. The banner said "No
+    // internet connection" over an app that was talking to its own server on
+    // 127.0.0.1 perfectly happily, and Retry could not clear it: probe() only
+    // ever touched `down`. Pressing it did nothing, which is precisely how it
+    // was reported.
+    //
+    // So a successful ping clears both. Something answered; whatever the
+    // browser believes about the network, this app is reaching its server.
+    if (ok) { attempt.current = 0; setDown(false); setOffline(false) }
     return ok
   }, [])
 
@@ -45,8 +58,15 @@ export function ConnectionBanner() {
 
   // While down, keep checking with a widening gap so a recovered server is picked
   // up automatically instead of waiting for the user to poke it.
+  //
+  // It runs while `offline` too, which it did not before. Skipping the retry
+  // when the browser claims there is no network sounds like a saving -- why
+  // probe with the radio off? -- but navigator.onLine is not always right, and
+  // when it is wrong this was the difference between a banner that clears
+  // itself in seconds and one that never clears at all. A ping against
+  // 127.0.0.1 costs nothing worth saving.
   useEffect(() => {
-    if (!down || offline) return
+    if (!down && !offline) return
     const wait = RETRY_MS[Math.min(attempt.current, RETRY_MS.length - 1)]
     timer.current = window.setTimeout(() => { attempt.current++; probe() }, wait)
     return () => clearTimeout(timer.current)

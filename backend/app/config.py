@@ -57,6 +57,16 @@ class Settings(BaseSettings):
     media_secret: str                      # required
     media_url_ttl: int = 86400             # 24h
 
+    #: Biggest document, in megabytes. 25 was hard-coded and there was no way to
+    #: raise it -- which is a strange thing to impose on somebody storing their
+    #: own files on their own computer. A scanned passport or a year of bank
+    #: statements goes past it easily, and the refusal said only "max 25 MB".
+    #:
+    #: 500 is not a technical ceiling either; it is a guard against a mistyped
+    #: upload filling the disk. Raise DOCUMENT_MAX_MB in backend/.env if a real
+    #: file needs more.
+    document_max_mb: int = 500
+
     # --- web push (daily digest). Blank keys simply disable the feature. ---
     vapid_public_key: str = ""
     vapid_private_key: str = ""

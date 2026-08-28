@@ -22,6 +22,7 @@ except Exception:
 
 from .. import ist, ocr
 from .. import storage
+from ..config import settings
 from ..database import get_db
 from ..helpers import audit
 from ..models import Document, User
@@ -40,7 +41,16 @@ def doc_path(d: Document, variant: str) -> str:
 
 
 THUMB_MAX = 480
-MAX_BYTES = 25 * 1024 * 1024  # 25 MB per document
+# Per document, from settings so it can be raised without a new build. It was
+# 25 MB hard-coded, which a scanned passport or a year of statements goes past
+# without trying -- and the refusal said only "max 25 MB", with nothing to
+# change. See config.document_max_mb.
+MAX_BYTES = settings.document_max_mb * 1024 * 1024
+
+
+def _too_big(what: str = "File") -> str:
+    """The refusal, saying the actual limit rather than a number frozen in 2026."""
+    return f"{what} too large (max {settings.document_max_mb} MB)"
 CATEGORIES = ["id", "financial", "medical", "property", "vehicle", "education", "insurance", "other"]
 IMAGE_EXT = {"jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp"}
 
@@ -94,7 +104,7 @@ async def _read_capped(file: UploadFile, limit: int) -> bytes:
             break
         total += len(chunk)
         if total > limit:
-            raise HTTPException(413, "File too large (max 25 MB)")
+            raise HTTPException(413, _too_big())
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -288,7 +298,7 @@ async def scan(files: list[UploadFile] = File(...), title: str = Form(""),
         raw = await _read_capped(f, MAX_BYTES)
         total += len(raw)
         if total > MAX_BYTES:
-            raise HTTPException(413, "Scan too large (max 25 MB in total)")
+            raise HTTPException(413, _too_big("Scan"))
         try:
             im = Image.open(io.BytesIO(raw))
             im.load()
@@ -304,7 +314,7 @@ async def scan(files: list[UploadFile] = File(...), title: str = Form(""),
     pages[0].save(pdf, format="PDF", save_all=True, append_images=pages[1:], resolution=150.0)
     data = pdf.getvalue()
     if len(data) > MAX_BYTES:
-        raise HTTPException(413, "Scan too large (max 25 MB)")
+        raise HTTPException(413, _too_big("Scan"))
     storage.save(storage.DOCUMENTS, user.id, storage.ORIGINAL, stored, data)
 
     # First page doubles as the thumbnail, so scans look like everything else.
