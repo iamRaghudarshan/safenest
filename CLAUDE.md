@@ -1208,6 +1208,25 @@ folders look empty of Python. That check alone cost 35 of the 57 packages.
   feature and a phone release do not ship together; assume the far end is
   older, and fall back to what has always been there.** (There is more than one
   installation in this household, which is how this surfaced at all.)
+- **A flag read once at mount can never be corrected, and `navigator.onLine` is
+  the one that bites.** The connection banner took its `offline` state from
+  `navigator.onLine` at page load and cleared it ONLY on the browser's `online`
+  event — which does not reliably arrive after a laptop sleeps or a network
+  changes. Once stuck, it stayed stuck: `probe()` reset a different flag, so
+  **Retry did nothing**, and the auto-retry loop had `if (!down || offline)
+  return`, so it gave up entirely in exactly the state that needed it most. The
+  result was "No internet connection" shown over an app talking to
+  `127.0.0.1`, on a Mac whose other browser tabs were online throughout, and no
+  way to clear it but reloading the page. **A reply is proof and outranks any
+  flag**: a successful ping now clears both, and the loop keeps running. When
+  something says it cannot reach the network, check what would ever change its
+  mind.
+- **Limits that a person cannot raise need a reason, not just a number.**
+  Documents were capped at 25 MB, hard-coded, and the refusal said only "max
+  25 MB" — on a product whose whole argument is that these are your files on
+  your own computer. A scanned passport passes it without trying. It is
+  `settings.document_max_mb` now (default 500) and the message quotes the real
+  limit, so raising it is an .env line rather than a new build.
 - **`.btn.primary` does not exist in the CSS.** `.btn` is already the filled style;
   `.btn.ghost` is the quiet one.
 - **`tk.Button` ignores `bg` on macOS** — the installer uses a drawn `Btn`
