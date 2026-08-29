@@ -62,10 +62,19 @@ class Settings(BaseSettings):
     #: own files on their own computer. A scanned passport or a year of bank
     #: statements goes past it easily, and the refusal said only "max 25 MB".
     #:
-    #: 500 is not a technical ceiling either; it is a guard against a mistyped
-    #: upload filling the disk. Raise DOCUMENT_MAX_MB in backend/.env if a real
-    #: file needs more.
-    document_max_mb: int = 500
+    #: **0 MEANS NO LIMIT**, and that is the default, because the owner asked
+    #: for one plainly: these are their files, on their own computer, on their
+    #: own disk. A ceiling this app invents is one they cannot argue with.
+    #:
+    #: Set DOCUMENT_MAX_MB to a number to impose one — worth doing on a shared
+    #: or small-disk installation, where a mistyped upload filling the drive is
+    #: a real risk rather than a hypothetical one.
+    #:
+    #: NOTE, and this one is NOT ours to change: an upload arriving through a
+    #: Cloudflare tunnel is capped by Cloudflare at 100 MB on the free plan. A
+    #: bigger file has to go over the local address instead. Nothing here can
+    #: raise that.
+    document_max_mb: int = 0
 
     # --- web push (daily digest). Blank keys simply disable the feature. ---
     vapid_public_key: str = ""

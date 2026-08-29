@@ -45,11 +45,12 @@ THUMB_MAX = 480
 # 25 MB hard-coded, which a scanned passport or a year of statements goes past
 # without trying -- and the refusal said only "max 25 MB", with nothing to
 # change. See config.document_max_mb.
+# 0 disables the cap entirely, which is the default. See config.document_max_mb.
 MAX_BYTES = settings.document_max_mb * 1024 * 1024
 
 
 def _too_big(what: str = "File") -> str:
-    """The refusal, saying the actual limit rather than a number frozen in 2026."""
+    """The refusal, quoting the real limit rather than one frozen at build time."""
     return f"{what} too large (max {settings.document_max_mb} MB)"
 CATEGORIES = ["id", "financial", "medical", "property", "vehicle", "education", "insurance", "other"]
 IMAGE_EXT = {"jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp"}
@@ -103,7 +104,9 @@ async def _read_capped(file: UploadFile, limit: int) -> bytes:
         if not chunk:
             break
         total += len(chunk)
-        if total > limit:
+        # limit <= 0 is "no limit". The owner asked for no ceiling on their own
+        # files, and an invented one is not something they can argue with.
+        if limit > 0 and total > limit:
             raise HTTPException(413, _too_big())
         chunks.append(chunk)
     return b"".join(chunks)
@@ -297,7 +300,7 @@ async def scan(files: list[UploadFile] = File(...), title: str = Form(""),
     for f in files:
         raw = await _read_capped(f, MAX_BYTES)
         total += len(raw)
-        if total > MAX_BYTES:
+        if MAX_BYTES > 0 and total > MAX_BYTES:
             raise HTTPException(413, _too_big("Scan"))
         try:
             im = Image.open(io.BytesIO(raw))
@@ -313,7 +316,7 @@ async def scan(files: list[UploadFile] = File(...), title: str = Form(""),
     pdf = io.BytesIO()
     pages[0].save(pdf, format="PDF", save_all=True, append_images=pages[1:], resolution=150.0)
     data = pdf.getvalue()
-    if len(data) > MAX_BYTES:
+    if MAX_BYTES > 0 and len(data) > MAX_BYTES:
         raise HTTPException(413, _too_big("Scan"))
     storage.save(storage.DOCUMENTS, user.id, storage.ORIGINAL, stored, data)
 
