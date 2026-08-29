@@ -1208,6 +1208,20 @@ folders look empty of Python. That check alone cost 35 of the 57 packages.
   feature and a phone release do not ship together; assume the far end is
   older, and fall back to what has always been there.** (There is more than one
   installation in this household, which is how this surfaced at all.)
+- **`uuid.getnode()` is not a stable machine id, and the warning it powered was
+  the alarming kind.** `hosts.fingerprint()` deliberately excludes the hostname
+  and IP because those change on their own — but it is built on
+  `uuid.getnode()`, which returns the MAC of *an* adapter, and a laptop moving
+  between Wi-Fi, Ethernet or a VPN hands back a different one. The same machine
+  then registers twice and Profile announces "SafeNest has run on more than one
+  computer… two will answer from two different sets of records". That tells
+  somebody their records are SPLIT when they are not, which is far worse than a
+  cosmetic bug. Seen on the publisher's own box: two rows, both `PTS-048`,
+  differing only in a local IP that had changed between them. `record()` now
+  falls back to matching hostname + platform + **data_dir** and adopts the new
+  fingerprint. Matching the data directory is the part that matters — two copies
+  on ONE machine really are two installations and must still be reported, which
+  is the whole point of the warning.
 - **A flag read once at mount can never be corrected, and `navigator.onLine` is
   the one that bites.** The connection banner took its `offline` state from
   `navigator.onLine` at page load and cleared it ONLY on the browser's `online`

@@ -101,7 +101,36 @@ def record(db: Session, app_version: str = "2.0") -> AppHost:
     """
     now = ist.now()
     info = describe(db)
-    host = db.query(AppHost).filter(AppHost.fingerprint == info["fingerprint"]).first()
+
+    host = db.query(AppHost).filter(
+        AppHost.fingerprint == info["fingerprint"]).first()
+
+    # THE FINGERPRINT IS NOT AS STABLE AS IT LOOKS, and a false "you are running
+    # on two computers" is alarming in a way an ordinary bug is not: it tells
+    # somebody their records are split across machines when they are not.
+    #
+    # It is built from uuid.getnode(), which returns the MAC of *an* adapter.
+    # A laptop that moves between Wi-Fi and Ethernet, or gains a VPN adapter,
+    # can hand back a different one — so the same machine registers twice. Seen
+    # on the publisher's own box: two rows, both `PTS-048`, differing only in
+    # the local IP that had changed between them.
+    #
+    # So before creating a new row, look for the same machine by what actually
+    # identifies an installation: its hostname, its platform, and the data
+    # directory it serves. Matching on the data dir is the important part —
+    # two copies on ONE machine really are two installations and must still be
+    # reported, which is what the warning exists for.
+    if host is None:
+        host = db.query(AppHost).filter(
+            AppHost.hostname == info["hostname"],
+            AppHost.platform == info["platform"],
+            AppHost.data_dir == info["data_dir"],
+        ).first()
+        if host is not None:
+            # Same installation, new fingerprint. Adopt it rather than leaving
+            # a stale row behind to be counted as another computer.
+            host.fingerprint = info["fingerprint"]
+
     if host is None:
         host = AppHost(fingerprint=info["fingerprint"], first_seen=now)
         db.add(host)
