@@ -10,7 +10,8 @@ import os
 import uuid
 from datetime import date, datetime
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
+from fastapi import (APIRouter, Body, Depends, File, Form, HTTPException,
+                     Request, UploadFile)
 from fastapi.responses import FileResponse, Response
 from PIL import Image
 from sqlalchemy import func, or_
@@ -1203,6 +1204,113 @@ def upload(file: UploadFile = File(...), faces: int = 1, duration_ms: int = 0,
     if album:
         _album_add(db, user.id, album, [out["item"]["id"]])
     return out
+
+
+# --------------------------------------------------------------- resumable
+
+def _partial_dir(user_id: int) -> str:
+    """Where half-arrived uploads live, per owner.
+
+    Under the media root rather than the system temp folder: a 300 MB video
+    part must survive a reboot, and on several systems /tmp does not. It is
+    also the volume the finished photo is going to anyway, so a part that fits
+    here is one that can be completed.
+    """
+    d = os.path.join(storage.PRIVATE_ROOT, "partial", str(user_id))
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _partial_path(user_id: int, upload_id: str) -> str:
+    # The id is a client-generated uuid; take only characters that cannot
+    # escape the folder. A path from a client is a path traversal waiting to
+    # happen, however friendly the client.
+    safe = "".join(c for c in upload_id if c.isalnum() or c in "-_")[:64]
+    if not safe:
+        raise HTTPException(422, "Bad upload id")
+    return os.path.join(_partial_dir(user_id), safe + ".part")
+
+
+@router.get("/upload/status")
+def upload_status(upload_id: str,
+                  user: User = Depends(guard("gallery", "create"))):
+    """How many bytes of this upload the computer already holds.
+
+    THE POINT: a 300 MB video that failed at 280 MB should not start again from
+    zero. The phone asks this first and continues from `received` -- which on a
+    home upstream is the difference between finishing and never finishing.
+
+    An unknown id answers 0 rather than 404: "nothing here yet" is exactly what
+    a fresh upload needs to hear, and making the client handle a 404 to learn it
+    only invites getting that wrong.
+    """
+    path = _partial_path(user.id, upload_id)
+    return {"upload_id": upload_id,
+            "received": os.path.getsize(path) if os.path.exists(path) else 0}
+
+
+@router.post("/upload/chunk")
+async def upload_chunk(request: Request,
+                       upload_id: str, offset: int = 0, total: int = 0,
+                       filename: str = "", duration_ms: int = 0,
+                       user: User = Depends(guard("gallery", "create")),
+                       db: Session = Depends(get_db)):
+    """Take one piece of a large upload, and finish it when the last one lands.
+
+    Chunks are appended in order. `offset` is not a courtesy -- it is checked
+    against what is actually on disk, because a client that resumed from the
+    wrong place would produce a file that is the right SIZE and silently
+    corrupt, which is far worse than a refused upload.
+
+    The body is streamed to disk rather than read whole: holding a chunk of a
+    4K video in memory is how a server on somebody's laptop runs out.
+    """
+    path = _partial_path(user.id, upload_id)
+    have = os.path.getsize(path) if os.path.exists(path) else 0
+
+    if offset != have:
+        # Tell it where to resume from rather than just refusing. The phone can
+        # act on this; "400 Bad Request" would leave it guessing.
+        raise HTTPException(409, f"Expected offset {have}, got {offset}")
+
+    limit = MAX_VIDEO_BYTES if looks_like_video(b"", filename) else MAX_BYTES
+    written = have
+    with open(path, "ab") as f:
+        async for piece in request.stream():
+            if not piece:
+                continue
+            written += len(piece)
+            if written > limit:
+                f.close()
+                os.remove(path)
+                raise HTTPException(
+                    413, f"File too large (max {limit // (1024 * 1024)} MB)")
+            f.write(piece)
+
+    if total <= 0 or written < total:
+        # More to come. Nothing is in the gallery yet, and that is correct: a
+        # half-uploaded video is not a video.
+        return {"upload_id": upload_id, "received": written, "complete": False}
+
+    if written > total:
+        os.remove(path)
+        raise HTTPException(400, "More bytes arrived than were promised")
+
+    with open(path, "rb") as f:
+        blob = f.read()
+    os.remove(path)
+    out = store_photo(db, user, blob, filename or "upload", duration_ms=duration_ms)
+    return {**out, "upload_id": upload_id, "received": written, "complete": True}
+
+
+@router.post("/upload/abandon")
+def upload_abandon(upload_id: str,
+                   user: User = Depends(guard("gallery", "create"))):
+    """Throw away a part-uploaded file the phone has given up on."""
+    path = _partial_path(user.id, upload_id)
+    if os.path.exists(path):
+        os.remove(path)
+    return {"upload_id": upload_id, "removed": True}
 
 
 # Videos, by the container's own magic bytes rather than by filename.
