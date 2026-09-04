@@ -41,6 +41,9 @@ export const onLicenceBlocked = { handler: null as null | ((info: LicenceBlock) 
 /** What the backend sends alongside a 503 when the records folder cannot be read.
  *  `reason` is one of missing | unreadable | readonly — see backend runner._probe. */
 export type StorageBlock = {
+  /** 'fallback' = the app repaired itself and is running on this computer's own
+   *  records; 'blocked' = there was nothing here to fall back to and it stopped. */
+  mode?: string
   reason?: string
   volume?: string
   folder?: string

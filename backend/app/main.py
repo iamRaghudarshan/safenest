@@ -814,6 +814,11 @@ def _storage_sentence(problem: dict) -> str:
     """
     volume = problem.get("volume") or problem.get("folder") or "another disk"
     reason = problem.get("reason")
+    if problem.get("mode") == "fallback":
+        return (f"Your records are kept on {volume}, which cannot be read at the "
+                f"moment, so you are working from the copy on this computer. "
+                f"Nothing has been deleted. Anything you change now stays here "
+                f"until that drive is back.")
     if reason == "missing":
         return (f"Your records are kept on {volume}, which is not connected. "
                 f"Nothing has been deleted. Plug it in and try again, or choose "
@@ -882,6 +887,14 @@ async def storage_gate(request: Request, call_next):
     """
     problem = _storage_problem()
     if problem is None:
+        return await call_next(request)
+    # "fallback" means the launcher already repaired this: the drive is not
+    # readable, but this computer held a used records folder and the app opened
+    # on it. There is nothing to block -- the app works. The fault is still
+    # reported at /api/storage/problem so every screen can carry the banner, and
+    # blocking here instead would take a working app away from somebody to tell
+    # them about a drive they cannot fix from this screen anyway.
+    if problem.get("mode") == "fallback":
         return await call_next(request)
     path = request.url.path
     if not path.startswith("/api/") or path.startswith(_STORAGE_OPEN):

@@ -130,6 +130,27 @@ def _volume_of(folder: Path) -> Path:
     return Path(folder.anchor or str(folder))
 
 
+def _has_records(folder: Path) -> bool:
+    """Has this folder actually been used, as opposed to merely existing?
+
+    instance.env, not finmate.db, and for the reason stated where the first-run
+    check uses the same marker: a licensed bundle SHIPS an empty finmate.db
+    carrying the branding, so testing for the database answers yes for a copy
+    fresh out of the zip. instance.env holds the per-installation secrets and is
+    written on the first real run.
+
+    This is what decides whether an unreadable drive is repaired silently or
+    stops the app. Falling back to a folder with records in it keeps somebody
+    working. Falling back to an EMPTY one presents a brand-new app to a person
+    who has years of records, which is indistinguishable from having lost them --
+    and that guess is what makes someone reinstall, reformat, or give up.
+    """
+    try:
+        return (folder / "instance.env").is_file() and (folder / "finmate.db").is_file()
+    except OSError:
+        return False
+
+
 def _probe(folder: Path) -> dict | None:
     """Can this folder actually hold records right now? None if it can.
 
@@ -247,12 +268,35 @@ def resolve_data_dir() -> Path:
         # the next launch uses it with nothing to put back.
         problem["pointer"] = str(root / POINTER)
         problem["fallback"] = str(root / "data")
+
+        # CARRY ON IF THERE IS SOMETHING TO CARRY ON WITH.
+        #
+        # The owner should not have to be talked through a repair. If this
+        # machine still holds a used records folder -- which it does after any
+        # ordinary reinstall, because records live outside the app -- the app
+        # opens on it and says so, and the person gets a working app on the
+        # day the drive fails rather than a screen and a phone call.
+        #
+        # "mode" is the whole distinction and the gate in main.py reads it:
+        #   fallback  working, on this computer's copy, with a banner saying so
+        #   blocked   nothing here to work from -- stop, rather than show an
+        #             empty app to someone who has years of records
+        #
+        # The pointer is untouched either way, so the next launch after the
+        # drive comes back uses it again with nothing to put right.
+        if _has_records(root / "data"):
+            problem["mode"] = "fallback"
+            print(f"  [storage] {chosen} cannot be used ({problem['reason']}); "
+                  f"working from the records on this computer")
+        else:
+            problem["mode"] = "blocked"
+            print(f"  [storage] {chosen} cannot be used ({problem['reason']}); "
+                  f"and there is nothing here to fall back to")
         try:
             os.environ[STORAGE_PROBLEM_ENV] = json.dumps(problem)
         except (TypeError, ValueError):
-            os.environ[STORAGE_PROBLEM_ENV] = json.dumps({"reason": "unreadable"})
-        print(f"  [storage] {chosen} cannot be used ({problem['reason']}); "
-              f"starting in recovery mode")
+            os.environ[STORAGE_PROBLEM_ENV] = json.dumps(
+                {"reason": "unreadable", "mode": "blocked"})
 
     default = root / "data"
 

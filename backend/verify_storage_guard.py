@@ -177,5 +177,50 @@ with tempfile.TemporaryDirectory() as tmp:
           "SAFENEST" in Path(out["kept_at"]).read_text(encoding="utf-8"))
 
 os.environ.pop("SAFENEST_STORAGE_PROBLEM", None)
+
+print("")
+print("-- self-repair: reinstall the new version and it sorts itself out")
+import runner as _r
+
+with tempfile.TemporaryDirectory() as tmp:
+    used = Path(tmp) / "used"
+    used.mkdir()
+    (used / "instance.env").write_text("x", encoding="utf-8")
+    (used / "finmate.db").write_text("x", encoding="utf-8")
+    check("a folder that has been used is recognised", _r._has_records(used))
+
+    fresh = Path(tmp) / "fresh"
+    fresh.mkdir()
+    (fresh / "finmate.db").write_text("x", encoding="utf-8")
+    # A licensed bundle ships an empty finmate.db carrying the branding, so the
+    # database alone answers yes for a copy straight out of the zip.
+    check("a shipped-but-never-used folder is NOT mistaken for records",
+          not _r._has_records(fresh))
+    check("an empty folder is not either", not _r._has_records(Path(tmp) / "nope"))
+
+# The behaviour the owner asked for: reinstall, and it opens.
+os.environ["SAFENEST_STORAGE_PROBLEM"] = json.dumps({
+    "reason": "unreadable", "mode": "fallback", "volume": "/Volumes/SAFENEST",
+    "folder": "/Volumes/SAFENEST/SafeNest/data"})
+r = c.get("/api/health")
+check("in fallback the app is NOT gated", r.status_code == 200, r.status_code)
+r = c.get("/api/storage/problem")
+check("but the fault is still there to be shown", r.json().get("mode") == "fallback")
+s = _storage_sentence({"reason": "unreadable", "mode": "fallback",
+                       "volume": "/Volumes/SAFENEST"})
+check("and the banner says where changes are going",
+      "stays here" in s and "SAFENEST" in s, s[:70])
+
+# The case that must still stop. An empty app shown to somebody with years of
+# records is indistinguishable from having lost them, and that guess is what
+# makes people reinstall and reformat.
+os.environ["SAFENEST_STORAGE_PROBLEM"] = json.dumps({
+    "reason": "unreadable", "mode": "blocked", "volume": "/Volumes/SAFENEST"})
+r = c.get("/api/expenses")
+check("THE ONE THAT MATTERS: with nothing to fall back to it still stops",
+      r.status_code == 503, r.status_code)
+
+os.environ.pop("SAFENEST_STORAGE_PROBLEM", None)
+
 print(f"\n{OK} passed, {BAD} failed\n")
 sys.exit(1 if BAD else 0)

@@ -9,6 +9,7 @@ import { getSettings, syncSubscription } from './notifications'
 import Login from './screens/Login'
 import Activation from './screens/Activation'
 import RecordsUnavailable from './screens/RecordsUnavailable'
+import { StorageBanner } from './StorageBanner'
 import Dashboard from './screens/Dashboard'
 import Modules from './screens/Modules'
 import Loans from './screens/Loans'
@@ -294,7 +295,12 @@ export default function App() {
   // BEFORE the licence check, deliberately. A folder that will not read cannot
   // yield a licence either, so both gates fire at once — and showing the licence
   // one sends the owner looking for a file that is fine, on the disk that isn't.
-  if (storageBlock) return <div className="app auth-mode"><RecordsUnavailable /></div>
+  // ONLY when there was nothing to fall back to. If the launcher found a used
+  // records folder on this machine it already opened on it, and taking a
+  // working app away to explain a drive would help nobody -- that case gets
+  // the banner below instead.
+  if (storageBlock?.mode === 'blocked')
+    return <div className="app auth-mode"><RecordsUnavailable /></div>
   if (licenceBlock) return <div className="app auth-mode"><ConnectionBanner /><Activation /></div>
 
   const Screen = SCREENS[route] || Dashboard
@@ -306,6 +312,7 @@ export default function App() {
       <Sidebar />
       <div className="content">
       <ConnectionBanner />
+      <StorageBanner />
       {upd && (
         <div className="update-banner">
           <span className="ub-txt">🎉 Version {upd.version} is available</span>
