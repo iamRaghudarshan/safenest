@@ -1313,9 +1313,24 @@ can get it from the website OR a command — never just one half:
   `/api/public/download?platform=android`). **Every mobile release MUST refresh
   that APK.** (Android CI works now; the keystore was restored 22 Aug.)
 
-Latest shipped (25 Aug 2026): **Desktop 3.32 (both platforms)**, **Mobile
-1.52.1** (iOS TestFlight + Android APK). 3.32 is `is_current` for Windows AND
-Mac, and was released to all. Big things this run:
+PUBLISHING IS TWO STEPS AND THE FIRST ONE LOOKS FINISHED. `POST /api/releases`
+returns 200 with the row, the archive on disk and a signed manifest -- and
+`is_current: false`, which means it is offered to nobody. `POST
+/api/releases/{id}/release-to-all` is what customers actually see. Stopping after
+the first is indistinguishable from a finished release until somebody checks, so
+verify through the customer endpoint before saying it shipped:
+`curl "$DOMAIN/api/licence/update/$KID?platform=mac"` must report the new
+version, and `$DOMAIN/api/public/download/meta` must report it for all three.
+
+Latest shipped (4 Sep 2026): **Desktop 3.40 (both platforms)**, **Mobile 1.61.0**
+(iOS build 124 TestFlight, Android build 125 APK). Both verified live through the
+public domain. That run fixed the records-drive guard: `Path.anchor` is `"/"` on
+macOS, so the "is your drive connected?" check had never once fired there -- a
+failing USB drive produced a licence error and 500s instead of naming the disk,
+and the customer reinstalled. See `packaging/runner.py::_volume_of` / `_probe`,
+`main.py::storage_gate` and `verify_storage_guard.py` (35 checks).
+
+Earlier: **Desktop 3.32**, **Mobile 1.52.1** (25 Aug 2026). Big things this run:
 - **Photos can be uploaded straight into an album.** `POST /api/gallery/upload`
   takes an optional `album_id`; the album is resolved BEFORE the file is read,
   so an upload aimed at somebody else's album costs one query and stores
