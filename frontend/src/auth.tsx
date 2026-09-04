@@ -1,6 +1,7 @@
 // Auth context: holds the session, restores it on load, exposes login/logout + RBAC helper.
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { api, tokenStore, onUnauthorized, onLicenceBlocked, type LicenceBlock } from './api'
+import { api, tokenStore, onUnauthorized, onLicenceBlocked, onStorageBlocked,
+         type LicenceBlock, type StorageBlock } from './api'
 import { uploadDB } from './uploadDB'
 import type { ModuleKey, Session, User } from './types'
 
@@ -24,6 +25,11 @@ interface AuthState {
   /** Set when the server answers 402: this copy's licence needs activating. */
   licenceBlock: LicenceBlock | null
   clearLicenceBlock: () => void
+  /** Set when the server answers 503: the folder the records live in cannot be
+   *  read. Held separately from licenceBlock because it must WIN over it — an
+   *  unreadable folder cannot yield a licence either, and reporting the licence
+   *  sends the owner hunting for a file that is fine, on the failed disk. */
+  storageBlock: StorageBlock | null
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   /** Re-pull the signed-in user after a profile change (name, avatar). */
@@ -38,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [modules, setModules] = useState<ModuleKey[]>([])
   const [ready, setReady] = useState(false)
   const [licenceBlock, setLicenceBlock] = useState<LicenceBlock | null>(null)
+  const [storageBlock, setStorageBlock] = useState<StorageBlock | null>(null)
 
   useEffect(() => {
     // A 401 means the session died (expired, revoked, password changed elsewhere) —
@@ -46,6 +53,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // A 402 means the licence gate is closed — show the activation screen. Fires
     // from anywhere a guarded request lands, so one closed gate surfaces once.
     onLicenceBlocked.handler = (info) => setLicenceBlock(info)
+    // A 503 carrying a storage fault means the records folder is unreachable.
+    onStorageBlocked.handler = (info) => setStorageBlock(info)
     const t = tokenStore.get()
     if (!t) { setReady(true); return }
     api<{ user: User; modules: ModuleKey[] }>('/api/auth/me')
@@ -78,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearLicenceBlock = () => setLicenceBlock(null)
 
   return (
-    <Ctx.Provider value={{ user, modules, ready, licenceBlock, clearLicenceBlock, login, logout, refreshUser, can }}>
+    <Ctx.Provider value={{ user, modules, ready, licenceBlock, clearLicenceBlock, storageBlock, login, logout, refreshUser, can }}>
       {children}
     </Ctx.Provider>
   )

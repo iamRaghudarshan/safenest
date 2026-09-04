@@ -38,6 +38,21 @@ export type LicenceBlock = {
 // show the activation screen instead of a dead error toast on every request.
 export const onLicenceBlocked = { handler: null as null | ((info: LicenceBlock) => void) }
 
+/** What the backend sends alongside a 503 when the records folder cannot be read.
+ *  `reason` is one of missing | unreadable | readonly — see backend runner._probe. */
+export type StorageBlock = {
+  reason?: string
+  volume?: string
+  folder?: string
+  pointer?: string
+  detail?: string
+}
+// Fired when any call returns 503 carrying a storage fault. Separate from the
+// connection banner on purpose: the server is answering perfectly well, it just
+// cannot reach the disk the records are on, and telling somebody "no internet"
+// when their USB drive has failed sends them to their router.
+export const onStorageBlocked = { handler: null as null | ((info: StorageBlock) => void) }
+
 /** Connection watchers — the banner subscribes so a failure anywhere surfaces once,
  *  globally, instead of each screen inventing its own error text. */
 type ConnListener = (online: boolean) => void
@@ -95,6 +110,18 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   if (res.status === 503 && data && typeof data === 'object' && 'offline' in data) {
     connection.report(false)
     throw new ApiError(0, OFFLINE_MSG, true)
+  }
+
+  // A storage fault is a 503, but it is NOT a reachability problem — the server
+  // answered, and it answered with the reason. This has to be claimed before the
+  // gateway branch below, which would otherwise report a failed USB drive as
+  // "cannot reach your computer" and send the owner to check their internet.
+  if (res.status === 503 && data && typeof data === 'object' && 'storage' in data) {
+    const storage = (data as { storage?: StorageBlock }).storage || {}
+    const detail = (data as { detail?: string }).detail || ''
+    onStorageBlocked.handler?.(storage)
+    connection.report(true)
+    throw new ApiError(503, detail || 'Your records cannot be reached right now.')
   }
 
   // A gateway error means the tunnel is up but the app behind it is not.

@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import threading
@@ -18,7 +19,7 @@ from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport
                      UserModule, User)
 from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, habits, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, mail, notes, notifications, people, reminders,
-                      resources, search, mobile, storefront, support, sync, system, todos, vault)
+                      resources, search, mobile, storage, storefront, support, sync, system, todos, vault)
 from . import autoimport, autostart, backup, hosts, indexer, ist, licensing, mailer, scheduler, tunnelrun
 
 
@@ -778,6 +779,55 @@ def _app_name() -> str:
         return DEFAULT_NAME
 
 
+#: What still answers while the records folder is unusable. Health so the desktop
+#: shell can tell the server is alive rather than reporting it dead, and the
+#: storage endpoints themselves so the recovery screen can do its job.
+_STORAGE_OPEN = ("/api/health", "/api/storage/")
+
+
+def _storage_problem() -> dict | None:
+    """The records-folder fault the launcher found, if it found one.
+
+    Read from the environment on every request rather than cached at import: the
+    recovery screen clears it after repointing the app, and a cached copy would
+    keep the customer locked out of a folder that now works.
+    """
+    raw = os.environ.get("SAFENEST_STORAGE_PROBLEM", "").strip()
+    if not raw:
+        return None
+    try:
+        out = json.loads(raw)
+        return out if isinstance(out, dict) else None
+    except ValueError:
+        # Malformed is still a fault -- it means the launcher tried to report one.
+        return {"reason": "unreadable"}
+
+
+def _storage_sentence(problem: dict) -> str:
+    """The fault in a sentence the owner can act on.
+
+    Names the volume, says plainly that nothing has been deleted, and gives the
+    one next action. "Nothing has been deleted" is not reassurance padding -- an
+    app that will not open is read as data loss, and that guess is what makes
+    someone reinstall, which is the one action that can turn a recoverable
+    situation into a real one.
+    """
+    volume = problem.get("volume") or problem.get("folder") or "another disk"
+    reason = problem.get("reason")
+    if reason == "missing":
+        return (f"Your records are kept on {volume}, which is not connected. "
+                f"Nothing has been deleted. Plug it in and try again, or choose "
+                f"to use the records on this computer.")
+    if reason == "readonly":
+        return (f"Your records are on {volume}, which is refusing to be written "
+                f"to. Nothing has been deleted. It may be locked or need "
+                f"reconnecting.")
+    return (f"Your records are on {volume}, which is connected but cannot be "
+            f"read. Nothing has been deleted, and nothing here has been changed. "
+            f"Reconnect it or try a different cable, then try again.")
+
+
+
 @app.middleware("http")
 async def licence_gate(request: Request, call_next):
     """Stop a licensed copy that has expired, been withdrawn, or lost its licence.
@@ -814,6 +864,32 @@ async def licence_gate(request: Request, call_next):
                         "key_id": state.get("kid"), "readOnly": True},
         })
     return await call_next(request)
+
+
+@app.middleware("http")
+async def storage_gate(request: Request, call_next):
+    """Refuse everything while the records folder cannot be read, and say why.
+
+    ABOVE the licence gate deliberately. A folder that will not read cannot yield
+    a licence either, so without this the customer is told their licence is
+    missing -- which sends them chasing a licence that is fine and sitting on the
+    very drive that is the actual fault. One cause should produce one message.
+
+    503 rather than 500: this is temporary and about the machine, not the request.
+    Anything written now would land in a fallback folder and become a second,
+    diverging copy of records the owner believes they have one of, so writes are
+    refused rather than accepted somewhere harmless-looking.
+    """
+    problem = _storage_problem()
+    if problem is None:
+        return await call_next(request)
+    path = request.url.path
+    if not path.startswith("/api/") or path.startswith(_STORAGE_OPEN):
+        return await call_next(request)
+    return JSONResponse(status_code=503, content={
+        "detail": _storage_sentence(problem),
+        "storage": problem,
+    })
 
 
 @app.middleware("http")
@@ -879,6 +955,7 @@ app.add_middleware(
 for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, habits, notes, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports, sync):
     app.include_router(r.router)
 app.include_router(licences.public)   # /api/licence/... — customer-facing, separate prefix
+app.include_router(storage.router)   # /api/storage — recovery when the records folder is unreadable
 app.include_router(releases.public)   # /api/licence/update, /download
 app.include_router(household.updater) # /api/update — the customer half
 app.include_router(mobile.router)     # /api/mobile/... — the phone's own updates

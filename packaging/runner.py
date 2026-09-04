@@ -6,6 +6,7 @@ So the jobs setup.py does at runtime (find the data folder, write configuration,
 start uvicorn, open a browser) have to happen here instead, minus everything to
 do with installing, which already happened at build time.
 """
+import json
 import os
 import socket
 import sys
@@ -100,6 +101,80 @@ def lan_address() -> str:
 
 POINTER = "data-location.txt"
 
+#: Set when the records folder named by the pointer cannot be used right now.
+#: The server reads it and serves the recovery screen instead of the app, rather
+#: than starting against a folder it cannot read -- see main.py::storage_gate.
+STORAGE_PROBLEM_ENV = "SAFENEST_STORAGE_PROBLEM"
+
+
+def _volume_of(folder: Path) -> Path:
+    """The removable volume `folder` sits on, as far as it can be told.
+
+    NOT Path.anchor, which is what this used to be and is the whole bug. On
+    Windows the anchor is "E:\\" and naming it is exactly right. On macOS every
+    path's anchor is "/", which is always mounted -- so the "is your drive
+    connected?" check could not fail on a Mac and never once fired there. A
+    customer's records went onto an external disk, the disk stopped answering, and
+    the app started against it anyway: no licence (unreadable), every request a
+    500 (unreadable database). The one outcome the hard stop below exists to
+    prevent, reached through a door nobody had checked.
+
+    macOS mounts removable volumes at /Volumes/<name>, so that is the unit that
+    appears and disappears. Linux uses /media/<user>/<name> or /mnt/<name>.
+    """
+    parts = folder.parts
+    if len(parts) >= 3 and parts[1] in ("Volumes", "mnt"):
+        return Path(parts[0], parts[1], parts[2])
+    if len(parts) >= 4 and parts[1] == "media":
+        return Path(parts[0], parts[1], parts[2], parts[3])
+    return Path(folder.anchor or str(folder))
+
+
+def _probe(folder: Path) -> dict | None:
+    """Can this folder actually hold records right now? None if it can.
+
+    Three questions, because they need three different answers from the person
+    reading them, and lumping them together is what produced a 500 instead of a
+    sentence:
+
+      missing     the volume is not mounted            -> plug it in
+      unreadable  mounted, but reads fail              -> the disk is faulty
+      readonly    readable, but writes fail            -> unlock or remount it
+
+    EXISTING IS NOT THE SAME AS WORKING. os.path.isdir() answers yes for a failing
+    exFAT volume that macOS has mounted from an intact header while every read
+    underneath returns EIO -- which is precisely the drive this was written for. So
+    this reads the directory and writes a marker, because the only reliable way to
+    learn whether a disk will serve a database is to ask it to do the thing.
+    """
+    volume = _volume_of(folder)
+    try:
+        if not volume.is_dir():
+            return {"reason": "missing", "volume": str(volume), "folder": str(folder)}
+    except OSError as exc:
+        return {"reason": "unreadable", "volume": str(volume),
+                "folder": str(folder), "detail": str(exc)}
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        os.listdir(folder)
+    except OSError as exc:
+        return {"reason": "unreadable", "volume": str(volume),
+                "folder": str(folder), "detail": str(exc)}
+    marker = folder / ".write-test"
+    try:
+        marker.write_text("ok", encoding="utf-8")
+        marker.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {"reason": "readonly", "volume": str(volume),
+                "folder": str(folder), "detail": str(exc)}
+    finally:
+        try:
+            marker.unlink(missing_ok=True)
+        except OSError:
+            pass          # tidiness, never a reason to refuse to start
+    return None
+
+
 
 def early_brand() -> str:
     """The app's name, using nothing but the executable.
@@ -141,23 +216,43 @@ def resolve_data_dir() -> Path:
     chosen = _chosen_location(root)
 
     if chosen is not None:
-        drive = chosen.anchor or str(chosen)
-        if not os.path.isdir(drive):
-            raise SystemExit(
-                f"\n  Your records are kept on {drive} which is not connected.\n\n"
-                f"    {chosen}\n\n"
-                f"  Plug that drive in and start {early_brand()} again.\n"
-                f"  (If you meant to start over here instead, delete the file\n"
-                f"   {root / POINTER} — your old records will not be touched.)\n")
         try:
-            chosen.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise SystemExit(f"\n  Cannot use {chosen}: {exc}\n")
-        # This is the branch every launch after the first takes, which is exactly
-        # why the repair belongs here: a folder that never received the licence
-        # would otherwise stay unlicensed for the life of the installation.
-        _restore_from_seed(chosen)
-        return chosen
+            problem = _probe(chosen)
+        except Exception as exc:
+            # Nothing in a probe is worth refusing to start over. If it cannot
+            # decide, treat the folder as usable and let the ordinary code paths
+            # fail in their own ordinary ways -- which is strictly no worse than
+            # the behaviour before this check existed.
+            print(f"  [storage] could not probe {chosen}: {exc}")
+            problem = None
+        if problem is None:
+            # This is the branch every launch after the first takes, which is
+            # exactly why the repair belongs here: a folder that never received
+            # the licence would otherwise stay unlicensed for the life of the
+            # installation.
+            _restore_from_seed(chosen)
+            return chosen
+
+        # THE CHOSEN FOLDER CANNOT BE USED, AND THAT IS NOT A REASON TO START OVER.
+        #
+        # Falling through to the default here would open an empty app, and to the
+        # owner an empty app is indistinguishable from every record they ever kept
+        # being deleted. It boots on the default only so there is a server able to
+        # SAY so -- storage_gate in main.py refuses every other request while this
+        # is set, so nothing can be written into the wrong folder and no second,
+        # diverging copy of their records can start accumulating.
+        #
+        # The pointer file is deliberately left alone. It is the only record of
+        # where the records actually are, and the moment the drive answers again
+        # the next launch uses it with nothing to put back.
+        problem["pointer"] = str(root / POINTER)
+        problem["fallback"] = str(root / "data")
+        try:
+            os.environ[STORAGE_PROBLEM_ENV] = json.dumps(problem)
+        except (TypeError, ValueError):
+            os.environ[STORAGE_PROBLEM_ENV] = json.dumps({"reason": "unreadable"})
+        print(f"  [storage] {chosen} cannot be used ({problem['reason']}); "
+              f"starting in recovery mode")
 
     default = root / "data"
 

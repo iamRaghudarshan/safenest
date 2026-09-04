@@ -8,6 +8,7 @@ import { api } from './api'
 import { getSettings, syncSubscription } from './notifications'
 import Login from './screens/Login'
 import Activation from './screens/Activation'
+import RecordsUnavailable from './screens/RecordsUnavailable'
 import Dashboard from './screens/Dashboard'
 import Modules from './screens/Modules'
 import Loans from './screens/Loans'
@@ -146,7 +147,7 @@ function Sidebar() {
 }
 
 export default function App() {
-  const { user, ready, can, licenceBlock } = useAuth()
+  const { user, ready, can, licenceBlock, storageBlock } = useAuth()
   const { route, go, back, canBack, hasOverlay } = useNav()
   const { total: attnTotal } = useAttention()
   // A newer version on offer (customer copies only). Shown as a banner the moment
@@ -290,6 +291,10 @@ export default function App() {
   // A closed licence gate (402) takes over the whole app: every guarded screen
   // would only 402 anyway. The customer is signed in by now — activation needs
   // an account — so this sits after the login check, not before it.
+  // BEFORE the licence check, deliberately. A folder that will not read cannot
+  // yield a licence either, so both gates fire at once — and showing the licence
+  // one sends the owner looking for a file that is fine, on the disk that isn't.
+  if (storageBlock) return <div className="app auth-mode"><RecordsUnavailable /></div>
   if (licenceBlock) return <div className="app auth-mode"><ConnectionBanner /><Activation /></div>
 
   const Screen = SCREENS[route] || Dashboard
