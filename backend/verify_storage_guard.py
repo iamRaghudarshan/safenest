@@ -222,5 +222,40 @@ check("THE ONE THAT MATTERS: with nothing to fall back to it still stops",
 
 os.environ.pop("SAFENEST_STORAGE_PROBLEM", None)
 
+
+print("")
+print("-- self-diagnosis: the checks that used to need a terminal")
+from app.routers import storage as _st
+
+class _U:
+    id, email, role, status = 1, "x@y", "admin", "active"
+
+d = _st.diagnose(user=_U())
+names = [c["name"] for c in d["checks"]]
+check("it answers every question support would ask",
+      {"Records location", "Your records", "Licence", "Free space",
+       "Last local backup"} <= set(names), str(names))
+check("and says which version and which folder",
+      bool(d["app"]["version"]) and bool(d["app"]["records_at"]))
+
+# A check it could not run must not read as a check that passed. This is the
+# difference between "your backups are fine" and "nobody looked".
+made = _st._finish([{"name": "A", "ok": None, "detail": "", "fix": ""}], Path("."))
+check("an unanswered check is named, not silently counted",
+      made["unchecked"] == ["A"], str(made))
+
+# The incident, replayed through the diagnostic.
+os.environ["SAFENEST_STORAGE_PROBLEM"] = json.dumps(
+    {"reason": "unreadable", "mode": "fallback", "volume": "/Volumes/SAFENEST"})
+d = _st.diagnose(user=_U())
+first = d["checks"][0]
+check("THE ONE THAT MATTERS: a failed drive is the FIRST thing reported",
+      first["name"] == "Records location" and first["ok"] is False)
+check("it names the drive", "SAFENEST" in first["detail"])
+check("and the advice is not 'reinstall'",
+      "reinstall" not in first["fix"].lower() and "deleted" in first["fix"].lower(),
+      first["fix"][:60])
+os.environ.pop("SAFENEST_STORAGE_PROBLEM", None)
+
 print(f"\n{OK} passed, {BAD} failed\n")
 sys.exit(1 if BAD else 0)

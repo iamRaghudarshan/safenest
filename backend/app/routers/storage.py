@@ -165,3 +165,182 @@ def _probe(folder: Path) -> dict | None:
         except OSError:
             pass
     return None
+
+
+# --------------------------------------------------------------- self-diagnosis
+#
+# WHY THIS IS HERE AND NOT IN A RUNBOOK
+#
+# The incident this file exists for cost most of a day, and almost none of that
+# was the bug. The bug was found in minutes once somebody ran `ls` on the right
+# folder. What it cost was the RELAY: every fact had to be fetched by asking a
+# person to open Terminal, paste a command, and send back what it printed --
+# through a second person, on a machine nobody supporting them could see.
+#
+# That does not scale past one customer, and it puts the one action that can turn
+# a recoverable fault into permanent loss -- reinstall, reformat -- in the hands
+# of somebody who has been given no way to find out what is actually wrong.
+#
+# So every check that was run by hand that day is run by the app instead, on
+# demand, and answered in sentences. The next incident starts from a report
+# rather than a phone call.
+import platform
+import shutil
+import sqlite3
+from datetime import datetime, timezone
+
+from fastapi import Depends
+
+from ..config import settings
+from ..models import User
+from ..security import get_current_user
+
+
+def _check(name: str, ok: bool | None, detail: str, fix: str = "") -> dict:
+    """One answered question. ok=None means "cannot tell", which is not "fine"."""
+    return {"name": name, "ok": ok, "detail": detail, "fix": fix}
+
+
+def _records_dir() -> Path:
+    """The folder the running server is actually using.
+
+    settings.sqlite_path, not a path re-derived from the pointer file: the point
+    of a diagnostic is to report what IS, and a fallback launch is precisely the
+    case where the two answers differ. Reporting the intended folder there would
+    make the diagnostic agree with the assumption instead of the machine.
+    """
+    try:
+        if settings.is_sqlite:
+            return settings.sqlite_path.parent
+    except Exception:
+        pass
+    return Path.cwd()
+
+
+@router.get("/diagnose")
+def diagnose(user: User = Depends(get_current_user)):
+    """Everything support would otherwise ask somebody to type into a terminal.
+
+    Signed in, not admin: the person facing a broken app is whoever is sitting at
+    it, and a fault that stops the app is not a moment to also discover that your
+    account cannot ask about it. Nothing here is a secret -- folder paths, sizes,
+    dates and yes/no answers.
+    """
+    out: list[dict] = []
+
+    # 1. The fault that started all this, first, because it causes the others.
+    p = _problem()
+    if p is None:
+        out.append(_check("Records location", True,
+                          "The folder your records are kept in is readable."))
+    else:
+        where = p.get("volume") or p.get("folder") or "another disk"
+        mode = p.get("mode")
+        out.append(_check(
+            "Records location", False,
+            f"Your records are kept on {where}, which cannot be "
+            f"{'found' if p.get('reason') == 'missing' else 'read'}."
+            + (" SafeNest is working from the copy on this computer meanwhile."
+               if mode == "fallback" else ""),
+            "Reconnect that drive, or use Try again on the records screen. "
+            "Nothing has been deleted."))
+
+    # 2. Does the database open, and does it hold anything? "Opens" is not the
+    #    same question as "has records in it", and the second is the one somebody
+    #    means when they say the app came up empty.
+    data = _records_dir()
+    # NOT an early return. The licence, free space and backup checks below apply
+    # whatever the database is, and skipping them on one installation shape is how
+    # a diagnostic quietly stops covering the machine it is run on.
+    if not settings.is_sqlite:
+        out.append(_check("Your records", None,
+                          "This installation keeps records in MySQL, not a file, "
+                          "so it is not checked from here.", ""))
+    else:
+      db = settings.sqlite_path
+      try:
+          size = db.stat().st_size if db.is_file() else 0
+          con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+          try:
+              users = con.execute("SELECT count(*) FROM users").fetchone()[0]
+          finally:
+              con.close()
+          out.append(_check("Your records", users > 0,
+                            f"{users} account(s), database {size // 1048576} MB, at {data}",
+                            "" if users else
+                            "This database is empty. If you expected records here, do "
+                            "NOT reinstall — the records are likely in another folder."))
+      except (OSError, sqlite3.Error) as exc:
+          out.append(_check("Your records", False, f"Cannot read {db}: {exc}",
+                            "Do not reinstall. Send this report."))
+
+    # 3. Licence -- reported as its own line so it is never again the symptom
+    #    somebody chases when the real fault is the disk under it.
+    # A publisher copy HAS no licence -- licensed_mode is what the bundler sets on
+    # copies handed to other people -- so reporting one missing here is a false
+    # alarm, and false alarms are what teach somebody to ignore the real one.
+    if not settings.licensed_mode:
+        out.append(_check("Licence", None,
+                          "This copy does not use a licence file.", ""))
+    else:
+      try:
+          from .. import licensing
+          st = licensing.cached_status(settings.license_path,
+                                       settings.license_public_key_hex)
+          kind = st.get("state", "unknown")
+          out.append(_check("Licence", kind not in ("missing", "invalid", "expired"),
+                            f"{kind}" + (f", expires {st.get('expires_on')}"
+                                         if st.get("expires_on") else ""),
+                            "" if kind != "missing" else
+                            "If the records location above is also failing, fix that "
+                            "first — the licence file lives in that folder."))
+      except Exception as exc:
+          out.append(_check("Licence", None, f"Could not be checked: {exc}"))
+
+    # 4. Room to work. A full disk fails in ways that look like anything else.
+    try:
+        free = shutil.disk_usage(data).free
+        out.append(_check("Free space", free > 512 * 1024 * 1024,
+                          f"{free // 1073741824} GB free where your records are",
+                          "" if free > 512 * 1024 * 1024 else
+                          "Under 512 MB free. Saving will start failing."))
+    except OSError as exc:
+        out.append(_check("Free space", None, str(exc)))
+
+    # 5. When was the last copy taken? The question every incident ends on.
+    if not settings.is_sqlite:
+        out.append(_check("Last local backup", None,
+                          "Backups for this installation are taken from MySQL, "
+                          "not from a file here.", ""))
+    else:
+      try:
+          backups = sorted(data.glob("finmate.db.bak-*"))
+          if backups:
+              newest = backups[-1]
+              when = datetime.fromtimestamp(newest.stat().st_mtime, timezone.utc)
+              age = (datetime.now(timezone.utc) - when).days
+              out.append(_check("Last local backup", age <= 30,
+                                f"{newest.name}, {age} day(s) old",
+                                "" if age <= 30 else
+                                "Older than a month. Take a backup from Profile."))
+          else:
+              out.append(_check("Last local backup", False, "None found",
+                                "Take one from Profile → Backup."))
+      except OSError as exc:
+          out.append(_check("Last local backup", None, str(exc)))
+
+    return _finish(out, data)
+
+
+def _finish(out: list[dict], data: Path) -> dict:
+    from .. import updates
+    return {
+        "app": {"version": updates.current_version(),
+                "platform": platform.platform(),
+                "records_at": str(data)},
+        "checks": out,
+        # None means "could not tell", and that must not read as passing. Only
+        # answered checks count, and an unanswered one is reported as itself.
+        "all_ok": all(c["ok"] for c in out if c["ok"] is not None),
+        "unchecked": [c["name"] for c in out if c["ok"] is None],
+    }
