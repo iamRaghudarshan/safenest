@@ -538,6 +538,12 @@ def _on_startup() -> None:
     # someone's real records. No-op when the database is fine or simply absent.
     try:
         backup.ensure_healthy_or_restore()
+        # Leave a trace. Before this, a records drive could fail, be worked
+        # around, and leave nothing on the machine saying it had ever happened --
+        # so "has this happened before?" was unanswerable and every recurrence
+        # was diagnosed from scratch.
+        from . import incidents as _inc
+        _inc.note_startup_faults()
     except Exception as e:
         print(f"[backup] startup health check skipped: {e}")
     try:

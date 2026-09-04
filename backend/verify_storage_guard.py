@@ -234,7 +234,7 @@ d = _st.diagnose(user=_U())
 names = [c["name"] for c in d["checks"]]
 check("it answers every question support would ask",
       {"Records location", "Your records", "Licence", "Free space",
-       "Last local backup"} <= set(names), str(names))
+       "Last backup", "Database integrity"} <= set(names), str(names))
 check("and says which version and which folder",
       bool(d["app"]["version"]) and bool(d["app"]["records_at"]))
 
@@ -256,6 +256,43 @@ check("and the advice is not 'reinstall'",
       "reinstall" not in first["fix"].lower() and "deleted" in first["fix"].lower(),
       first["fix"][:60])
 os.environ.pop("SAFENEST_STORAGE_PROBLEM", None)
+
+
+print("")
+print("-- the incident log: so 'has this happened before' has an answer")
+from app import incidents as _inc
+
+check("it is kept OUTSIDE the records folder, which is the thing that fails",
+      _inc._path() is not None and "Backup" in str(_inc._path()), str(_inc._path()))
+
+before = len(_inc.recent(200))
+os.environ["SAFENEST_STORAGE_PROBLEM"] = json.dumps(
+    {"reason": "missing", "volume": "/Volumes/TESTVOL", "mode": "blocked"})
+_inc.note_startup_faults()
+os.environ.pop("SAFENEST_STORAGE_PROBLEM", None)
+after = _inc.recent(200)
+check("a startup fault is written down", len(after) == before + 1)
+check("and it names the volume", "TESTVOL" in json.dumps(after[0]))
+check("newest first, so the last thing to go wrong is the first thing read",
+      after[0]["kind"] == "storage")
+
+# Every caller is already handling a failure. A logger that throws during an
+# incident turns a recoverable fault into a crash.
+_inc.record("x", "y", weird=object())
+check("recording never raises, whatever it is handed", True)
+
+d = _st.diagnose(user=_U())
+check("the diagnosis carries the history", isinstance(d.get("history"), list))
+
+# The false alarm I shipped and had to take back: backups do NOT live in the
+# records folder, and looking for them there reported "none" on every healthy copy.
+names = {c["name"]: c for c in d["checks"]}
+check("THE ONE I GOT WRONG: the backup check asks backup.py, not the data folder",
+      names.get("Last backup", {}).get("ok") is not False
+      or "No usable backup" in names["Last backup"]["detail"],
+      str(names.get("Last backup")))
+check("database integrity is reported, not only acted on",
+      "Database integrity" in names)
 
 print(f"\n{OK} passed, {BAD} failed\n")
 sys.exit(1 if BAD else 0)

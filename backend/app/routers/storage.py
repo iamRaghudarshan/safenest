@@ -308,26 +308,47 @@ def diagnose(user: User = Depends(get_current_user)):
         out.append(_check("Free space", None, str(exc)))
 
     # 5. When was the last copy taken? The question every incident ends on.
-    if not settings.is_sqlite:
-        out.append(_check("Last local backup", None,
-                          "Backups for this installation are taken from MySQL, "
-                          "not from a file here.", ""))
-    else:
-      try:
-          backups = sorted(data.glob("finmate.db.bak-*"))
-          if backups:
-              newest = backups[-1]
-              when = datetime.fromtimestamp(newest.stat().st_mtime, timezone.utc)
-              age = (datetime.now(timezone.utc) - when).days
-              out.append(_check("Last local backup", age <= 30,
-                                f"{newest.name}, {age} day(s) old",
-                                "" if age <= 30 else
-                                "Older than a month. Take a backup from Profile."))
-          else:
-              out.append(_check("Last local backup", False, "None found",
-                                "Take one from Profile → Backup."))
-      except OSError as exc:
-          out.append(_check("Last local backup", None, str(exc)))
+    #
+    # ASKS backup.py, and does not go looking for files itself. The first version
+    # of this globbed data/finmate.db.bak-* -- which is where the pre-migration
+    # snapshot goes, not where the real backups live (backup_dir(), an INDEPENDENT
+    # location outside the records folder, deliberately, so a lost records disk
+    # does not take the backups with it). It would have reported "no backup found"
+    # on every healthy installation in existence. A diagnostic that invents faults
+    # is worse than none: it is what teaches somebody to ignore the true one.
+    try:
+        from .. import backup as _bk
+        newest = _bk.newest_good()
+        if newest is None:
+            out.append(_check("Last backup", False, "No usable backup was found",
+                              "Take one now from Profile → Backup."))
+        else:
+            when = datetime.fromtimestamp(newest.stat().st_mtime, timezone.utc)
+            age = (datetime.now(timezone.utc) - when).days
+            out.append(_check(
+                "Last backup", age <= 7,
+                f"{age} day(s) old, {newest.stat().st_size // 1048576} MB, "
+                f"kept at {newest.parent}",
+                "" if age <= 7 else
+                "Older than a week. The app takes one daily while it is running, "
+                "so this old usually means it has not been opened."))
+    except Exception as exc:
+        out.append(_check("Last backup", None, f"Could not be checked: {exc}"))
+
+    # 6. Is the database itself sound? backup.py already checks this at startup
+    #    and restores from the newest good copy if not -- reported here so the
+    #    answer is visible rather than only acted on.
+    try:
+        from .. import backup as _bk
+        out.append(_check("Database integrity", _bk.integrity_ok(),
+                          "SQLite reports the records file as sound"
+                          if _bk.integrity_ok() else
+                          "SQLite reports damage in the records file",
+                          "" if _bk.integrity_ok() else
+                          "SafeNest restores from the newest good backup on the "
+                          "next start. Do not reinstall."))
+    except Exception as exc:
+        out.append(_check("Database integrity", None, f"Could not be checked: {exc}"))
 
     return _finish(out, data)
 
@@ -343,4 +364,15 @@ def _finish(out: list[dict], data: Path) -> dict:
         # answered checks count, and an unanswered one is reported as itself.
         "all_ok": all(c["ok"] for c in out if c["ok"] is not None),
         "unchecked": [c["name"] for c in out if c["ok"] is None],
+        # "Has this happened before?" -- the question that could not be answered
+        # at all during the incident this came out of.
+        "history": _history(),
     }
+
+
+def _history() -> list[dict]:
+    try:
+        from .. import incidents
+        return incidents.recent(20)
+    except Exception:
+        return []
