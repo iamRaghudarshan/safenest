@@ -27,13 +27,41 @@ const MODULES = [
   ['\u{1F510}', 'Vault', 'Passwords and secrets, AES-256 encrypted.', '#0891b2'],
   ['\u{1F514}', 'Reminders', 'Never miss a bill, renewal or task.', '#e11d48'],
   ['✅', 'To-dos', 'The little things, kept with everything else.', '#059669'],
+  ['\u{1F4C5}', 'Habits', 'The things you mean to do daily, tracked as a streak.', '#8b5cf6'],
+  ['\u{1F4DD}', 'Notes', 'Anything that does not fit a form, kept with the rest.', '#14b8a6'],
 ];
+
+// What the app does ACROSS the modules. Every line here was checked against the
+// code before it was written, because a storefront is a promise: two-factor
+// sign-in is deliberately absent even though auth.py has six routes for it, as
+// nothing in the frontend calls any of them.
+const EXTRAS = [
+  ['\u{1F4F4}', 'Works offline',
+   'Install it on your phone or desktop and it opens without a connection.', '#0891b2'],
+  ['\u{1F642}', 'Knows who and what is in your photos',
+   'Pictures group themselves by face, and you can search by what a photo shows.', '#6366f1'],
+  ['\u{1F9F9}', 'Clears out duplicates',
+   'Finds exact copies and near ones \u2014 resized, re-saved, edited \u2014 and gives the space back.', '#f59e0b'],
+  ['\u{1F514}', 'One summary a day',
+   'Bills, renewals and tasks in a single notification, at a time you choose.', '#e11d48'],
+  ['\u{1F46A}', 'A sign-in for everyone at home',
+   'Each person keeps their own records. Nobody sees anybody else\u2019s.', '#10b981'],
+  ['\u{1F4F2}', 'Backs up an iPhone\u2019s whole library',
+   'Straight from the phone\u2019s Shortcuts app \u2014 no cable, no browser upload.', '#7b3ff2'],
+  ['\u{1F310}', 'Your own web address',
+   'Reach your records from outside the house, on a domain that is yours.', '#0ea5e9'],
+  ['\u{1F4E6}', 'Moves house in one click',
+   'Take the lot \u2014 records, photos, settings \u2014 to a new computer on a USB drive.', '#f43f5e'],
+];
+const card = ([i, t, d, c], n) =>
+  `<div class="feat reveal" style="--fc:${c};transition-delay:${n * 60}ms">
+     <div class="ic">${i}</div><h3>${t}</h3><p>${d}</p></div>`;
+
 const grid = document.getElementById('features-grid');
-if (grid) {
-  grid.innerHTML = MODULES.map(([i, t, d, c], n) =>
-    `<div class="feat reveal" style="--fc:${c};transition-delay:${n * 60}ms">
-       <div class="ic">${i}</div><h3>${t}</h3><p>${d}</p></div>`).join('');
-}
+if (grid) grid.innerHTML = MODULES.map(card).join('');
+
+const extras = document.getElementById('extras-grid');
+if (extras) extras.innerHTML = EXTRAS.map(card).join('');
 
 const fmtSize = (b) => b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB'
   : b >= 1e6 ? Math.round(b / 1e6) + ' MB' : Math.round(b / 1e3) + ' KB';
