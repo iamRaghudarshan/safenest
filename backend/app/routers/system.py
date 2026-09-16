@@ -191,7 +191,7 @@ def _notify_export_done(db: Session, user_id: int, ok: bool, result: dict, error
 
 def _run_export(platform: str, include_data: bool, user_id: int, scope: str,
                 notify: bool = False, licence_token: str = "", licence_tag: str = "",
-                hosting: dict | None = None):
+                hosting: dict | None = None, passphrase: str = ""):
     def progress(step: str, percent: int):
         _export.update(step=step, percent=percent)
 
@@ -220,7 +220,12 @@ def _run_export(platform: str, include_data: bool, user_id: int, scope: str,
                 # folder, so it can't overwrite (or be mistaken for) the full copy.
                 user_id=user_id if scope == "mine" else None,
                 folder_suffix=f"-{user_id}" if scope == "mine" else "",
-                hosting=hosting)
+                hosting=hosting,
+                # 'full' is 'all' plus the things that make the far end a
+                # PUBLISHER rather than a running copy: the UI source, packaging/,
+                # the scripts, and the signing key under a passphrase.
+                full_source=(scope == "full"),
+                passphrase=passphrase)
         _export.update(state="done", result=result, percent=100, step="Done")
     except Exception as exc:
         # The message reaches a phone screen, so keep it short and human.
@@ -337,10 +342,27 @@ def export_start(request: Request, body: dict = Body(default={}),
     if platform not in bundler.TEMPLATES:
         raise HTTPException(422, "Choose either Windows or Mac")
     scope = str(body.get("scope") or "mine").strip().lower()
-    if scope not in ("mine", "all", "licence"):
-        raise HTTPException(422, "scope must be 'mine', 'all' or 'licence'")
-    if scope == "all" and user.role != "admin":
+    if scope not in ("mine", "all", "licence", "full"):
+        raise HTTPException(422, "scope must be 'mine', 'all', 'full' or 'licence'")
+    if scope in ("all", "full") and user.role != "admin":
         raise HTTPException(403, "Only an administrator can export everyone's data")
+
+    # 'full' is the publisher move: everything 'all' carries, plus the UI source,
+    # packaging/, the install scripts and the licence SIGNING key.
+    passphrase = str(body.get("passphrase") or "")
+    if scope == "full":
+        # Only a publisher has a signing key to move, and a copy without one has
+        # nothing here that 'all' does not already do better.
+        if not settings.is_publisher:
+            raise HTTPException(409, "This copy has no publisher keys to move.")
+        # Refused rather than quietly downgraded to an unencrypted bundle. That
+        # archive is the ability to issue licences for the product; anyone holding
+        # it can mint their own. A default that writes it in the clear is one
+        # nobody would have chosen deliberately.
+        if len(passphrase) < 12:
+            raise HTTPException(
+                422, "Use a passphrase of at least 12 characters. It protects the "
+                     "licence signing key and is stored nowhere else.")
 
     # A licensed build: an empty app for a customer, carrying their signed licence.
     # Never their data or anyone else's — this is software being handed over, not
@@ -384,7 +406,7 @@ def export_start(request: Request, body: dict = Body(default={}),
 
     threading.Thread(target=_run_export,
                      args=(platform, include_data, user.id, scope, notify,
-                           licence_token, licence_tag, hosting),
+                           licence_token, licence_tag, hosting, passphrase),
                      daemon=True).start()
     return {**_visible_job(user), "notify": notify}
 

@@ -9,6 +9,7 @@ copies onto a pendrive, survives being moved around, and can be inspected. What
 makes it work on a fresh machine is setup.py, which installs the dependencies and
 asks the questions.
 """
+import base64
 import json
 import os
 import re
@@ -96,6 +97,42 @@ SKIP_FILES = {".env", ".env.local", "install-services.log"}
 SKIP_SUFFIXES = {".pyc", ".pyo", ".log", ".db", ".db-wal", ".db-shm", ".part"}
 # models/ is NOT skipped: ~190 MB of face and CLIP weights ride along so the
 # copy works offline on arrival instead of needing its own download.
+
+# --- what a PUBLISHER move needs beyond a runnable copy ----------------------
+# An ordinary "move everything" bundle carries backend/ plus the BUILT frontend,
+# which is enough to run the app and edit its backend. It is not enough to BE the
+# publisher: you cannot change a line of the UI, you cannot produce a customer
+# build, and you cannot issue a licence. Those three gaps are what these lists
+# close. Verified by exporting on 16 Sep 2026 and counting: frontend/src arrived
+# with 0 files and packaging/ with 0.
+#
+# Frontend SOURCE, not just dist/ — dist is a build output and cannot be edited.
+FRONTEND_SOURCE = ("src", "public", "package.json", "package-lock.json",
+                   "index.html", "vite.config.ts", "tsconfig.json",
+                   "tsconfig.app.json", "tsconfig.node.json", "eslint.config.js",
+                   ".oxlintrc.json")
+# Project-root items. packaging/ is how customer builds are made; bundle/ is the
+# installer templates; the scripts are how the app is installed as services; and
+# cloudflared/config.yml is the tunnel ingress, without which the new machine
+# serves nothing at the address people actually use.
+PROJECT_EXTRAS = ("packaging", "bundle", "cloudflared", "VERSION", "CLAUDE.md",
+                  ".gitignore", "fix-paths.ps1", "install-services.ps1",
+                  "uninstall-services.ps1", "make_bundle.py",
+                  "start-finmate-react.ps1", "start-finmate-internet.ps1",
+                  "start-finmate-https.ps1", "start-finmate-tunnel.ps1",
+                  "start-finmate-tailscale.ps1")
+# Secrets that only a publisher move may carry, and only under a passphrase.
+# LICENSE_SIGNING_KEY_HEX is the business: whoever holds it can mint licences for
+# the product. CF_API_TOKEN can rewrite DNS across the whole Cloudflare account.
+PUBLISHER_SECRET_KEYS = (
+    "LICENSE_SIGNING_KEY_HEX", "LICENSE_PUBLIC_KEY_HEX",
+    "JWT_SECRET", "MEDIA_SECRET", "VAULT_KEY_HEX", "VAULT_KEY_LEGACY_HEX",
+    "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT",
+    "CF_API_TOKEN", "CF_ZONE_ID", "CF_ACCOUNT_ID",
+    "PUBLIC_BASE_URL", "SITE_BASE_URL", "LICENCE_DOMAIN",
+    "DB_ENGINE", "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD",
+    "MEDIA_URL_TTL", "JWT_EXPIRE_MINUTES", "DOCUMENT_MAX_MB",
+)
 
 
 def default_output_root() -> Path:
@@ -250,6 +287,209 @@ def _write_carried_secrets(data_dir: Path, vault_key: str | None = None):
     (data_dir / "carried-secrets.env").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _copy_full_source(dest: Path) -> dict:
+    """Everything a publisher needs that a runnable copy does not.
+
+    Kept separate from build()'s own copying so the ordinary move is unchanged:
+    this only ever ADDS, and only on the publisher path.
+    """
+    counts = {"frontend_source": 0, "project_extras": 0}
+    for name in FRONTEND_SOURCE:
+        src = FRONTEND / name
+        if not src.exists():
+            continue
+        if src.is_dir():
+            counts["frontend_source"] += _copy_tree(src, dest / "frontend" / name)
+        else:
+            (dest / "frontend").mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest / "frontend" / name)
+            counts["frontend_source"] += 1
+    for name in PROJECT_EXTRAS:
+        src = PROJECT_ROOT / name
+        if not src.exists():
+            continue
+        if src.is_dir():
+            counts["project_extras"] += _copy_tree(src, dest / name)
+        else:
+            shutil.copy2(src, dest / name)
+            counts["project_extras"] += 1
+    return counts
+
+
+def _carry_git_ref(dest: Path) -> dict:
+    """Record WHERE the source came from, not a second copy of it.
+
+    .git is in SKIP_DIRS and should stay there — it is large, and the history is
+    already on the remote. What the far end actually needs is the remote and the
+    exact commit, so `git clone` + `git checkout <sha>` reproduces this tree
+    rather than approximating it. Written even when git is unavailable, with
+    blanks, so the file's absence never has to be interpreted.
+    """
+    info = {"remote": "", "branch": "", "commit": "", "dirty": None}
+    try:
+        exe = shutil.which("git") or r"C:\Program Files\Git\cmd\git.exe"
+
+        def git(*args):
+            # -c safe.directory: the API runs as SYSTEM while the checkout belongs
+            # to the logged-in user, and git REFUSES a repo owned by someone else
+            # ("detected dubious ownership"). It fails on stderr with a non-zero
+            # exit, so every field came back blank and SOURCE-ORIGIN.json recorded
+            # nothing — on the one machine where it matters.
+            out = subprocess.run([exe, "-c", f"safe.directory={PROJECT_ROOT}", *args],
+                                 cwd=str(PROJECT_ROOT),
+                                 capture_output=True, text=True, timeout=15)
+            return out.stdout.strip() if out.returncode == 0 else ""
+        info["remote"] = git("remote", "get-url", "origin")
+        info["branch"] = git("rev-parse", "--abbrev-ref", "HEAD")
+        info["commit"] = git("rev-parse", "HEAD")
+        info["dirty"] = bool(git("status", "--porcelain"))
+    except Exception:
+        pass
+    (dest / "SOURCE-ORIGIN.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
+    return info
+
+
+def _carry_publisher_secrets(data_dir: Path, passphrase: str) -> bool:
+    """The publisher's own secrets, encrypted under a passphrase.
+
+    WHY THIS IS NOT carried-secrets.env. That file exists to stop data loss and
+    holds the vault key; this one holds LICENSE_SIGNING_KEY_HEX, which is not
+    about data at all — it is the ability to issue licences for the product.
+    Anyone who gets it can mint their own and the whole scheme becomes
+    decorative. It also carries CF_API_TOKEN, which can rewrite DNS across the
+    entire Cloudflare account.
+
+    So it never travels in the clear, and there is no flag to make it. The
+    passphrase is asked for at build time and stored nowhere: lose it and the
+    file is gone, which is the correct trade for a file that IS the business.
+
+    AES-256-GCM, key from scrypt(n=2^15) over a random 16-byte salt. Same
+    primitive as the vault (crypto.py); the KDF is what a human-chosen passphrase
+    needs and a 32-byte hex key does not.
+    """
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+
+    if not passphrase:
+        raise ValueError("A passphrase is required to carry the publisher's keys.")
+
+    lines = []
+    for key in PUBLISHER_SECRET_KEYS:
+        value = _read_env_value(key)
+        if value:
+            lines.append(f"{key}={value}")
+    if not lines:
+        return False
+
+    salt = os.urandom(16)
+    nonce = os.urandom(12)
+    key = Scrypt(salt=salt, length=32, n=2 ** 15, r=8, p=1).derive(passphrase.encode())
+    ct = AESGCM(key).encrypt(nonce, "\n".join(lines).encode("utf-8"), None)
+    (data_dir / "publisher-secrets.enc").write_text(json.dumps({
+        "v": 1, "kdf": "scrypt", "n": 2 ** 15, "r": 8, "p": 1,
+        "salt": base64.b64encode(salt).decode(),
+        "nonce": base64.b64encode(nonce).decode(),
+        "ct": base64.b64encode(ct).decode(),
+        "keys": list(PUBLISHER_SECRET_KEYS),   # names only — so the far end can say what it will restore
+    }, indent=2), encoding="utf-8")
+    return True
+
+
+def decrypt_publisher_secrets(path: Path, passphrase: str) -> str:
+    """Reverse of the above. Lives here so the restore script has one import."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+
+    blob = json.loads(Path(path).read_text(encoding="utf-8"))
+    salt = base64.b64decode(blob["salt"])
+    nonce = base64.b64decode(blob["nonce"])
+    ct = base64.b64decode(blob["ct"])
+    key = Scrypt(salt=salt, length=32, n=blob.get("n", 2 ** 15),
+                 r=blob.get("r", 8), p=blob.get("p", 1)).derive(passphrase.encode())
+    return AESGCM(key).decrypt(nonce, ct, None).decode("utf-8")
+
+
+def _write_restore_guide(dest: Path, result: dict) -> None:
+    """The instructions, written from what this bundle actually contains.
+
+    Generated rather than shipped as a static file so it can never describe a
+    bundle that was not built — it names the real commit, says whether the
+    encrypted secrets are present, and reports the real database and media
+    counts. A README that claims something the folder does not hold is worse than
+    none, because it is believed.
+    """
+    git = (result.get("source") or {}).get("git") or {}
+    has_secrets = bool(result.get("publisher_secrets"))
+    lines = [
+        "MOVING THIS PUBLISHER INSTALLATION TO A NEW MACHINE",
+        "=" * 52,
+        "",
+        f"Built {ist.now():%d %B %Y, %H:%M} IST from commit {git.get('commit', '')[:8] or 'unknown'}"
+        + (" (WORKING TREE HAD UNCOMMITTED CHANGES)" if git.get("dirty") else ""),
+        "",
+        "WHAT IS IN HERE",
+        f"  backend/            the backend source",
+        f"  frontend/src/       the UI source -- this is what an ordinary move leaves out",
+        f"  frontend/dist/      the built UI, so it runs before you rebuild anything",
+        f"  packaging/          how customer builds are made",
+        f"  cloudflared/        the tunnel ingress config",
+        f"  data/finmate.db     the database ({'included' if result.get('database') else 'NOT included'})",
+        f"  data/media/         photos and documents ({result.get('media_files', 0)} files)",
+        f"  data/cloudflared/   tunnel credentials ({'included' if result.get('tunnel') else 'NOT included'})",
+        f"  data/carried-secrets.env   vault key -- decrypts saved passwords",
+    ]
+    if has_secrets:
+        lines += [
+            "  data/publisher-secrets.enc  THE SIGNING KEY, ENCRYPTED",
+            "",
+            "THE ENCRYPTED FILE IS THE IMPORTANT ONE",
+            "  It holds LICENSE_SIGNING_KEY_HEX. Without it the new machine runs the",
+            "  app perfectly and cannot issue a single licence -- is_publisher is",
+            "  False -- and cannot serve the customers you already have.",
+            "",
+            "  It needs the passphrase you typed when building this. It is stored",
+            "  NOWHERE else. Lose it and this file is gone, and with it the ability to",
+            "  issue licences that existing customer copies will accept.",
+            "",
+            "  Anyone holding the decrypted contents can mint licences for your",
+            "  product. Do not put this folder on anything you would not put a bank",
+            "  card in.",
+        ]
+    else:
+        lines += [
+            "",
+            "NO SIGNING KEY IN THIS BUNDLE.",
+            "  The new machine will NOT be able to issue licences. If that is not what",
+            "  you wanted, rebuild with a passphrase.",
+        ]
+    lines += [
+        "",
+        "ON THE NEW MACHINE",
+        "  1. Copy this whole folder to where it should live.",
+        "  2. Run:  python restore-publisher.py",
+        "     It installs nothing behind your back -- it prints what it will do and",
+        "     asks first. It needs Python 3.13 and, for the encrypted file, your",
+        "     passphrase.",
+        "  3. Start the app, sign in, and check Profile -> Licences shows the issue",
+        "     button. If it does not, the signing key did not arrive.",
+        "",
+        "THE SOURCE IS ALSO ON GITHUB",
+        f"  remote : {git.get('remote') or '(none recorded)'}",
+        f"  branch : {git.get('branch') or '(none)'}",
+        f"  commit : {git.get('commit') or '(none)'}",
+        "  The copy in this folder is the one that was running. Use git if you want",
+        "  history; use this folder if you want exactly what was live.",
+        "",
+        "WHAT IS DELIBERATELY NOT HERE",
+        "  releases/        rebuildable, and hundreds of MB each",
+        "  backend/venv/    rebuild it; it holds absolute paths",
+        "  node_modules/    same",
+        "  MySQL itself     the database above is SQLite, which needs no server.",
+        "                   Point DB_ENGINE at mysql only if you want one.",
+    ]
+    (dest / "MOVE-README.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _empty_database(target: Path) -> bool:
     """A database with the schema and nothing in it.
 
@@ -382,10 +622,32 @@ def _carry_tunnel(data_dir: Path) -> bool:
     the credentials for the tunnel itself, and handing them to an individual user
     would let them redirect everyone's address at a server of their own.
     """
-    src = Path.home() / ".cloudflared"
-    if not src.is_dir():
+    # Path.home() is not enough. Installed as services, the API runs as SYSTEM, so
+    # home() is C:\Windows\System32\config\systemprofile — which has no tunnel
+    # credentials, while the real ones sit in the logged-in user's profile. The
+    # export then reported tunnel: False and the copy arrived unable to serve the
+    # one address anybody uses, silently. Found by exporting through the running
+    # service rather than from a shell.
+    #
+    # So ask the config file instead of guessing at a home directory: it names its
+    # own credentials-file outright, and it is the same file the connector reads.
+    candidates = [Path.home() / ".cloudflared"]
+    cfg = PROJECT_ROOT / "cloudflared" / "config.yml"
+    named: Path | None = None
+    if cfg.is_file():
+        for line in cfg.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("credentials-file:"):
+                named = Path(line.split(":", 1)[1].strip())
+                if named.parent.is_dir():
+                    candidates.insert(0, named.parent)
+                break
+
+    src = next((c for c in candidates if c.is_dir()), None)
+    if src is None:
         return False
     creds = sorted(p for p in src.glob("*.json") if len(p.stem) == 36)  # <uuid>.json
+    if not creds and named and named.is_file():
+        creds = [named]
     if not creds:
         return False
 
@@ -1148,7 +1410,8 @@ def build(platform: str, include_data: bool, out_root: Path | None = None,
           progress=lambda step, pct: None, make_zip: bool = False,
           rebuild_frontend: bool = False, user_id: int | None = None,
           folder_suffix: str = "", licence_token: str = "",
-          hosting: dict | None = None) -> dict:
+          hosting: dict | None = None, full_source: bool = False,
+          passphrase: str = "") -> dict:
     """Create the bundle. `progress(step, percent)` is called as work proceeds.
 
     With `user_id` set this is a personal export: only that user's rows and files are
@@ -1185,6 +1448,21 @@ def build(platform: str, include_data: bool, out_root: Path | None = None,
 
     progress("Copying the web app", 25)
     _copy_tree(FRONTEND / "dist", dest / "frontend" / "dist")
+
+    # A publisher move, not merely a runnable copy: the UI source so the app can be
+    # changed, packaging/ so customer builds can be made, and the scripts and tunnel
+    # config so the new machine can actually be stood up. Additive and publisher-only
+    # — nothing above this line behaves differently.
+    source_info: dict = {}
+    if full_source:
+        progress("Copying the source", 28)
+        source_info = _copy_full_source(dest)
+        source_info["git"] = _carry_git_ref(dest)
+        # The far end's half of the move. Not rebranded like setup.py is — it is
+        # an operator tool, not something a customer ever sees.
+        restore = BUNDLE_SRC / "restore-publisher.py"
+        if restore.is_file():
+            shutil.copy2(restore, dest / restore.name)
 
     progress("Adding the launcher", 30)
     # The installer and its instructions are rebranded as they are copied. Doing it
@@ -1244,6 +1522,14 @@ def build(platform: str, include_data: bool, out_root: Path | None = None,
             # A licensed copy is somebody else's installation, so it must not
             # arrive holding the keys to this one's public address.
             result["tunnel"] = False if licence_token else _carry_tunnel(data_dir)
+            # The publisher's own keys, encrypted. Deliberately NOT part of
+            # carried-secrets.env beside it: that file prevents data loss and may
+            # sit in the clear, this one is the ability to ISSUE LICENCES and may
+            # not. Raises without a passphrase rather than quietly omitting it —
+            # a move that silently left the signing key behind is precisely the
+            # failure this whole path exists to fix.
+            if full_source:
+                result["publisher_secrets"] = _carry_publisher_secrets(data_dir, passphrase)
         progress("Copying photos and documents", 45)
         result["media_files"], result["media_bytes"] = _copy_media(
             data_dir / "media", progress, user_id=user_id)
@@ -1256,6 +1542,9 @@ def build(platform: str, include_data: bool, out_root: Path | None = None,
             result["hostname"] = hosting["hostname"]
 
     progress("Finishing", 96)
+    if full_source:
+        result["source"] = source_info
+        _write_restore_guide(dest, result)
     result["bytes"] = sum(p.stat().st_size for p in dest.rglob("*") if p.is_file())
 
     # A Mac bundle is always zipped: it is the only way the launcher arrives with
