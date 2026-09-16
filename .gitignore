@@ -62,3 +62,11 @@ releases/
 # machine, and is easy to add by accident.
 dist-app/mac/
 nuitka-crash-report.xml
+
+# Credential / handover notes. This repo is PUBLIC, so anything holding a
+# password must never be committed by accident. The real file lives OUTSIDE the
+# repo at D:\AI PRO\SafeNest-Setup-and-Credentials.md; this is the safety net
+# for the day somebody drops a copy in here.
+*redentials*
+*ecrets*
+*-handover.md

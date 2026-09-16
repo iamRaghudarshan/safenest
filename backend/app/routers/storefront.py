@@ -239,12 +239,41 @@ def _track_visit(db: Session) -> None:
         db.rollback()
 
 
+def _sign_in_here(html: str, db: Session) -> str:
+    """Point the page's "Sign in" links at the app, when the app lives elsewhere.
+
+    Every other link on this page is relative and must stay that way — the
+    downloads, the licence form and the icons are all served by this same origin.
+    Sign in is the one exception: with the website on its own hostname, `href="/"`
+    is the storefront itself, so the button would reload the page it is on and
+    there would be no way into the app from the website at all.
+
+    Rewritten at serve time rather than written into the file, for the same reason
+    public_base_url is not a constant: the address is something the owner changes,
+    and a domain hard-coded in the HTML is one more place to miss on the day they
+    do. When the two share one address — the normal case — nothing is substituted
+    and the relative link is left exactly as it was.
+    """
+    # No separate website address configured: the page is being served from the
+    # app's own origin, "/" already IS the app, and rewriting a relative link into
+    # an absolute one would be a change for every installation that never asked
+    # for the split.
+    if not settings.site_host:
+        return html
+    base = weburl.public_url(db).rstrip("/")
+    if not base:
+        return html
+    if settings.matches_site_host(weburl.hostname_of(base)):
+        return html          # one address serves both; "/" is already right
+    return html.replace('href="/"', f'href="{base}/"')
+
+
 @pages.get("/get", include_in_schema=False)
 def storefront_page(db: Session = Depends(get_db)):
     """The download / request-a-licence landing page."""
     if _PAGE.is_file():
         _track_visit(db)
-        return HTMLResponse(_PAGE.read_text(encoding="utf-8"))
+        return HTMLResponse(_sign_in_here(_PAGE.read_text(encoding="utf-8"), db))
     raise HTTPException(404, "The storefront page is not available.")
 
 

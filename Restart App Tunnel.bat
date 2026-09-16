@@ -53,16 +53,16 @@ set TRIES=0
 :wait
 set /a TRIES+=1
 timeout /t 4 /nobreak >nul
-for /f %%A in ('curl.exe -s -m 10 -o nul -w "%%{http_code}" https://safenest.raghudarshan.online/api/health') do set CODE=%%A
+for /f %%A in ('curl.exe -s -m 10 -o nul -w "%%{http_code}" https://app.safenesthub.in/api/health') do set CODE=%%A
 if "%CODE%"=="200" goto up
 if %TRIES% lss 15 goto wait
 
-echo   [!] safenest.raghudarshan.online did not answer 200 in time ^(got %CODE%^).
+echo   [!] app.safenesthub.in did not answer 200 in time ^(got %CODE%^).
 echo       Check Task Scheduler for AppTunnel, and the DNS record in Cloudflare.
 goto done
 
 :up
-echo   safenest.raghudarshan.online is live and reaching this server.
+echo   app.safenesthub.in is live and reaching this server.
 
 :done
 echo.

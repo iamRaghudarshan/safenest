@@ -145,6 +145,24 @@ def _migrate() -> None:
         _seed_module_grants()
         return
 
+    # FIRST, before any ALTER: create whatever tables do not exist yet.
+    #
+    # Everything below this line assumes the tables are already there — the top-ups
+    # ALTER them and the checkfirst creates cover only tables added since 2026. On a
+    # BRAND-NEW MySQL database none of the base tables exist, so the very first
+    # statement (`ALTER TABLE licenses ...`) raised "Table 'finmate.licenses'
+    # doesn't exist", the exception left _migrate() entirely, and _on_startup()'s
+    # `except Exception` printed "[migrate] skipped" and carried on. The result was
+    # an app that booted, answered /api/health perfectly — health does not touch the
+    # database — and had ZERO tables. Every sign-in failed with no clue why.
+    #
+    # It never showed on this installation because its tables were created years of
+    # releases ago, which is exactly the shape of bug that waits for the day someone
+    # follows §5 and sets the app up on a new machine. create_all defaults to
+    # checkfirst=True, so on an existing install this is a no-op and the top-ups
+    # below then find every column present and skip.
+    Base.metadata.create_all(bind=engine)
+
     stmts = [
         # How many sign-ins a licensed household may have (added August 2026).
         # NULL on rows issued before this, which seats_allowed() reads as 1.
@@ -1053,10 +1071,51 @@ def _branded_index() -> str:
     return html
 
 
+def _request_host(request: Request) -> str:
+    """The hostname the visitor actually typed, lower case and without the port.
+
+    Read from the Host header rather than from the socket: every request arrives
+    over the tunnel from 127.0.0.1, so the socket only ever says "localhost" and
+    could never tell the website apart from the app. cloudflared forwards the
+    original Host untouched; x-forwarded-host is honoured first for the benefit
+    of any other proxy put in front later.
+    """
+    raw = (request.headers.get("x-forwarded-host")
+           or request.headers.get("host") or "")
+    return raw.split(",")[0].strip().lower().split(":")[0]
+
+
 if os.path.isdir(_dist):
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
-    def _index():
+    def _index(request: Request):
+        """The app at "/", or the website at "/" when the website has its own name.
+
+        The storefront and the app share ONE origin — same FastAPI process, same
+        tunnel — and differ only in what the root path returns. That keeps every
+        relative URL on the storefront page (/api/public/download/meta, the
+        licence form, /branding/icon-192.png) same-origin, so the split costs no
+        CORS configuration and no second server.
+
+        Falls through to the app whenever anything is off — no site host set, not
+        the publisher, the page file missing. A website that is briefly the app is
+        recoverable; a sign-in screen that 500s because the storefront moved is
+        not.
+        """
+        if settings.matches_site_host(_request_host(request)) and settings.is_publisher:
+            try:
+                from .database import SessionLocal
+                db = SessionLocal()
+                try:
+                    return storefront.storefront_page(db)
+                finally:
+                    db.close()
+            except Exception as exc:
+                # Logged, not swallowed. Falling through is the right behaviour —
+                # the visitor still gets a working page — but a website quietly
+                # serving the app instead of itself would otherwise look like a
+                # DNS problem and be debugged in entirely the wrong place.
+                print(f"[site] storefront at / failed, serving the app instead: {exc}")
         return HTMLResponse(_branded_index())
 
     app.mount("/", StaticFiles(directory=_dist, html=True), name="spa")

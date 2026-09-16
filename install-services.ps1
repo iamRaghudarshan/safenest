@@ -167,6 +167,26 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 $settings.DisallowStartOnRemoteAppSession = $false
 $trigger.Delay = "PT30S"
 
+# ONE connector, not two.
+#
+# The API runs its own tunnel supervisor at startup (tunnelrun.start()), and with
+# no tunnel token stored in the database it falls back to cloudflared\config.yml —
+# the very same tunnel the AppTunnel task below is about to run. That is two
+# connectors for one tunnel on one machine, which is the duplicate-connector
+# problem this file already warns about further down: Cloudflare load-balances
+# across every connector it can see, so half the requests go through a connector
+# nobody knows is running.
+#
+# A scheduled task has no environment block of its own, so this is set at machine
+# scope. It is read by exactly one line of our code and nothing else on the system.
+#
+# IF YOU LATER SET THE TUNNEL UP FROM INSIDE THE APP (Profile -> Web address ->
+# the one-token flow), REMOVE THIS. That flow stores a token and calls
+# tunnelrun.restart(), which this variable turns into a silent no-op — the screen
+# will report success and no connector will start.
+[Environment]::SetEnvironmentVariable("SAFENEST_NO_TUNNEL", "1", "Machine")
+$env:SAFENEST_NO_TUNNEL = "1"
+
 Register-ScheduledTask -TaskName $API_TASK -Action $action -Trigger $trigger `
     -Principal $sysPrincipal -Settings $settings `
     -Description "App FastAPI backend + built SPA on 0.0.0.0:8080" | Out-Null
@@ -236,8 +256,21 @@ foreach ($extra in @("cert.pem")) {
 # that ambiguity, and it is the same shape as the API task above, which comes
 # back from a reboot cleanly.
 if (Get-Service -Name "cloudflared" -ErrorAction SilentlyContinue) {
-    & $cfExe service uninstall | Out-Null
-    Start-Sleep -Seconds 2
+    # cloudflared logs to STDERR even when it succeeds ("INF Uninstalling
+    # cloudflared agent service"). Windows PowerShell wraps a native command's
+    # stderr in an ErrorRecord, and with $ErrorActionPreference = "Stop" set at the
+    # top of this file that terminated the whole script — on the success path.
+    #
+    # The effect was that step 3 could never finish on any machine that already
+    # had a cloudflared service: MySQL and the API installed fine, the script died
+    # here, and AppTunnel was never registered. The summary was never reached
+    # either, so it looked like an error in the uninstall rather than the script
+    # stopping on a log line. Seen on this machine on 16 Sep 2026.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & $cfExe service uninstall 2>&1 | Out-Null
+    $ErrorActionPreference = $prevEAP
+    Start-Sleep -Seconds 3
 }
 Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
@@ -263,7 +296,13 @@ Write-Host ""
 Write-Host "  Verifying..." -ForegroundColor Cyan
 $okMysql = Test-Port 3307
 $okApi   = Test-Port 8080
-$okTun   = (Get-Service cloudflared -ErrorAction SilentlyContinue).Status -eq "Running"
+# The TASK, not a service. Twenty lines above, this script deliberately runs
+# `cloudflared service uninstall` and registers AppTunnel instead — so asking
+# Get-Service for a service it just removed answered $false every single time and
+# the summary always ended "Something did not come up", on a run where all three
+# had in fact started. A verification that cannot report success is worse than
+# none: it teaches you to ignore it.
+$okTun   = $null -ne (Get-Process cloudflared -ErrorAction SilentlyContinue)
 
 function Show($label, $ok) {
     $mark = if ($ok) { "OK  " } else { "FAIL" }
@@ -278,10 +317,25 @@ $health = $null
 try { $health = Invoke-RestMethod "http://127.0.0.1:8080/api/health" -TimeoutSec 10 } catch {}
 Show "API health check  " ($null -ne $health -and $health.ok)
 
-# Read the public hostname from the tunnel config rather than hard-coding it, so a
-# domain change (edit cloudflared\config.yml) never leaves this verification pointing
-# at the old address.
-$pubHost = (Select-String -Path (Join-Path $root "cloudflared\config.yml") -Pattern '^\s*-?\s*hostname:\s*(\S+)').Matches.Groups[1].Value
+# Read the public address from .env rather than hard-coding it, so a domain change
+# never leaves this verification pointing at the old one.
+#
+# PUBLIC_BASE_URL, not the tunnel config, because the config now lists THREE
+# hostnames — the website, its www, and the app. Select-String returns a match per
+# line, so `.Matches.Groups[1].Value` member-enumerated into an ARRAY of three, and
+# "https://$pubHost" interpolated it as one string with spaces in it. The health
+# check then failed against a URL that was never a URL. Only the app hostname
+# serves /api/health anyway, and that is exactly what PUBLIC_BASE_URL holds.
+$pubHost = ""
+$envFile = Join-Path $root "backend\.env"
+if (Test-Path $envFile) {
+    $m = Select-String -Path $envFile -Pattern '^PUBLIC_BASE_URL=(\S+)' | Select-Object -First 1
+    if ($m) { $pubHost = $m.Matches[0].Groups[1].Value -replace '^https?://', '' -replace '/$', '' }
+}
+if (-not $pubHost) {
+    $m = Select-String -Path (Join-Path $root "cloudflared\config.yml") -Pattern '^\s*-?\s*hostname:\s*(\S+)' | Select-Object -First 1
+    if ($m) { $pubHost = $m.Matches[0].Groups[1].Value }
+}
 $publicUrl = if ($pubHost) { "https://$pubHost" } else { "" }
 $public = $null
 if ($publicUrl) { try { $public = Invoke-RestMethod "$publicUrl/api/health" -TimeoutSec 20 } catch {} }

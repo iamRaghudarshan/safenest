@@ -1,27 +1,79 @@
 # the app — Cloudflare named-tunnel config.
-# Fill the two <PLACEHOLDERS> after you run `cloudflared tunnel create finmate`
-# (that command prints the Tunnel ID and writes the credentials JSON).
 #
-#   b6ea7271-4d37-414e-9899-55be7f3903c5  -> the UUID printed by `cloudflared tunnel create finmate`
-#   finmate.YOURDOMAIN.com -> the public hostname you want (must be on your Cloudflare zone)
+# Tunnel "safenesthub.in" on account e22d3a7c9fd63b985cec44c5dceb2cac.
+# Zone safenesthub.in is 7954ac2bbf6a1917393ba019582da60e.
+#
+# THIS FILE IS THE SOURCE OF TRUTH FOR INGRESS — but only because the tunnel's
+# REMOTE config is empty, and that is the trap to understand before touching it.
+#
+# The tunnel was created through the dashboard, so Cloudflare records it as
+# `config_src: cloudflare`. Running the connector with `--config` does NOT change
+# that — checked, not assumed: the connector registered four connections and used
+# the rules below with no override warning, and the API still reported
+# `config_src: cloudflare` afterwards. Remote config simply has nothing in it, so
+# cloudflared falls back to the local file.
+#
+# Which means: **the first time anyone saves ingress for this tunnel in the
+# Cloudflare dashboard, the remote rules win and this file is silently ignored.**
+# Nothing on this machine would say so — the connector starts happily and serves
+# somebody else's routing. If a hostname ever serves the wrong thing, look there
+# before editing anything here:
+#
+#   curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+#     https://api.cloudflare.com/client/v4/accounts/<ACCOUNT>/cfd_tunnel/<TUNNEL>/configurations
+#
+# An empty `ingress` in that reply means this file is in charge. A populated one
+# means it is not, and the fix is to delete the remote config rather than to keep
+# editing a file nothing reads.
+#
+# The credentials file below was built from the connector token rather than by
+# `cloudflared tunnel login` + `tunnel create`, which is why there is no cert.pem
+# on this machine. It holds the tunnel secret: it is per-machine, is NOT in git
+# (.gitignore has cloudflared/*.json), and must never travel with the folder.
 
-tunnel: b6ea7271-4d37-414e-9899-55be7f3903c5
-credentials-file: C:\Users\Lenovo\.cloudflared\b6ea7271-4d37-414e-9899-55be7f3903c5.json
+tunnel: 1922fb4d-5f3c-4421-8187-9fd12a68514b
+credentials-file: C:\Users\Pro-TEAM\.cloudflared\1922fb4d-5f3c-4421-8187-9fd12a68514b.json
 
+# TWO hostnames, ONE service, and that is the whole design. The storefront and
+# the app are the same FastAPI process on 8080; only what "/" returns differs,
+# decided from the Host header in main.py::_index. Keeping them on one origin is
+# what lets every link on the website stay relative — the downloads, the licence
+# form and the icons are all same-origin — so the split needs no CORS rules and
+# no second server.
 ingress:
-  # All traffic for the hostname goes to the local the app app (served by
-  # start-finmate-internet.ps1 on port 8080).
-  - hostname: safenest.raghudarshan.online
+  # The public website: what "/" returns here is the storefront page, because
+  # this hostname matches SITE_BASE_URL in backend/.env.
+  - hostname: safenesthub.in
     service: http://127.0.0.1:8080
-  # The OLD hostname must keep reaching this app. Licences issued before the
-  # 15 Aug rename carry `https://finmate.raghudarshan.online` as their signed
-  # issuer, and that address cannot be rewritten in a signed Ed25519 token. A
-  # Mac customer on the old perpetual key hit "could not reach your supplier"
-  # (a 404 HTML page the updater could not parse as JSON) on the update check,
-  # because this route was removed. Both hostnames now serve the same app, so
-  # every stranded old-domain copy — update checks and revocation polls alike —
-  # works again without reissuing. Keep this until no old-domain licence is live.
-  - hostname: finmate.raghudarshan.online
+  # Same, for anyone who types the www. A visitor who reaches the app's sign-in
+  # screen when they wanted the website has simply been dropped in the wrong
+  # place, so it is worth the two lines.
+  - hostname: www.safenesthub.in
+    service: http://127.0.0.1:8080
+  # The app itself — the SPA, the API, and the address customers' copies call.
+  # This is PUBLIC_BASE_URL, so it is what gets signed into every licence issued
+  # from here as the issuer, and what those copies poll for ever after.
+  - hostname: app.safenesthub.in
     service: http://127.0.0.1:8080
   # Required catch-all.
   - service: http_status:404
+
+# ---------------------------------------------------------------------------
+# NOTE ON THE OLD ADDRESSES — read before retiring them.
+#
+# safenest.raghudarshan.online and finmate.raghudarshan.online are deliberately
+# NOT listed any more: the owner chose a clean cut-over to safenesthub.in on
+# 16 Sep 2026, with the live licences reissued against the new address.
+#
+# That reissue is not optional, and the order matters. A licence carries its
+# issuer inside a signed Ed25519 token and it CANNOT be rewritten — so a copy
+# issued against the old address keeps calling the old address until it is
+# handed a new licence. This exact mistake has already been made once here: the
+# 15 Aug rename dropped finmate.raghudarshan.online from this file and a Mac
+# customer on the old perpetual key hit "could not reach your supplier" on every
+# update check, because the route was gone.
+#
+# So: reissue every live licence FIRST, confirm each copy has activated the new
+# one, and only then let the old hostnames stop answering. Until that is done,
+# keep the old machine serving them.
+# ---------------------------------------------------------------------------

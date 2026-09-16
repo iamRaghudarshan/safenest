@@ -641,6 +641,41 @@ test that the address really reaches this server.
 exactly as it always did. The screen says "currently using … from the
 configuration file" when that is what is happening.
 
+### The website and the app can have separate hostnames
+
+`SITE_BASE_URL` (`.env` only, publisher only) names the address the **storefront**
+answers on, when that is not the same address as the app —
+`safenesthub.in` for the website, `app.safenesthub.in` for the app.
+
+**It is one origin, not two servers.** Same process, same port, same tunnel; the
+only thing the setting changes is what `/` returns, chosen from the Host header in
+`main.py::_index`. That matters because every link on the storefront page is
+relative — the downloads, the licence form, `/api/public/...`, the icons — so
+splitting the two across origins would have meant CORS rules on a public page for
+no gain. `/get` keeps working on both, so no existing link breaks.
+
+Three things to keep in mind if you touch this:
+
+- **The Host comes from the header, never the socket.** Every request arrives over
+  the tunnel from 127.0.0.1, so the socket can only ever say "localhost" and could
+  never tell the two apart. `_request_host()` prefers `x-forwarded-host` and falls
+  back to `host`.
+- **`www.` is stripped from both sides** (`settings.matches_site_host`), rather
+  than asking the setting to list both spellings. Someone who types the www and
+  lands on the sign-in screen has been dropped somewhere they were not going, and
+  nobody would think to configure a second hostname to prevent it. The comparison
+  is exact after that — `safenesthub.in.evil.com` does not match, and there is a
+  check for it.
+- **Blank means the old behaviour, exactly.** No `site_host` and `/` is the app on
+  every hostname, and the storefront's "Sign in" stays the relative `href="/"` it
+  always was. That is the case every customer copy is in, so it is the one worth
+  re-testing after any change here: rewriting a relative link into an absolute one
+  is a regression for installations that never asked for the split, and it slipped
+  in once already.
+
+`PUBLIC_BASE_URL` stays the address customers' copies call and the one signed into
+licences, so it is the **app** hostname, not the website's.
+
 ### Who may change it — and why it is not admin-only
 
 `hosting.can_manage()`: an **administrator always**, and in a **licensed copy any
@@ -1374,28 +1409,81 @@ Earlier this cycle: **Notes** module (Google-Keep style, web+phone), 1-year phon
 sign-ins (`jwt_expire_minutes`), external-drive records + auto-backups.
 
 - Branding: **SafeNest**, theme `#1656C6`, custom icon uploaded (`icon_version 1`)
-- Users on THIS machine's DB: `admin@finmate.app` (admin, 141 photos),
-  `raghudarshan2014@gmail.com` (user, 77 photos). **The owner's phone connects to a
-  SEPARATE Mac** (1116 photos) — a different installation than this Windows box; the
-  domain points here (218 photos total), so People fixes must reach that Mac.
+- **This is a NEW machine and a FRESH database, as of 16 Sep 2026.** `DESKTOP-6KK3ELO`,
+  LAN `192.168.0.130`. The move from the previous PC brought the folder structure,
+  `backend/.env` and `releases/` and **nothing else** — no source (restored from
+  GitHub `832d20a`), no database, no media, no venv, no MySQL binaries. The owner
+  decided the old records were not needed, so nothing was migrated: the database was
+  built from scratch, MySQL 8.4.6 was reinstalled to `tools/mysql-8.4.6-winx64`, and
+  the venv rebuilt on Python 3.13.15.
+- Users on THIS machine's DB: `admin@finmate.app` (admin) and nobody else. Zero
+  photos, zero documents, zero licences. The branding row was recreated by hand and
+  its icon pulled off the still-live old site, which is why `icon_version` is 1 here
+  and 9 there.
+- **The OLD machine is still running** at `safenest.raghudarshan.online` via tunnel
+  `b6ea7271`, serving the real customer data. It has not been touched. Until the
+  licences are reissued against the new address it is the only thing keeping existing
+  customer copies working — see the tunnel note above.
 - Desktop **Windows 3.30 / Mac 3.31**, built for BOTH platforms: Windows compiled
   here with `--native`, Mac fetched from CI. `dist-app/App` and
   `dist-app/mac/mac-app.tar.gz`. NOTE: `dist-app/App` may be left locked by
   orphaned build processes after a frozen-app verification run — kill stray
   `python.exe`/`App.exe` (keep the :8080 owner) or reboot before the next Windows
   build.
-- Live licences:
+- Live licences **on this machine: none.** The fresh database has an empty
+  `licenses` table and the owner has said they will issue new ones.
+  The licences below were issued by the OLD machine and are still live there. They
+  carry `https://safenest.raghudarshan.online` as their signed issuer, which cannot
+  be rewritten — reissuing them from here is what lets the old address be retired:
   - `L-218E2470` Raghudarshan S — **perpetual**, seats 0 (unlimited)
   - `L-118D98BF` Ashok — expired 10 Aug. **The owner said on 10 Aug to ignore
     this one.** Do not act on it.
 - Phone app **1.50.0** on TestFlight (iOS) **and Android APK on the website**. Repo
   `D:\AI PRO\safenest-mobile`, which now has **its own CLAUDE.md** — read it before
   touching the phone.
-- Public URL: **`safenest.raghudarshan.online`** via the named tunnel
-  `b6ea7271-4d37-414e-9899-55be7f3903c5` (changed from `finmate.raghudarshan.online`
-  on 15 Aug — DB `public_url`, `.env`, and the tunnel config all switched; the old
-  hostname now returns 404 at the tunnel). **This machine's LAN address is now
+- Public URL — **two hostnames since 16 Sep 2026, and they are not interchangeable**:
+  **`safenesthub.in`** (plus `www.`) is the WEBSITE, **`app.safenesthub.in`** is the
+  APP. Both route to the same tunnel and the same 127.0.0.1:8080; the only thing
+  that differs is what `/` returns, decided from the Host header in
+  `main.py::_index`. Keeping one origin is what lets every link on the storefront
+  stay relative, so the split costs no CORS and no second server.
+  `SITE_BASE_URL` in `.env` names the website; `PUBLIC_BASE_URL` names the app and
+  is what gets signed into licences. Leave `SITE_BASE_URL` blank and everything
+  behaves exactly as it did before — that is the customer-copy case, and it is
+  tested.
+  Replaces **`safenest.raghudarshan.online`** (itself renamed from
+  `finmate.raghudarshan.online` on 15 Aug), which ran on the PREVIOUS machine via
+  tunnel `b6ea7271-4d37-414e-9899-55be7f3903c5`. **This machine's LAN address is now
   `192.168.31.159`** (it was `192.168.0.170`).
+- Cloudflare, so nobody has to go digging in the dashboard for an id again:
+  account **`e22d3a7c9fd63b985cec44c5dceb2cac`**, zone `safenesthub.in`
+  **`7954ac2bbf6a1917393ba019582da60e`** (active; nameservers moved off
+  HostingRaja), zone `raghudarshan.online` `334d07bdac5d020eb147bdcb7e503751`.
+  Tunnel **`1922fb4d-5f3c-4421-8187-9fd12a68514b`**, named `safenesthub.in`.
+  All three are in `backend/.env` as `CF_ACCOUNT_ID` / `CF_ZONE_ID` /
+  `CF_API_TOKEN`, which is what turns on the CDN-purge button and per-customer
+  subdomains (`licence_hosting_enabled`).
+  **Four tunnels exist on that account and only one of them is this app.**
+  `b6ea7271` (`finmate`, locally managed) is the OLD machine and is still live.
+  `73bf7102` (`Office laptop tunnel`) is the `Cloudflared` Windows SERVICE
+  running on this box from `C:\ProgramData\cloudflared\token` — it has no ingress
+  rules, so it routes nothing, but it will fight `Restart App Tunnel.bat` for
+  `cloudflared.exe`: that script kills every connector and the service simply
+  restarts its own. Uninstall the service, or stop using the script, but do not
+  run both. `9c101571` (`safenest`) points at `safenest.srpmshop.online` and has
+  no connector, which is why that hostname answers Cloudflare error 1033.
+  **The credentials file was built from the connector token**, not by
+  `cloudflared tunnel login` — so there is no `cert.pem` here, and commands that
+  need one (`tunnel create`, `tunnel route dns`) will ask you to log in first.
+  Routing DNS through the API avoids that.
+  **The old domain cannot simply be switched off.** Two separate systems hold it
+  as a hard-coded or signed constant and neither can be rewritten remotely:
+  every licence carries its issuer inside a signed Ed25519 token, and AI BIT's
+  `update_service.dart` has `manifestUrl` as a `static const` pointing at
+  `safenest.raghudarshan.online/ai-bit-latest.json`. Both need a new artefact
+  delivered over the OLD address before that address stops answering — reissued
+  licences, and an AI BIT build pointing at the new domain. See §10's warning;
+  this is the same trap that stranded a Mac customer in August.
   **Changing the tunnel hostname:** edit the hostname in `cloudflared/config.yml`
   (the source of truth — the AppTunnel SYSTEM task reads it via `--config`, and the
   Web-address screen writes it) then double-click **`Restart App Tunnel.bat`** (it

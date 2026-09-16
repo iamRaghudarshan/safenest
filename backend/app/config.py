@@ -144,6 +144,18 @@ class Settings(BaseSettings):
     # until somebody sets one.
     public_base_url: str = ""
 
+    # Where the public website lives, when it is a DIFFERENT address from the app
+    # — "safenesthub.in" for the storefront, "app.safenesthub.in" for the app
+    # itself. One origin still serves both; this only decides what "/" returns,
+    # by Host. Empty means the two share one address, exactly as they always did,
+    # so an installation that never sets it is unaffected.
+    #
+    # Empty by default for the same reason public_base_url above is: it is the
+    # PUBLISHER's address, it would be compiled into a customer build, and a copy
+    # on someone else's computer has no business naming our website. The routes it
+    # affects are registered behind is_publisher and do not exist there at all.
+    site_base_url: str = ""
+
     # The domain customer subdomains hang off — "meera.example.com". Defaults to
     # whatever public_base_url is under, so a single-domain setup needs no extra
     # configuration.
@@ -156,8 +168,37 @@ class Settings(BaseSettings):
             return v.strip().lstrip(".").lower()
         base = (info.data.get("public_base_url") or "").split("//")[-1].split("/")[0]
         parts = base.split(".")
-        # safenest.raghudarshan.online -> raghudarshan.online
+        # app.safenesthub.in -> safenesthub.in
         return ".".join(parts[-2:]).lower() if len(parts) > 2 else base.lower()
+
+    @property
+    def site_host(self) -> str:
+        """Just the hostname of the website, lower case, or "" when unset.
+
+        Compared against the request's Host, so it must not carry a scheme, a
+        port or a trailing slash — people type all three.
+        """
+        raw = (self.site_base_url or "").strip().lower()
+        return raw.split("//")[-1].split("/")[0].split(":")[0]
+
+    def matches_site_host(self, host: str) -> bool:
+        """True when a request arrived on the website's address rather than the app's.
+
+        "www." is stripped from BOTH sides instead of asking the setting to list
+        both spellings. A visitor who types the www and gets the app's sign-in
+        screen has been dropped somewhere they were not going, and nobody would
+        think to configure a second hostname to prevent that. It is compared, not
+        redirected, so the two spellings stay one page rather than becoming a hop.
+        """
+        site = self.site_host
+        if not site:
+            return False
+
+        def bare(h: str) -> str:
+            h = (h or "").strip().lower()
+            return h[4:] if h.startswith("www.") else h
+
+        return bool(bare(host)) and bare(host) == bare(site)
 
     @property
     def licence_hosting_enabled(self) -> bool:
