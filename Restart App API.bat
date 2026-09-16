@@ -22,7 +22,18 @@ echo   Restarting the API...
 echo.
 
 schtasks /end /tn "AppAPI" >nul 2>&1
-timeout /t 4 /nobreak >nul
+timeout /t 3 /nobreak >nul
+
+REM  schtasks /end ends the TASK; it does not reliably take the task's process
+REM  tree with it. The uvicorn parent survives, the task still reports Running,
+REM  the /run below is then a no-op, and this script reports success while the
+REM  OLD code is still serving every request. That failure is invisible and
+REM  costs an afternoon, so kill whatever still holds the port before starting.
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:"TCP .*:8080 .*LISTENING"') do (
+    taskkill /F /PID %%P /T >nul 2>&1
+)
+timeout /t 2 /nobreak >nul
+
 schtasks /run /tn "AppAPI" >nul 2>&1
 
 echo   Started. Waiting for it to answer...
@@ -45,14 +56,15 @@ goto done
 echo   The API is up.
 echo.
 
-REM The point of the restart: this route only exists in the new code. A 404
-REM here means the old build is somehow still serving, and saying so is more
-REM use than a cheerful "done".
-for /f %%A in ('curl.exe -s -o nul -w "%%{http_code}" http://127.0.0.1:8080/api/auth/2fa') do set CODE=%%A
-if "%CODE%"=="401" (
-    echo   New code confirmed - two-step sign-in and video are live.
+REM The point of the restart: probe a route that exists ONLY in the newest
+REM code, so "it answered" cannot be confused with "it restarted". A 404 here
+REM means the old build is still serving, which is more use than a cheerful
+REM "done". Move this probe on whenever it stops being the newest thing.
+for /f %%A in ('curl.exe -s -o nul -w "%%{http_code}" http://127.0.0.1:8080/ai-bit-latest.json') do set CODE=%%A
+if "%CODE%"=="200" (
+    echo   New code confirmed - the AI BIT download routes are live.
 ) else (
-    echo   [!] Still serving the old build ^(got %CODE%, expected 401^).
+    echo   [!] Still serving the old build ^(got %CODE%, expected 200^).
 )
 
 :done

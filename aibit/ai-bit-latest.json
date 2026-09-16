@@ -1,0 +1,7 @@
+{
+  "version": "2.23.0",
+  "build": 127,
+  "url": "https://safenesthub.in/ai-bit-2.23.0.apk",
+  "notes": "Settings now tells you when one setting has switched another off — so a control that looks on but does nothing explains itself. Feed previews also pause on a low battery. The playlist name box no longer accepts an empty name.",
+  "min_supported_build": 0
+}

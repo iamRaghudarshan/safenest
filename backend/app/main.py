@@ -4,9 +4,9 @@ import re
 import threading
 import time
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -1117,6 +1117,64 @@ if os.path.isdir(_dist):
                 # DNS problem and be debugged in entirely the wrong place.
                 print(f"[site] storefront at / failed, serving the app instead: {exc}")
         return HTMLResponse(_branded_index())
+
+    # ---------------------------------------------------------- AI BIT downloads
+    # A second, unrelated product is distributed from this same origin: the phone
+    # app's APK, its update manifest, and the password gate the storefront's
+    # hidden download link uses.
+    #
+    # They are served from ROOT paths because neither caller can be told to look
+    # anywhere else. Every installed copy of the app polls
+    # https://<host>/ai-bit-latest.json forever — that address is compiled in —
+    # and the gate has to be same-origin because the storefront sets
+    # Content-Security-Policy: script-src 'self'.
+    #
+    # They used to live in frontend/dist/, and that was the bug: vite's
+    # emptyOutDir defaults to true, so `npm run build` DELETED the entire download
+    # site every time anybody rebuilt the web app. Nothing said so, and a 404 on
+    # an update manifest looks exactly like a network problem from a phone.
+    # Keeping them in their own directory means a build cannot reach them.
+    #
+    # Publishing stays restart-free, which is the property worth preserving: each
+    # route reads from disk per request, and the APK route takes the version as a
+    # path parameter, so a new build is a file copy and a manifest edit — no
+    # deploy, no restart.
+    _aibit = os.environ.get("AIBIT_DIR") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "aibit")
+
+    def _aibit_file(name: str, media_type: str):
+        """Serve one file out of the AI BIT folder, or 404.
+
+        The name is never taken from the request without being rebuilt here, so a
+        crafted version string cannot walk out of the directory.
+        """
+        path = os.path.join(_aibit, name)
+        if not os.path.isfile(path):
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(path, media_type=media_type)
+
+    @app.get("/ai-bit-latest.json", include_in_schema=False)
+    def _aibit_manifest():
+        # no-store: the whole point of this file is to be the newest thing on the
+        # server, and an edge cache holding yesterday's copy is the one failure
+        # that makes an update invisible to every phone at once.
+        r = _aibit_file("ai-bit-latest.json", "application/json")
+        r.headers["Cache-Control"] = "no-store"
+        return r
+
+    @app.get("/aibit-gate.js", include_in_schema=False)
+    def _aibit_gate():
+        return _aibit_file("aibit-gate.js", "application/javascript")
+
+    @app.get("/ai-bit-{version}.apk", include_in_schema=False)
+    def _aibit_apk(version: str):
+        # Only the shape a real release has. Without this the parameter would
+        # accept "../../backend/.env" and this route would hand out the signing
+        # key — the segment is URL-decoded before it reaches us.
+        if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,2}", version):
+            raise HTTPException(status_code=404, detail="Not found")
+        return _aibit_file(f"ai-bit-{version}.apk",
+                           "application/vnd.android.package-archive")
 
     app.mount("/", StaticFiles(directory=_dist, html=True), name="spa")
 else:
