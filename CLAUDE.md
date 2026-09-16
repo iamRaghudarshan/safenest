@@ -693,8 +693,37 @@ share it, so it stays admin-only. Verified both ways: plain user here gets **403
 and a real licensed copy running with `LICENSED_MODE=true` lets its `user` set both
 the domain and the tunnel id.
 
-The Profile entry therefore sits in its own **"Reaching this app"** group, not
-inside Administration, and `WebAddressSection` asks the server for `can_manage`
+### Profile is grouped on purpose — do not append to the bottom
+
+Profile reached **eighteen** top-level sections, and the growth was not anyone's
+mistake: each feature arrived with its own heading, its own card and its own
+explanatory footer, which is right for one feature and wrong for eighteen. Between
+them they printed the Wi-Fi address three times and the web address four, had two
+different sections called Notifications, offered "Edit profile" eight pixels below
+a hero card that opened the same sheet, and split the three exports across two
+distant groups worded as three unrelated features.
+
+It is now **eleven** groups, and the rules that keep it there:
+
+- **One question, one group.** "Reaching this app", "Use it on your phone", "Act
+  as my server" and "On my Wi-Fi" were four headings for *can I open this from
+  somewhere else*; they are now one, `AccessSection`.
+- **A heading over a single row is noise.** Household, iPhone backup and the web
+  address are rows inside a group that already exists, not sections.
+- **Diagnostics collapse; problems do not.** `SettingsDisclosure` (settings.tsx)
+  takes an `attention` flag — pass it when the thing being hidden is broken, and
+  the row opens itself and shows a dot. The firewall and always-on blocks exist
+  precisely because they *fail invisibly*, so collapsing them silently over a
+  failure would have undone the reason they were written.
+- **Rename the sheet when you rename the row**, and grep for the old heading:
+  `lanaccess.py` printed "Profile > On my Wi-Fi" to a user, and this file named
+  two groups that no longer existed.
+
+Adding a setting means finding the group it belongs to. If it genuinely belongs to
+none, that is worth a conversation, not a nineteenth heading.
+
+The Profile entry therefore sits in the **"Use it on another device"** group, not
+inside Administration, and `WebAddressRow` asks the server for `can_manage`
 rather than checking the role itself. Keep that arrangement — deciding permission
 in the frontend is how the two halves drift apart.
 
@@ -1536,7 +1565,7 @@ sign-ins (`jwt_expire_minutes`), external-drive records + auto-backups.
    owner's phone talks to it, not to this machine — this database holds 218
    photos and the phone shows 1,118 — so a backend change made here does not
    reach the app the owner actually uses until that copy updates itself
-   (Profile → App & updates). This is what made the `album_id` trap in §12 show
+   (Profile → This app). This is what made the `album_id` trap in §12 show
    up as a bug rather than as a working feature.
 8. The phone app's minimum iOS is 13.0; Apple requires 15.0 from Spring 2027.
 

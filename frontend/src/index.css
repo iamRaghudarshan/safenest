@@ -661,6 +661,17 @@ button.set-row:active { background: var(--bg); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .set-chev { color: var(--ink-faint); font-size: 20px; line-height: 1; flex-shrink: 0; }
+
+/* Disclosure rows. The chevron points down when the section is open, which is
+   the only cue that the row is a container and not a link to somewhere else. */
+.set-chev.set-disc { transition: transform 0.18s ease; }
+.set-chev.set-disc.open { transform: rotate(90deg); }
+/* A collapsed section that is hiding a problem needs to say so from the outside,
+   or collapsing it has simply buried the warning it exists to give. */
+.set-alert {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+}
 .set-block { position: relative; padding: 12px 14px; }
 
 /* Controls parked in a row's trailing slot must not eat the label's width —

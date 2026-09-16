@@ -70,3 +70,6 @@ nuitka-crash-report.xml
 *redentials*
 *ecrets*
 *-handover.md
+
+# Local agent scratch state — machine-specific, never shared.
+.claude/

@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Stamped into the bundle so Profile → App & storage can show which build is
-// actually running — the quickest way to tell a stale cache from a real bug.
+// Stamped into the bundle so the version line at the foot of Profile can show
+// which build is actually running — the quickest way to tell a stale cache from
+// a real bug. (The section that used to show it was renamed to "This app".)
 const BUILD_ID = new Date().toISOString().slice(0, 16).replace('T', ' ')
 
 // Dev server proxies /api → FastAPI on 8000 so the SPA and API share an origin.

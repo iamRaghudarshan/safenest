@@ -265,5 +265,6 @@ def advice(port: int) -> str:
                   "    internet > Wi-Fi, open the network and choose Private.",
                   "    Only do this on a network you trust."]
     lines += ["",
-              "  Both can be done from inside the app: Profile > On my Wi-Fi.\n"]
+              "  Both can be done from inside the app:",
+              "  Profile > Use it on another device > Phones on this Wi-Fi.\n"]
     return "\n".join(lines)

@@ -7,7 +7,7 @@ import { TopBar, Segment, Sheet, Field } from '../ui'
 import { IcLogout, IcLock } from '../icons'
 import { getTheme, applyTheme, type Theme } from '../theme'
 import { fmtDateTime, fmtTime } from '../format'
-import { SettingsGroup, SettingsRow, SettingsBlock } from '../settings'
+import { SettingsGroup, SettingsRow, SettingsBlock, SettingsDisclosure } from '../settings'
 import { appName, brand as brandStore, useBranding, type Branding } from '../branding'
 import { PhotoIndexCard } from '../PhotoIndex'
 import {
@@ -36,6 +36,11 @@ export default function Profile() {
     <div className="screen">
       <TopBar title="Profile" />
 
+      {/* Tapping the card opens the edit sheet, so the "Edit profile" row that used
+          to sit directly underneath it was a second door to the same room, eight
+          pixels away. Gone, rather than kept for discoverability - two controls for
+          one action is how a settings screen starts growing, and this one had
+          reached eighteen top-level sections. */}
       <button className="set-hero" onClick={() => setEditOpen(true)}>
         <Avatar size={58} />
         <div className="set-hero-main">
@@ -43,7 +48,7 @@ export default function Profile() {
           <div className="set-hero-mail">{user?.email}</div>
           {/* What the account may do, not what its row happens to say. This is
               the badge the customer read as "admin" on a copy that is meant to
-              have no administrator — and it said so while every admin call was
+              have no administrator - and it said so while every admin call was
               already coming back 403. */}
           <span className="set-hero-role">{user?.can_admin ? 'admin' : 'user'}</span>
         </div>
@@ -51,10 +56,13 @@ export default function Profile() {
       </button>
 
       <SettingsGroup title="Account">
-        <SettingsRow icon="✏️" tint="var(--brand)" label="Edit profile"
-          sub="Change your name or photo" onClick={() => setEditOpen(true)} />
         <SettingsRow icon={<IcLock className="ic" />} tint="var(--c-vault)" label="Change password"
           sub="Update your account password" onClick={() => setPwOpen(true)} />
+        <SettingsRow icon="📋" tint="var(--c-insurance)" label="Activity log"
+          sub="Everything added, edited or deleted" onClick={() => go('activity')} />
+        {/* Who may sign in is a fact about this account's household, not about
+            hosting - it used to sit three sections further down, past the firewall. */}
+        <HouseholdRow />
       </SettingsGroup>
 
       <SettingsGroup title="Appearance">
@@ -62,9 +70,16 @@ export default function Profile() {
           <Segment value={theme} onChange={changeTheme}
             options={[{ value: 'light', label: '☀️ Light' }, { value: 'dark', label: '🌙 Dark' }, { value: 'system', label: '⚙️ Auto' }]} />
         </SettingsBlock>
+        {/* Was a group of its own called "Customization", holding one row. A
+            heading over a single item is noise; both of these are "how the app
+            looks and what is in its dropdowns". */}
+        <SettingsRow icon="🗂️" tint="var(--c-expenses)" label="Manage lists"
+          sub="Custom categories, banks and more" onClick={() => go('masters')} />
       </SettingsGroup>
 
-      <NotificationSettings />
+      {/* The notification *history* used to live under a separate "My data"
+          heading, so the screen had two different things called Notifications. */}
+      <NotificationSettings onOpenHistory={() => go('notifications')} />
 
       {can('gallery') && <>
         <PhotoIndexCard />
@@ -73,54 +88,58 @@ export default function Profile() {
             sub="Remove exact copies" onClick={() => go('gallery', 'duplicates')} />
           <SettingsRow icon="🔍" tint="var(--c-reminders)" label="Find similar photos"
             sub="Resized, re-saved or edited copies" onClick={() => go('gallery', 'similar')} />
+          {/* Was "Photos from your phone", a whole section for one row. It now sits
+              beside the other two photo tools, and is gated on the gallery module -
+              setting up a photo backup you have no permission to look at was never
+              useful. */}
+          <PhoneBackupRow />
         </SettingsGroup>
       </>}
 
-      <SettingsGroup title="Customization">
-        <SettingsRow icon="🗂️" tint="var(--c-expenses)" label="Manage lists"
-          sub="Custom categories, banks &amp; more" onClick={() => go('masters')} />
+      {/* One section instead of four. "Reaching this app", "Use it on your phone",
+          "Act as my server" and "On my Wi-Fi" were four headings for one question -
+          can I open this from somewhere else - and between them they printed the
+          Wi-Fi address three times and the web address four. */}
+      <AccessSection onOpenWeb={() => setWebOpen(true)} />
+
+      {/* The three exports were split across two distant groups and worded as three
+          unrelated features. They are one ladder: each rung carries everything the
+          rung above it does, plus more. Said plainly and in order, nobody has to
+          guess which one they want. */}
+      <SettingsGroup title="Move to another computer"
+        footer="Each one includes everything above it. All of them write a folder you can copy to a USB drive - nothing is uploaded anywhere.">
+        <SettingsRow icon="💾" tint="var(--c-investments)" label="My records"
+          sub="Yours alone, with a copy of the app to read them"
+          onClick={() => setExportScope('mine')} />
+        {user?.can_admin && <>
+          <SettingsRow icon="🗄️" tint="var(--c-cards)" label="Everyone's records"
+            sub="Every account on this computer, and all their files"
+            onClick={() => setExportScope('all')} />
+          <SettingsRow icon="📦" tint="var(--c-expenses)" label="The whole installation"
+            sub="Adds the source code and the licence signing keys"
+            onClick={() => setExportScope('full')} />
+        </>}
       </SettingsGroup>
 
-      {/* Available to everyone: your own data only, on your own machine. */}
-      <SettingsGroup title="My data">
-        <SettingsRow icon="🔔" tint="var(--c-reminders)" label="Notifications"
-          sub={`Everything ${brand.app_name} has told you`} onClick={() => go('notifications')} />
-        <SettingsRow icon="📋" tint="var(--c-insurance)" label="Activity log"
-          sub="Everything added, edited or deleted" onClick={() => go('activity')} />
-        <SettingsRow icon="💾" tint="var(--c-investments)" label="Take my data to another computer"
-          sub="Your own copy, for a USB drive" onClick={() => setExportScope('mine')} />
-      </SettingsGroup>
+      <MyLicence />
 
       {user?.can_admin && (
         <SettingsGroup title="Administration"
           footer="Only administrators see this section.">
           <SettingsRow icon="👥" tint="var(--c-loans)" label="User management"
             sub="Create users, set permissions" onClick={() => go('admin')} />
-          <SettingsRow icon="🗄️" tint="var(--c-cards)" label="Move everything to another computer"
-            sub="Every account and all their data" onClick={() => setExportScope('all')} />
           <SettingsRow icon="🎫" tint="var(--c-vault)" label="Licences"
             sub={`Give someone a licensed copy of ${brand.app_name}`} onClick={() => go('licences')} />
           <SettingsRow icon="🎨" tint="var(--c-investments)" label="App name and icon"
             sub={`Currently “${brand.app_name}”`} onClick={() => setBrandOpen(true)} />
         </SettingsGroup>
       )}
-      {brandOpen && <BrandingSheet onClose={() => setBrandOpen(false)} />}
-      {webOpen && <WebAddress onClose={() => setWebOpen(false)} />}
-
-      <WebAddressSection onOpen={() => setWebOpen(true)} />
-      <PhoneAppSection onOpenWeb={() => setWebOpen(true)} />
-      <PhoneBackupSection />
-      <HouseholdSection />
-      <AlwaysOnSection onOpenWeb={() => setWebOpen(true)} />
-      <LocalNetworkSection />
-
-      <MyLicence />
 
       <StorageUse />
 
-      <ThisComputer />
-
-      <AppStorage />
+      {/* "This computer" and "App & updates" were adjacent sections that each
+          answered half of "what am I running, and is it up to date". */}
+      <ThisApp />
 
       <SettingsGroup>
         <SettingsRow icon={<IcLogout className="ic" />} tint="var(--danger)" label="Sign out"
@@ -140,6 +159,8 @@ export default function Profile() {
       {pwOpen && <ChangePassword onClose={() => setPwOpen(false)} />}
       {editOpen && <EditProfile onClose={() => setEditOpen(false)} />}
       {exportScope && <ExportBundle scope={exportScope} onClose={() => setExportScope(null)} />}
+      {brandOpen && <BrandingSheet onClose={() => setBrandOpen(false)} />}
+      {webOpen && <WebAddress onClose={() => setWebOpen(false)} />}
     </div>
   )
 }
@@ -252,8 +273,15 @@ function EditProfile({ onClose }: { onClose: () => void }) {
   )
 }
 
-/** Daily digest of what's due — opt-in, per device. */
-function NotificationSettings() {
+/** Daily digest of what's due — opt-in, per device, plus the log of what was
+ *  already sent.
+ *
+ *  The log used to be a row called "Notifications" under a heading called "My
+ *  data", one section above a heading called "Notifications". Two identical
+ *  labels on one screen is a coin toss, and the person who guesses wrong lands on
+ *  a settings panel when they wanted a list, or the reverse.
+ */
+function NotificationSettings({ onOpenHistory }: { onOpenHistory: () => void }) {
   const toast = useToast()
   const [s, setS] = useState<PushSettings | null>(null)
   const [busy, setBusy] = useState<'' | 'toggle' | 'test' | 'save' | 'fix'>('')
@@ -313,12 +341,14 @@ function NotificationSettings() {
     finally { setBusy('') }
   }
 
-  if (!s) return null
-  if (!s.available) {
+  if (!s || !s.available) {
     return (
       <SettingsGroup title="Notifications">
-        <SettingsRow icon="🔕" tint="var(--ink-faint)" label="Not available"
-          sub="Push notifications aren’t configured on the server." />
+        <SettingsRow icon="🔕" tint="var(--ink-faint)" label="Daily reminder unavailable"
+          sub={s ? 'Push notifications aren’t configured on the server.'
+                 : 'Could not read your notification settings.'} />
+      <SettingsRow icon="📜" tint="var(--c-insurance)" label="Notification history"
+        sub={`Everything ${appName()} has told you`} onClick={onOpenHistory} />
       </SettingsGroup>
     )
   }
@@ -386,6 +416,9 @@ function NotificationSettings() {
             onClick={busy ? undefined : test} />
         </>
       )}
+
+      <SettingsRow icon="📜" tint="var(--c-insurance)" label="Notification history"
+        sub={`Everything ${appName()} has told you`} onClick={onOpenHistory} />
     </SettingsGroup>
   )
 }
@@ -398,7 +431,7 @@ interface SysStatus {
 /* ---------- Move to another computer ---------- */
 
 type ExportPlatform = 'windows' | 'mac'
-type ExportScope = 'mine' | 'all'
+type ExportScope = 'mine' | 'all' | 'full'
 
 interface ExportJob {
   state: 'idle' | 'running' | 'done' | 'error' | 'busy'
@@ -571,10 +604,15 @@ function ExportBundle({ scope, onClose }: { scope: ExportScope; onClose: () => v
   // the choice without checking would promise an alert that never arrives.
   const [push, setPush] = useState<PushSettings | null>(null)
   const [notify, setNotify] = useState(true)
+  // Only asked for on a publisher move, and never stored. It protects the licence
+  // signing key, which is the one thing in the bundle that is the business rather
+  // than the data.
+  const [passphrase, setPassphrase] = useState('')
   useEffect(() => { getSettings().then(setPush).catch(() => setPush(null)) }, [])
   const canNotify = !!push?.available && !!push?.enabled && (push?.devices ?? 0) > 0
 
   const mine = scope === 'mine'
+  const full = scope === 'full'
   const running = job?.state === 'running'
 
   // Which screen the sheet is on. The job state lives on the SERVER and outlives
@@ -615,7 +653,10 @@ function ExportBundle({ scope, onClose }: { scope: ExportScope; onClose: () => v
     try {
       const j = await api<ExportJob>('/api/system/export', {
         method: 'POST',
-        body: { platform, include_data: withData, scope, notify: notify && canNotify },
+        body: {
+          platform, include_data: withData, scope, notify: notify && canNotify,
+          ...(scope === 'full' ? { passphrase } : {}),
+        },
       })
       setJob(j)
       setPhase('watch')
@@ -637,7 +678,9 @@ function ExportBundle({ scope, onClose }: { scope: ExportScope; onClose: () => v
   // path and row counts aren't ours to display.
   if (phase === 'watch' && job?.state === 'busy') {
     return (
-      <Sheet title={mine ? 'Take my data' : 'Move everything'} onClose={onClose}>
+      <Sheet title={mine ? 'Copy my records'
+        : full ? 'Copy the whole installation' : "Copy everyone's records"}
+        onClose={onClose}>
         <div style={{ textAlign: 'center', fontSize: 36, marginBottom: 8 }}>⏳</div>
         <p style={{ fontSize: 14, textAlign: 'center' }}>
           {job.by ? `${job.by} is` : 'Someone else is'} exporting right now.
@@ -651,7 +694,8 @@ function ExportBundle({ scope, onClose }: { scope: ExportScope; onClose: () => v
   }
 
   return (
-    <Sheet title={mine ? 'Take my data to another computer' : 'Move everything'} onClose={onClose}>
+    <Sheet title={mine ? 'Copy my records'
+      : full ? 'Copy the whole installation' : "Copy everyone's records"} onClose={onClose}>
       {done ? (
         <>
           <div style={{ textAlign: 'center', fontSize: 40, marginBottom: 6 }}>✅</div>
@@ -737,8 +781,36 @@ function ExportBundle({ scope, onClose }: { scope: ExportScope; onClose: () => v
           <p className="muted" style={{ fontSize: 13.5, marginBottom: 14 }}>
             {mine
               ? `Makes a complete copy of ${appName()} containing only your own data, ready to run on your own computer.`
-              : `Makes a complete copy of ${appName()} — every account and all their data — ready to run on another computer.`}
+              : full
+                ? `Everything needed to BE ${appName()} on another machine: the source code, the data, and the keys that issue licences.`
+                : `Makes a complete copy of ${appName()} — every account and all their data — ready to run on another computer.`}
           </p>
+          {full && (
+            <>
+              <div className="card" style={{ padding: 12, marginBottom: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>
+                  What this adds over “Move everything”
+                </div>
+                <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                  The web app’s source (so the screens can be changed), the packaging
+                  tools (so customer copies can be built), the install scripts and the
+                  tunnel config — and the licence <b>signing key</b>. Without that key the
+                  other machine runs {appName()} perfectly and cannot issue a single
+                  licence, or serve the customers you already have.
+                </div>
+              </div>
+              <div className="section-title" style={{ marginTop: 0 }}>Passphrase</div>
+              <input className="input" type="password" value={passphrase} autoComplete="new-password"
+                placeholder="At least 12 characters"
+                onChange={(e) => setPassphrase(e.target.value)} />
+              <p className="form-hint warn" style={{ marginTop: 8, marginBottom: 14 }}>
+                The signing key is encrypted with this and it is stored nowhere else —
+                not here, not in the bundle. Lose it and that half of the move is gone.
+                Anyone who has both the bundle and this passphrase can issue licences
+                for {appName()}.
+              </p>
+            </>
+          )}
           {mine && (
             <div className="card" style={{ padding: 12, marginBottom: 14 }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>What comes with you</div>
@@ -790,8 +862,12 @@ function ExportBundle({ scope, onClose }: { scope: ExportScope; onClose: () => v
           )}
 
           <button className="btn block" style={{ marginTop: 14 }}
-            disabled={!platform || starting} onClick={start}>
-            {starting ? 'Starting…' : platform ? 'Create the copy' : 'Choose Windows or Mac'}
+            disabled={!platform || starting || (full && passphrase.length < 12)}
+            onClick={start}>
+            {starting ? 'Starting…'
+              : !platform ? 'Choose Windows or Mac'
+              : full && passphrase.length < 12 ? 'Enter a passphrase of 12+ characters'
+              : 'Create the copy'}
           </button>
           <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
             It will be saved on the {appName()} computer at<br />
@@ -804,8 +880,19 @@ function ExportBundle({ scope, onClose }: { scope: ExportScope; onClose: () => v
   )
 }
 
-/** Self-service fix for the commonest PWA failure: a stale cached build. */
-function AppStorage() {
+/** What is running, where, and whether it is current.
+ *
+ *  Merged from two adjacent sections. "This computer" listed the machine, its
+ *  Wi-Fi address, its web address, the records path and a first-seen timestamp;
+ *  "App & updates" listed the build, the cache and the update button. Three of
+ *  those five rows were printed elsewhere on the same screen — the Wi-Fi and web
+ *  addresses in the access section above, the records path now in Storage — so
+ *  what is left is the part only this section says.
+ *
+ *  Also the commonest PWA failure lives here: a stale cached build, and the
+ *  self-service fix for it.
+ */
+function ThisApp() {
   const toast = useToast()
   const [info, setInfo] = useState<StorageInfo | null>(null)
   const [sys, setSys] = useState<SysStatus | null>(null)
@@ -850,29 +937,42 @@ function AppStorage() {
 
   return (
     <>
-      {/* Titled for the phone, not the server — "Storage used" above is the
-          the app computer, and two sections called storage would read as the
-          same number measured twice. */}
-      <SettingsGroup title="App &amp; updates"
+      <SettingsGroup title="This app"
         footer="If the app looks out of date or a new feature is missing, clear the cached data — it reloads the latest version without signing you out.">
-        <SettingsRow icon="●" tint="var(--ink-faint)" label="Build" value={BUILD_ID} />
-        <SettingsRow icon="▤" tint="var(--ink-faint)" label="Cached on this phone"
-          value={info ? (info.usedBytes === null ? 'Not reported by this browser' : formatBytes(info.usedBytes)) : '…'} />
-        <SettingsRow icon="☁" tint={info?.hasWorker ? 'var(--ok)' : 'var(--ink-faint)'}
-          label="Offline mode" value={info?.hasWorker ? 'Active' : 'Off'} />
+        {/* The installed program's own version, and the update for it. First,
+            because it is the only row here anyone comes looking for. */}
+        <AppUpdateRow />
+        <HostRows />
         <SettingsRow icon="⟳" tint="var(--c-insurance)"
           label={busy === 'check' ? 'Checking…' : 'Refresh the web app'}
           sub="Reloads this page's files; does not change the installed program"
           onClick={busy ? undefined : update} />
-        <AppUpdateRow />
-        <SettingsRow icon="🧹" tint="var(--warn)" label="Clear cached data"
-          onClick={busy ? undefined : () => setConfirmClear(true)} />
-        {showPurge && (
-          <SettingsRow icon="☁" tint="var(--c-documents)"
-            label={busy === 'purge' ? 'Purging…' : 'Purge CDN cache'}
-            sub="Force every device to fetch the newest build"
-            onClick={busy ? undefined : purge} />
-        )}
+
+        {/* The browser-cache internals. Three rows and two destructive buttons
+            that matter once, on the day the app is showing yesterday's build. The
+            build id itself is in the footer at the bottom of the screen, which is
+            where a version number belongs and where it already was — this section
+            was printing it a second time. */}
+        <SettingsDisclosure icon="▤" tint="var(--ink-faint)" label="Offline &amp; cached data"
+          value={info ? (info.usedBytes === null ? '—' : formatBytes(info.usedBytes)) : '…'}>
+          <SettingsRow icon="☁" tint={info?.hasWorker ? 'var(--ok)' : 'var(--ink-faint)'}
+            label="Offline mode"
+            sub={info?.hasWorker ? 'Saved pages open without a connection' : 'Not registered on this device'}
+            value={info?.hasWorker ? 'Active' : 'Off'} />
+          {info?.usedBytes === null && (
+            <SettingsRow icon="?" tint="var(--ink-faint)" label="Cache size"
+              sub="This browser does not report it" />
+          )}
+          <SettingsRow icon="🧹" tint="var(--warn)" label="Clear cached data"
+            sub="Reloads the newest version; nothing on the server is deleted"
+            onClick={busy ? undefined : () => setConfirmClear(true)} />
+          {showPurge && (
+            <SettingsRow icon="☁" tint="var(--c-documents)"
+              label={busy === 'purge' ? 'Purging…' : 'Purge CDN cache'}
+              sub="Force every device to fetch the newest build"
+              onClick={busy ? undefined : purge} />
+          )}
+        </SettingsDisclosure>
       </SettingsGroup>
 
       {confirmClear && (
@@ -959,8 +1059,14 @@ function hostLabel(h: AppHost) {
  *  the app travels — to a Mac, to an external drive, to a replacement laptop —
  *  and from a phone all of those look the same. When two copies end up serving
  *  the same address, records seem to appear and vanish at random, and this is
- *  the only place that makes the cause visible. */
-function ThisComputer() {
+ *  the only place that makes the cause visible.
+ *
+ *  Rows now, not a section: it renders inside "This app". Its Wi-Fi address, web
+ *  address and records path are all printed elsewhere on this screen and are
+ *  dropped here rather than repeated — what is left is the machine's identity and
+ *  the has-it-moved warning, which nothing else says.
+ */
+function HostRows() {
   const [report, setReport] = useState<HostReport | null>(null)
   const [openHistory, setOpenHistory] = useState(false)
 
@@ -975,28 +1081,15 @@ function ThisComputer() {
 
   return (
     <>
-      <SettingsGroup title="This computer"
-        footer={others.length > 0
-          ? `${appName()} has run on more than one computer. Only one should serve your web address at a time — two will answer from two different sets of records.`
-          : `Where ${appName()} is running right now.`}>
-        <SettingsRow icon={look.icon} tint={look.tint} label={hostLabel(now)} sub={now.os_name} />
-        <SettingsRow icon="📶" tint="var(--c-gallery)" label="On your Wi-Fi"
-          value={now.local_ip || 'unknown'} />
-        {now.public_url && (
-          <SettingsRow icon="🌐" tint="var(--brand)" label="Web address"
-            sub={now.public_url.replace(/^https?:\/\//, '')} />
-        )}
-        <RecordsLocationRow fallback={now.data_dir} />
-        {now.first_seen && (
-          <SettingsRow icon="🕑" tint="var(--ink-faint)" label="Serving from here since"
-            sub={now.first_seen} />
-        )}
-        {others.length > 0 && (
-          <SettingsRow icon="📍" tint="var(--c-loans)" label={`Where ${appName()} has run`}
-            sub={`${report.moves} previous computer${report.moves === 1 ? '' : 's'}`}
-            onClick={() => setOpenHistory(true)} />
-        )}
-      </SettingsGroup>
+      <SettingsRow icon={look.icon} tint={look.tint} label={hostLabel(now)}
+        sub={now.first_seen ? `${now.os_name} · serving since ${now.first_seen}` : now.os_name} />
+      {/* Two copies answering one address is the failure this whole component was
+          written for, so it stays a visible row and is not folded away. */}
+      {others.length > 0 && (
+        <SettingsRow icon="📍" tint="var(--c-loans)" label={`Where ${appName()} has run`}
+          sub={`${report.moves} previous computer${report.moves === 1 ? '' : 's'} — only one should serve your address`}
+          onClick={() => setOpenHistory(true)} />
+      )}
 
       {openHistory && (
         <Sheet title={`Where ${appName()} has run`} onClose={() => setOpenHistory(false)}>
@@ -1096,17 +1189,10 @@ function StorageUse() {
         )}
       </SettingsBlock>
 
-      {SLICES.map(s => (
-        <SettingsRow key={s.key} icon={s.icon} tint={s.tint} label={s.label}
-          sub={`${files.modules[s.key].files.toLocaleString()} file${files.modules[s.key].files === 1 ? '' : 's'}`}
-          value={formatBytes(files.modules[s.key].bytes)} />
-      ))}
-
-      {admin && (
-        <SettingsRow icon="🗄️" tint="var(--c-investments)" label="Records"
-          sub="Expenses, reminders, activity log and the rest"
-          value={formatBytes(dbBytes)} />
-      )}
+      {/* Where the files physically are, and how to move them. This used to sit
+          inside "This computer", between the Wi-Fi address and a timestamp —
+          a disk path filed under networking. */}
+      <RecordsLocationRow />
 
       {r.disk && (
         <SettingsRow icon="💽" tint={r.disk.free < 5e9 ? 'var(--warn)' : 'var(--ok)'}
@@ -1114,6 +1200,23 @@ function StorageUse() {
           sub={`of ${formatBytes(r.disk.total)} total`}
           value={formatBytes(r.disk.free)} />
       )}
+
+      {/* Nine rows of per-module byte counts, folded away. The bar above already
+          shows the shape of it in colour; the numbers matter only when someone is
+          hunting for what filled a disk, and then they matter a great deal. */}
+      <SettingsDisclosure icon="📊" tint="var(--ink-faint)" label="What is using it"
+        sub={`${SLICES.length} sections`}>
+        {SLICES.map(s => (
+          <SettingsRow key={s.key} icon={s.icon} tint={s.tint} label={s.label}
+            sub={`${files.modules[s.key].files.toLocaleString()} file${files.modules[s.key].files === 1 ? '' : 's'}`}
+            value={formatBytes(files.modules[s.key].bytes)} />
+        ))}
+        {admin && (
+          <SettingsRow icon="🗄️" tint="var(--c-investments)" label="Records"
+            sub="Expenses, reminders, activity log and the rest"
+            value={formatBytes(dbBytes)} />
+        )}
+      </SettingsDisclosure>
     </SettingsGroup>
   )
 }
@@ -1718,47 +1821,24 @@ function WebAddress({ onClose }: { onClose: () => void }) {
   )
 }
 
-/** The "Web address" entry in Profile.
+/** Everything about opening this copy from somewhere that is not this computer.
  *
- *  Deliberately NOT inside the Administration group. A licensed customer is given
- *  the `user` role on purpose - they administer nothing of the publisher's - but
- *  the address their own copy answers on is theirs to set. Gating this on the
- *  admin role would hide it from exactly the people it is for, since a customer's
- *  copy has no administrator at all.
+ *  This was four separate top-level sections — "Reaching this app", "Use it on
+ *  your phone", "Act as my server" and "On my Wi-Fi" — stacked one after another,
+ *  and between them they printed the Wi-Fi address three times and the web
+ *  address four. Worse, they answered one question in four places: a person who
+ *  wants the app on their phone had to read all four to learn that they need an
+ *  address, a firewall rule, and the computer left switched on.
  *
- *  The server decides; this asks and renders nothing if the answer is no.
+ *  So: the two addresses first, because that is what someone is actually here to
+ *  copy, and the machinery behind them collapsed into rows that open. The two
+ *  diagnostic sections stay collapsed until something is wrong, at which point
+ *  they open themselves — see SettingsDisclosure's `attention`. Hiding a warning
+ *  would have been the one unacceptable way to shorten this screen.
+ *
+ *  `/api/hosting/addresses` is public and returns only addresses.
  */
-function WebAddressSection({ onOpen }: { onOpen: () => void }) {
-  const [state, setState] = useState<{ can_manage?: boolean; hostname?: string } | null>(null)
-
-  useEffect(() => {
-    api<{ can_manage?: boolean; hostname?: string }>('/api/hosting')
-      .then(setState)
-      .catch(() => setState(null))
-  }, [])
-
-  if (!state?.can_manage) return null
-
-  return (
-    <SettingsGroup title="Reaching this app"
-      footer={`Set your own domain so you can open ${appName()} from anywhere, not just on this computer. Step-by-step, including what to do in Cloudflare.`}>
-      <SettingsRow icon="🌐" tint="var(--c-insurance)" label="Web address"
-        sub={state.hostname || 'Not published yet'} onClick={onOpen} />
-    </SettingsGroup>
-  )
-}
-
-/** How to reach this copy from a phone, in one place.
- *
- *  The address a phone needs was scattered before — the Wi-Fi URL was buried in a
- *  firewall section that only showed it once the rule was set, and the web address
- *  was a section of its own. A customer who has just activated on their computer
- *  has no idea what to type into the app on their phone. This states both plainly,
- *  copyable, with the one instruction that matters: install the app, type this, sign
- *  in with the same account. `/api/hosting/addresses` is public and returns only
- *  addresses.
- */
-function PhoneAppSection({ onOpenWeb }: { onOpenWeb: () => void }) {
+function AccessSection({ onOpenWeb }: { onOpenWeb: () => void }) {
   const toast = useToast()
   const [a, setA] = useState<{ lan: string; public: string } | null>(null)
   useEffect(() => {
@@ -1782,7 +1862,7 @@ function PhoneAppSection({ onOpenWeb }: { onOpenWeb: () => void }) {
   )
 
   return (
-    <SettingsGroup title="Use it on your phone"
+    <SettingsGroup title="Use it on another device"
       footer="Install the app on your phone, open it, type one of these addresses, and sign in with the same email and password you use here. This computer has to be switched on — your records live on it, not on any server.">
       <SettingsBlock>
         <div style={{ fontWeight: 700, fontSize: 13.5 }}>On the same Wi-Fi (at home)</div>
@@ -1799,7 +1879,39 @@ function PhoneAppSection({ onOpenWeb }: { onOpenWeb: () => void }) {
               <button type="button" className="btn ghost xs" onClick={onOpenWeb}>Set up a web address</button>
             </p>}
       </SettingsBlock>
+
+      <WebAddressRow onOpen={onOpenWeb} />
+      <AlwaysOnRow onOpenWeb={onOpenWeb} />
+      <LocalNetworkRow />
     </SettingsGroup>
+  )
+}
+
+/** The "Web address" row.
+ *
+ *  Deliberately NOT inside the Administration group. A licensed customer is given
+ *  the `user` role on purpose — they administer nothing of the publisher's — but
+ *  the address their own copy answers on is theirs to set. Gating this on the
+ *  admin role would hide it from exactly the people it is for, since a customer's
+ *  copy has no administrator at all.
+ *
+ *  The server decides; this asks and renders nothing if the answer is no.
+ */
+function WebAddressRow({ onOpen }: { onOpen: () => void }) {
+  const [state, setState] = useState<{ can_manage?: boolean; hostname?: string } | null>(null)
+
+  useEffect(() => {
+    api<{ can_manage?: boolean; hostname?: string }>('/api/hosting')
+      .then(setState)
+      .catch(() => setState(null))
+  }, [])
+
+  if (!state?.can_manage) return null
+
+  return (
+    <SettingsRow icon="🌐" tint="var(--c-insurance)" label="Web address"
+      sub={state.hostname || 'Set your own domain — step by step, including Cloudflare'}
+      onClick={onOpen} />
   )
 }
 
@@ -1820,7 +1932,7 @@ interface DeviceRow {
  *  the two things a shortcut needs — an address and a token — and says, in order,
  *  which buttons to press on the phone.
  */
-function PhoneBackupSection() {
+function PhoneBackupRow() {
   const [open, setOpen] = useState(false)
   const [rows, setRows] = useState<DeviceRow[]>([])
 
@@ -1834,15 +1946,12 @@ function PhoneBackupSection() {
   const live = rows.filter((r) => !r.revoked)
   return (
     <>
-      <SettingsGroup title="Photos from your phone"
-        footer="A web page cannot read an iPhone's photo library, so a whole-gallery backup has to come from the phone's own Shortcuts app. This sets that up.">
-        <SettingsRow icon="📲" tint="var(--c-gallery, var(--c-investments))"
-          label="Back up from an iPhone"
-          sub={live.length
-            ? `${live.length} phone${live.length === 1 ? '' : 's'} set up`
-            : 'Not set up yet'}
-          onClick={() => setOpen(true)} />
-      </SettingsGroup>
+      <SettingsRow icon="📲" tint="var(--c-gallery, var(--c-investments))"
+        label="Back up from an iPhone"
+        sub={live.length
+          ? `${live.length} phone${live.length === 1 ? '' : 's'} set up`
+          : 'Through the phone\'s Shortcuts app — a browser cannot read its photos'}
+        onClick={() => setOpen(true)} />
       {open && <PhoneBackupSheet rows={rows} reload={load} onClose={() => setOpen(false)} />}
     </>
   )
@@ -1919,8 +2028,8 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
         <p style={{ color: 'var(--danger)', fontSize: 13, lineHeight: 1.55, marginTop: 12 }}>
           This computer has no web address yet, so the only address available is
           this one — which on your phone would mean the phone itself. Set one up
-          under <b>Reaching this app</b> first, or use the computer&rsquo;s address
-          on your Wi-Fi.
+          under <b>Use it on another device</b> first, or use the
+          computer&rsquo;s address on your Wi-Fi.
         </p>
       )}
 
@@ -2049,7 +2158,7 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
   )
 }
 
-/** "Act as my server" — start with the computer, and keep the tunnel up.
+/** "Keep it running" — start with the computer, and keep the tunnel up.
  *
  *  This is the setting that makes the product's central promise true: your
  *  records are reachable from anywhere while your computer is on. Without it the
@@ -2330,16 +2439,35 @@ interface RecordsLocation {
  *  the first-run window did not open and the launcher used its default rather
  *  than blocking the launch on a window that would never appear.
  */
-function RecordsLocationRow({ fallback }: { fallback: string }) {
+function RecordsLocationRow() {
   const [st, setSt] = useState<RecordsLocation | null>(null)
   const [open, setOpen] = useState(false)
+  // Where this row used to live — inside "This computer" — it was handed the host
+  // report's `data_dir` as a fallback. It now sits under Storage, which does not
+  // fetch that report, so it fetches its own.
+  //
+  // The fallback is NOT only for a failed request. An installation run from its
+  // own folder answers 200 with `path: ""` and "This installation is run from its
+  // own folder" — which is the case on the publisher's own machine — so keying
+  // the fallback off the error path alone silently dropped the row on exactly the
+  // installation most likely to be inspected. Fetch it whenever the path is
+  // empty, however that emptiness arrived.
+  const [fallback, setFallback] = useState('')
 
   const load = useCallback(() => {
-    api<RecordsLocation>('/api/system/records-location').then(setSt).catch(() => setSt(null))
+    const host = () => api<HostReport>('/api/system/host')
+      .then((r) => setFallback(r.current.data_dir || ''))
+      .catch(() => { })
+    api<RecordsLocation>('/api/system/records-location')
+      .then((r) => { setSt(r); if (!r.path) host() })
+      .catch(() => { setSt(null); host() })
   }, [])
   useEffect(() => { load() }, [load])
 
   const where = st?.path || fallback
+  // Nothing to say and no fallback to fall back on: better absent than a row
+  // whose value is an empty string.
+  if (!where) return null
   return (
     <>
       <SettingsRow icon="🗄️" tint="var(--c-investments)" label="Records kept in"
@@ -2461,8 +2589,13 @@ interface Household {
  * spouse or child. Same arrangement as the web address: allowed in a licensed
  * copy, admin-only on the publisher's own installation. How many is set by the
  * licence, not by anything on this machine.
+ *
+ * A row inside Account rather than a section of its own. It had a heading, a card
+ * and a two-line footer to say one thing — how many sign-ins are left — and it
+ * sat between the firewall and the licence, which is not where anyone looks for
+ * "who else can get in".
  */
-function HouseholdSection() {
+function HouseholdRow() {
   const toast = useToast()
   const [st, setSt] = useState<Household | null>(null)
   const [open, setOpen] = useState(false)
@@ -2477,13 +2610,11 @@ function HouseholdSection() {
   const limit = st.unlimited ? 'No limit' : `${st.used} of ${st.allowed}`
   return (
     <>
-      <SettingsGroup title="Who can sign in"
-        footer={st.unlimited
-          ? 'Add sign-ins for anyone in your household. Each person keeps their own records — nobody sees anyone else\'s.'
-          : `Your licence covers ${st.allowed} sign-in${st.allowed === 1 ? '' : 's'}. Each person keeps their own records — nobody sees anyone else's.`}>
-        <SettingsRow icon="👪" tint="var(--c-people)" label="Family members"
-          value={limit} onClick={() => setOpen(true)} />
-      </SettingsGroup>
+      <SettingsRow icon="👪" tint="var(--c-people)" label="Who can sign in"
+        sub={st.unlimited
+          ? 'Everyone keeps their own records — nobody sees anyone else\'s'
+          : `Your licence covers ${st.allowed} sign-in${st.allowed === 1 ? '' : 's'}`}
+        value={limit} onClick={() => setOpen(true)} />
       {open && <HouseholdSheet state={st} onClose={() => setOpen(false)}
         onChanged={load} toast={toast} />}
     </>
@@ -2605,7 +2736,7 @@ interface LocalNetwork {
  * in between. From the phone that is an ordinary timeout, so nothing anywhere
  * tells the person what is wrong — which is exactly what happened.
  */
-function LocalNetworkSection() {
+function LocalNetworkRow() {
   const toast = useToast()
   const [st, setSt] = useState<LocalNetwork | null>(null)
   const [busy, setBusy] = useState(false)
@@ -2633,9 +2764,20 @@ function LocalNetworkSection() {
   const netName = st.networks[0]?.name || 'this network'
 
   return (
-    <SettingsGroup title="On my Wi-Fi"
-      footer="Two things have to be true before a phone on the same Wi-Fi can open this app, and they fail in exactly the same way — the address simply never answers. They are shown separately so you can see which one is missing.">
+    <SettingsDisclosure icon="📶" tint={st.allowed ? 'var(--ok)' : 'var(--warn)'}
+      label="Phones on this Wi-Fi"
+      sub={st.allowed
+        ? 'Windows is letting your other devices through'
+        : 'Windows is blocking your other devices'}
+      // Collapsed, but never collapsed silently over a problem: the whole reason
+      // this block exists is that it fails invisibly, so a blocked state badges.
+      attention={!st.allowed}>
       <SettingsBlock>
+        <p className="form-hint" style={{ marginTop: 0 }}>
+          Two things have to be true before a phone on the same Wi-Fi can open this
+          app, and they fail in exactly the same way — the address simply never
+          answers. They are shown separately so you can see which one is missing.
+        </p>
         <div className="ao">
           {/* Windows Firewall */}
           <div className={`ao-state${st.rule ? ' on' : ''}`}>
@@ -2687,11 +2829,11 @@ function LocalNetworkSection() {
           )}
         </div>
       </SettingsBlock>
-    </SettingsGroup>
+    </SettingsDisclosure>
   )
 }
 
-function AlwaysOnSection({ onOpenWeb }: { onOpenWeb: () => void }) {
+function AlwaysOnRow({ onOpenWeb }: { onOpenWeb: () => void }) {
   const toast = useToast()
   const [st, setSt] = useState<AlwaysOn | null>(null)
   const [busy, setBusy] = useState(false)
@@ -2721,12 +2863,23 @@ function AlwaysOnSection({ onOpenWeb }: { onOpenWeb: () => void }) {
   const tunnelOk = st.tunnel.running
 
   return (
-    <SettingsGroup title="Act as my server"
-      footer={st.startup.supported
-        ? `With this on, ${appName()} starts by itself whenever you switch this computer on — so your records are reachable from anywhere without you opening anything. No administrator rights needed.`
-        : st.startup.reason}>
+    <SettingsDisclosure icon="🖥️" tint={on ? 'var(--ok)' : 'var(--ink-faint)'}
+      label="Keep it running"
+      sub={on
+        ? (tunnelOk
+            ? 'Starts with this computer, and is reachable from anywhere'
+            : 'Starts with this computer, but nothing outside can reach it')
+        : 'Only runs while you have it open'}
+      // The half-configured case is the one that causes trouble: told to serve,
+      // and unreachable. That is a broken promise, so it badges.
+      attention={on && !tunnelOk}>
 
       <SettingsBlock>
+        <p className="form-hint" style={{ marginTop: 0 }}>
+          {st.startup.supported
+            ? `With this on, ${appName()} starts by itself whenever you switch this computer on — so your records are reachable from anywhere without you opening anything. No administrator rights needed.`
+            : st.startup.reason}
+        </p>
         <div className="ao">
           <div className={`ao-state${on ? ' on' : ''}`}>
             <span className="ao-dot" aria-hidden="true" />
@@ -2770,6 +2923,6 @@ function AlwaysOnSection({ onOpenWeb }: { onOpenWeb: () => void }) {
           )}
         </div>
       </SettingsBlock>
-    </SettingsGroup>
+    </SettingsDisclosure>
   )
 }
