@@ -114,6 +114,24 @@ export interface Session {
   modules: ModuleKey[]
 }
 
+/** What POST /api/auth/login answers when the account has a second factor.
+ *
+ *  It carries NO token on purpose — the password alone must not produce a
+ *  session, or the second factor is decorative. The challenge is single-use and
+ *  short-lived, and is exchanged for a real session at /api/auth/login/2fa.
+ */
+export interface TwoFactorChallenge {
+  two_factor: true
+  challenge: string
+  methods: ('totp' | 'recovery')[]
+}
+
+export interface TwoFactorStatus {
+  enabled: boolean
+  recovery_left: number
+  since: string | null
+}
+
 export interface DashboardData {
   stats: {
     investValue: number

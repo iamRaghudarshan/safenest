@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { api, tokenStore, onUnauthorized, onLicenceBlocked, onStorageBlocked,
          type LicenceBlock, type StorageBlock } from './api'
 import { uploadDB } from './uploadDB'
-import type { ModuleKey, Session, User } from './types'
+import type { ModuleKey, Session, TwoFactorChallenge, User } from './types'
 
 // Signing out has to remove the DATA too, not just the token. The service worker
 // caches every /api response and IndexedDB holds queued photo blobs — both survive
@@ -30,7 +30,11 @@ interface AuthState {
    *  unreadable folder cannot yield a licence either, and reporting the licence
    *  sends the owner hunting for a file that is fine, on the failed disk. */
   storageBlock: StorageBlock | null
-  login: (email: string, password: string) => Promise<void>
+  /** Resolves to a challenge when the account has a second factor, and to null
+   *  when the password alone was enough and the session is already live. */
+  login: (email: string, password: string) => Promise<TwoFactorChallenge | null>
+  /** Exchange a challenge plus a code (authenticator or recovery) for a session. */
+  completeTwoFactor: (challenge: string, code: string) => Promise<void>
   logout: () => void
   /** Re-pull the signed-in user after a profile change (name, avatar). */
   refreshUser: () => Promise<void>
@@ -63,11 +67,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setReady(true))
   }, [])
 
-  async function login(email: string, password: string) {
-    const s = await api<Session>('/api/auth/login', { method: 'POST', body: { email, password }, auth: false })
+  function begin(s: Session) {
     tokenStore.set(s.token)
     setUser(s.user)
     setModules(s.modules)
+  }
+
+  async function login(email: string, password: string) {
+    const s = await api<Session | TwoFactorChallenge>(
+      '/api/auth/login', { method: 'POST', body: { email, password }, auth: false })
+
+    // An account with a second factor gets no token here, and this branch is
+    // what makes that safe. Without it the old code ran tokenStore.set(
+    // undefined) — storing the literal string "undefined" — and then set a user
+    // that did not exist, so turning 2FA on locked the account out of a login
+    // screen that looked like it had simply failed.
+    if ('two_factor' in s) return s as TwoFactorChallenge
+
+    begin(s as Session)
+    return null
+  }
+
+  async function completeTwoFactor(challenge: string, code: string) {
+    const s = await api<Session>('/api/auth/login/2fa',
+      { method: 'POST', body: { challenge, code }, auth: false })
+    begin(s)
   }
 
   function logout() {
@@ -87,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearLicenceBlock = () => setLicenceBlock(null)
 
   return (
-    <Ctx.Provider value={{ user, modules, ready, licenceBlock, clearLicenceBlock, storageBlock, login, logout, refreshUser, can }}>
+    <Ctx.Provider value={{ user, modules, ready, licenceBlock, clearLicenceBlock, storageBlock, login, completeTwoFactor, logout, refreshUser, can }}>
       {children}
     </Ctx.Provider>
   )

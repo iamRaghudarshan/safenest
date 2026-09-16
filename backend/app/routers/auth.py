@@ -19,6 +19,7 @@ from ..helpers import audit
 from ..models import User, UserModule
 from ..ratelimit import rate_limit
 from ..security import (check_password_strength, create_2fa_challenge,
+                        spend_2fa_challenge,
                         create_token, get_current_user, hash_password,
                         licence_grants_admin, read_2fa_challenge,
                         verify_password)
@@ -147,15 +148,25 @@ def login_2fa(body: dict = Body(...), request: Request = None,
     invalid = HTTPException(status.HTTP_401_UNAUTHORIZED,
                             "That code is not right. Try the next one.")
 
-    uid = read_2fa_challenge(challenge)
-    if not uid:
+    seen = read_2fa_challenge(challenge)
+    if not seen:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
                             "That sign-in expired. Enter your password again.")
+    uid, ver = seen
     user = db.query(User).filter(User.id == uid).first()
     if not user or not user.two_factor_enabled or not user.totp_secret_enc:
         raise invalid
+    # A challenge outlives a password change by up to five minutes otherwise.
+    # Everything else keyed to token_version dies the moment it is bumped; this
+    # was the one door left open behind it.
+    if int(user.token_version or 0) != ver:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            "That sign-in expired. Enter your password again.")
 
     if _consume_second_factor(db, user, code):
+        # Burn it BEFORE handing back a session, so a correct code plus a
+        # captured challenge cannot be replayed into a second one.
+        spend_2fa_challenge(challenge)
         user.last_login_at = ist.now()
         user.failed_logins = 0
         db.commit()

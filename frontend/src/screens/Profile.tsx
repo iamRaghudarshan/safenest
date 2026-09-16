@@ -13,7 +13,7 @@ import { PhotoIndexCard } from '../PhotoIndex'
 import {
   BUILD_ID, checkForUpdate, clearAppCache, formatBytes, storageInfo, type StorageInfo,
 } from '../maintenance'
-import type { AppHost, HostReport, StorageReport, LicenceStatus } from '../types'
+import type { AppHost, HostReport, StorageReport, LicenceStatus, TwoFactorStatus } from '../types'
 import {
   blockedReason, disable as disablePush, enable as enablePush, getSettings, isStandalone,
   saveSettings, sendTest, syncSubscription, type DeviceState, type PushSettings,
@@ -58,6 +58,7 @@ export default function Profile() {
       <SettingsGroup title="Account">
         <SettingsRow icon={<IcLock className="ic" />} tint="var(--c-vault)" label="Change password"
           sub="Update your account password" onClick={() => setPwOpen(true)} />
+        <TwoFactorRow />
         <SettingsRow icon="📋" tint="var(--c-insurance)" label="Activity log"
           sub="Everything added, edited or deleted" onClick={() => go('activity')} />
         {/* Who may sign in is a fact about this account's household, not about
@@ -2924,5 +2925,230 @@ function AlwaysOnRow({ onOpenWeb }: { onOpenWeb: () => void }) {
         </div>
       </SettingsBlock>
     </SettingsDisclosure>
+  )
+}
+
+
+// ------------------------------------------------------------ two-step sign-in
+/** Turn a second factor on and off.
+ *
+ *  The server has had a complete, careful implementation of this for a long
+ *  time — six routes, a single-use challenge, recovery codes hashed at rest, the
+ *  disable path gated on the password rather than the session — and NOTHING in
+ *  the app called any of it. So the feature existed, could not be used, and the
+ *  one account that most needed it (an admin reachable from the public internet,
+ *  holding the licence signing key) was protected by a password alone.
+ *
+ *  Three rules the screen has to respect, all of them decided by the server:
+ *
+ *   - Setup does not enable. /2fa/setup stores a secret and stops; the code has
+ *     to verify before two_factor_enabled is set, because a mistyped setup that
+ *     switched it on would lock somebody out of their own records with nothing
+ *     to type.
+ *   - The recovery codes are shown exactly once. They are stored hashed, so the
+ *     response to /2fa/enable is the only time they are readable, and the screen
+ *     has to say so plainly instead of offering a reassuring "you can see these
+ *     later".
+ *   - Turning it OFF asks for the password, not just the session. An unlocked
+ *     phone on a table should not be able to remove the second factor.
+ */
+function TwoFactorRow() {
+  const toast = useToast()
+  const [st, setSt] = useState<TwoFactorStatus | null>(null)
+  const [open, setOpen] = useState(false)
+
+  const load = useCallback(() => {
+    api<TwoFactorStatus>('/api/auth/2fa').then(setSt).catch(() => setSt(null))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  // Renders nothing rather than a dead row if the endpoint is not there — an
+  // older server, or a build without it.
+  if (!st) return null
+
+  const low = st.enabled && st.recovery_left > 0 && st.recovery_left <= 2
+  return (
+    <>
+      <SettingsRow icon="🔐" tint={st.enabled ? 'var(--ok)' : 'var(--ink-faint)'}
+        label="Two-step sign-in"
+        sub={st.enabled
+          ? (st.recovery_left === 0
+              ? 'On — no recovery codes left'
+              : `On — ${st.recovery_left} recovery code${st.recovery_left === 1 ? '' : 's'} left`)
+          : 'Ask for a code from your phone as well as a password'}
+        value={st.enabled ? (low ? '⚠️ On' : 'On') : 'Off'}
+        onClick={() => setOpen(true)} />
+      {open && <TwoFactorSheet st={st} onClose={() => setOpen(false)}
+        onChanged={load} toast={toast} />}
+    </>
+  )
+}
+
+function TwoFactorSheet({ st, onClose, onChanged, toast }: {
+  st: TwoFactorStatus
+  onClose: () => void
+  onChanged: () => void
+  toast: (m: string) => void
+}) {
+  const [step, setStep] = useState<'idle' | 'scan' | 'codes'>('idle')
+  const [secret, setSecret] = useState('')
+  const [uri, setUri] = useState('')
+  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [codes, setCodes] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function begin() {
+    setErr(''); setBusy(true)
+    try {
+      const r = await api<{ secret: string; uri: string }>('/api/auth/2fa/setup', { method: 'POST' })
+      setSecret(r.secret); setUri(r.uri); setStep('scan')
+    } catch (e) { setErr(errorMessage(e, 'Could not start the setup')) }
+    finally { setBusy(false) }
+  }
+
+  async function enable() {
+    setErr(''); setBusy(true)
+    try {
+      const r = await api<{ recovery_codes: string[] }>('/api/auth/2fa/enable',
+        { method: 'POST', body: { code: code.trim() } })
+      setCodes(r.recovery_codes); setStep('codes'); onChanged()
+    } catch (e) { setErr(errorMessage(e, 'That code was not accepted')) }
+    finally { setBusy(false) }
+  }
+
+  async function disable() {
+    setErr(''); setBusy(true)
+    try {
+      await api('/api/auth/2fa/disable', { method: 'POST', body: { password } })
+      toast('Two-step sign-in is off'); onChanged(); onClose()
+    } catch (e) { setErr(errorMessage(e, 'Could not turn it off')) }
+    finally { setBusy(false) }
+  }
+
+  async function regenerate() {
+    setErr(''); setBusy(true)
+    try {
+      const r = await api<{ recovery_codes: string[] }>('/api/auth/2fa/recovery/new',
+        { method: 'POST', body: { password } })
+      setCodes(r.recovery_codes); setStep('codes'); onChanged()
+    } catch (e) { setErr(errorMessage(e, 'Could not make new codes')) }
+    finally { setBusy(false) }
+  }
+
+  const copyCodes = () => {
+    navigator.clipboard?.writeText(codes.join('\n'))
+      .then(() => toast('Copied — paste them somewhere safe')).catch(() => { })
+  }
+
+  // The codes screen has no cancel, and closing it is the only way out. That is
+  // deliberate: these are readable exactly once, and an X in the corner beside
+  // them invites exactly the mistake the warning is about.
+  if (step === 'codes') {
+    return (
+      <Sheet title="Save these recovery codes" onClose={() => { onClose() }}>
+        <p className="form-hint warn" style={{ marginTop: 0 }}>
+          This is the only time these are shown. They are stored scrambled, so
+          nobody — including you — can read them back from this app. Each one
+          signs you in once if you lose your phone.
+        </p>
+        <div className="card" style={{ padding: 14, margin: '12px 0' }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+            fontFamily: 'monospace', fontSize: 14, letterSpacing: '0.04em',
+          }}>
+            {codes.map((c) => <div key={c}>{c}</div>)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn ghost block" onClick={copyCodes}>Copy all</button>
+          <button className="btn block" onClick={onClose}>I have saved them</button>
+        </div>
+      </Sheet>
+    )
+  }
+
+  if (step === 'scan') {
+    return (
+      <Sheet title="Set up two-step sign-in" onClose={onClose}>
+        <p className="muted" style={{ fontSize: 13.5, marginTop: 0 }}>
+          In an authenticator app — Google Authenticator, Authy, 1Password, or your
+          phone&rsquo;s built-in one — add an account and paste this key.
+        </p>
+        <Field label="Setup key">
+          <input className="input" value={secret} readOnly
+            onFocus={(e) => e.currentTarget.select()}
+            style={{ fontFamily: 'monospace', letterSpacing: '0.08em' }} />
+        </Field>
+        <button className="btn ghost sm" style={{ marginBottom: 14 }}
+          onClick={() => {
+            navigator.clipboard?.writeText(secret).then(() => toast('Key copied')).catch(() => { })
+          }}>Copy the key</button>
+        {/* On a phone the authenticator can take the whole thing in one tap, which
+            removes the commonest setup error: a mistyped key that produces codes
+            that never work and gives no clue why. */}
+        <p style={{ fontSize: 13, margin: '0 0 16px' }}>
+          <a href={uri} style={{ color: 'var(--brand)', fontWeight: 700 }}>
+            Open it in my authenticator app →
+          </a>
+        </p>
+        <Field label="Now type the 6-digit code it shows">
+          <input className="input" value={code} onChange={(e) => setCode(e.target.value)}
+            inputMode="numeric" maxLength={6} placeholder="000000" autoFocus
+            style={{ letterSpacing: '0.35em', textAlign: 'center', fontSize: '1.15rem' }} />
+        </Field>
+        {err && <p className="form-hint warn">{err}</p>}
+        <button className="btn block" disabled={busy || code.trim().length < 6} onClick={enable}>
+          {busy ? 'Checking…' : 'Turn it on'}
+        </button>
+        <p className="form-hint" style={{ marginBottom: 0 }}>
+          It is not on yet. Nothing changes until that code is accepted.
+        </p>
+      </Sheet>
+    )
+  }
+
+  if (!st.enabled) {
+    return (
+      <Sheet title="Two-step sign-in" onClose={onClose}>
+        <p className="muted" style={{ fontSize: 13.5, marginTop: 0 }}>
+          With this on, signing in asks for a code from your phone as well as your
+          password — so a stolen password is not enough on its own. You will also
+          get recovery codes for the day you lose the phone.
+        </p>
+        {err && <p className="form-hint warn">{err}</p>}
+        <button className="btn block" disabled={busy} onClick={begin}>
+          {busy ? 'Starting…' : 'Set it up'}
+        </button>
+      </Sheet>
+    )
+  }
+
+  return (
+    <Sheet title="Two-step sign-in" onClose={onClose}>
+      <p className="muted" style={{ fontSize: 13.5, marginTop: 0 }}>
+        On since {st.since ? fmtDateTime(st.since) : 'recently'}.{' '}
+        {st.recovery_left === 0
+          ? 'You have no recovery codes left — make new ones now, or losing your phone means losing the account.'
+          : `${st.recovery_left} recovery code${st.recovery_left === 1 ? '' : 's'} left.`}
+      </p>
+      <Field label="Your password">
+        <input className="input" type="password" value={password} autoComplete="current-password"
+          onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+      </Field>
+      <p className="form-hint">
+        Asked for both actions below on purpose: a session alone should not be able
+        to weaken the account it is signed in to.
+      </p>
+      {err && <p className="form-hint warn">{err}</p>}
+      <button className="btn block" disabled={busy || !password} onClick={regenerate}>
+        {busy ? 'Working…' : 'Make new recovery codes'}
+      </button>
+      <button className="btn danger block" style={{ marginTop: 10 }}
+        disabled={busy || !password} onClick={disable}>
+        Turn off two-step sign-in
+      </button>
+    </Sheet>
   )
 }

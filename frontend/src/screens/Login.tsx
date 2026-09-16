@@ -47,24 +47,62 @@ const POINTS: [string, string][] = [
 ]
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, completeTwoFactor } = useAuth()
   const brand = useBranding()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  // Set when the password was right and the account wants its second factor.
+  // Holding the challenge here, rather than a "signed in but not really" flag,
+  // is what keeps the half-finished state impossible to mistake for a session.
+  const [challenge, setChallenge] = useState<string | null>(null)
+  const [code, setCode] = useState('')
+  const [useRecovery, setUseRecovery] = useState(false)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setErr(''); setBusy(true)
     try {
-      await login(email.trim(), password)
+      const need2fa = await login(email.trim(), password)
+      if (need2fa) {
+        setChallenge(need2fa.challenge)
+        // The password is not needed again and should not sit in memory for the
+        // length of a code-entry step.
+        setPassword('')
+      }
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Something went wrong')
     } finally {
       setBusy(false)
     }
+  }
+
+  async function submitCode(e: React.FormEvent) {
+    e.preventDefault()
+    if (!challenge) return
+    setErr(''); setBusy(true)
+    try {
+      await completeTwoFactor(challenge, code.trim())
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Something went wrong'
+      setErr(msg)
+      setCode('')
+      // A challenge is single-use and short-lived, so once the server says it
+      // expired there is nothing left to retry — send them back to the password
+      // rather than letting them type codes at a dead challenge.
+      if (err instanceof ApiError && /expired/i.test(err.message)) {
+        setChallenge(null)
+        setUseRecovery(false)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function backToPassword() {
+    setChallenge(null); setCode(''); setErr(''); setUseRecovery(false)
   }
 
   const Logo = (
@@ -106,6 +144,42 @@ export default function Login() {
             <p className="auth-tag">{tagline}</p>
           </div>
 
+          {challenge ? (
+            <form onSubmit={submitCode} className="auth-card">
+              <h2 className="auth-card-h">{useRecovery ? 'Use a recovery code' : 'Enter your code'}</h2>
+              <p className="auth-card-sub">
+                {useRecovery
+                  ? 'One of the codes you saved when you turned on two-step sign-in. Each one works once.'
+                  : `Open your authenticator app and type the six digits it shows for ${brand.app_name}.`}
+              </p>
+              <div className="field">
+                <label>{useRecovery ? 'Recovery code' : '6-digit code'}</label>
+                <input className="input" value={code} autoFocus required
+                  onChange={(e) => setCode(e.target.value)}
+                  // A one-time code is not a password: autocomplete="one-time-code"
+                  // is what lets iOS and Android offer the code from the keyboard.
+                  autoComplete={useRecovery ? 'off' : 'one-time-code'}
+                  inputMode={useRecovery ? 'text' : 'numeric'}
+                  placeholder={useRecovery ? 'xxxx-xxxx' : '000000'}
+                  maxLength={useRecovery ? 32 : 6}
+                  style={{ letterSpacing: useRecovery ? '0.05em' : '0.35em',
+                           textAlign: 'center', fontSize: '1.15rem' }} />
+              </div>
+              {err && <div className="auth-err">{err}</div>}
+              <button className="btn block auth-btn" disabled={busy || !code.trim()}>
+                {busy ? 'Checking…' : 'Sign in →'}
+              </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
+                <button type="button" className="btn ghost sm" onClick={backToPassword}>
+                  ← Back
+                </button>
+                <button type="button" className="btn ghost sm"
+                  onClick={() => { setUseRecovery((r) => !r); setCode(''); setErr('') }}>
+                  {useRecovery ? 'Use the app instead' : 'Lost your phone?'}
+                </button>
+              </div>
+            </form>
+          ) : (
           <form onSubmit={submit} className="auth-card">
             <h2 className="auth-card-h">Sign in</h2>
             <p className="auth-card-sub">Welcome back — sign in to your {brand.app_name} account.</p>
@@ -125,6 +199,7 @@ export default function Login() {
             {err && <div className="auth-err">{err}</div>}
             <button className="btn block auth-btn" disabled={busy}>{busy ? 'Signing in…' : 'Sign in →'}</button>
           </form>
+          )}
 
           <ConnectionSwitch />
 

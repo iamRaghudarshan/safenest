@@ -1,3 +1,6 @@
+import secrets
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -63,6 +66,31 @@ def create_token(user: User) -> str:
 TWOFA_CHALLENGE_MINUTES = 5
 
 
+# A challenge is a JWT, so by itself it carries no state and can be presented as
+# many times as its five minutes allow. That is what this table fixes.
+#
+# It was not a theoretical hole: login_2fa's own docstring said "the challenge is
+# single-use ... so an attacker cannot keep one and grind at it", and an
+# end-to-end test signed in TWICE with one challenge and one code. The rate limit
+# was doing all of the work the design credited to single use, and a rate limit
+# is per-IP.
+#
+# Held in the process rather than the database for the same reason rate limiting
+# is: five-minute state whose whole purpose has expired by the time anyone could
+# query it. The app runs as a single uvicorn process; if it is ever given
+# --workers, this needs to move to shared storage, and the check would silently
+# weaken rather than fail loudly — which is why it is written down here.
+_2FA_MAX_ATTEMPTS = 5
+_used_2fa: dict[str, dict] = {}
+_2fa_lock = threading.Lock()
+
+
+def _reap_2fa(now: float) -> None:
+    """Drop entries whose challenge has expired anyway. Caller holds the lock."""
+    for jti in [k for k, v in _used_2fa.items() if v["until"] <= now]:
+        _used_2fa.pop(jti, None)
+
+
 def create_2fa_challenge(user: User) -> str:
     """A token that proves the PASSWORD step passed, and nothing else.
 
@@ -76,21 +104,65 @@ def create_2fa_challenge(user: User) -> str:
         "sub": str(user.id),
         "typ": "2fa",
         "ver": int(user.token_version or 0),
+        # Names this one challenge so it can be spent. Without it every challenge
+        # for a given user in a given five minutes is interchangeable.
+        "jti": secrets.token_urlsafe(12),
         "exp": datetime.now(timezone.utc) + timedelta(minutes=TWOFA_CHALLENGE_MINUTES),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def read_2fa_challenge(token: str) -> int | None:
-    """The user id inside a challenge, or None if it is not one."""
+def read_2fa_challenge(token: str) -> tuple[int, int] | None:
+    """The (user id, token_version) inside a live challenge, or None.
+
+    Counts the attempt. A challenge is allowed a few tries, because people mistype
+    six digits and forcing a full re-login for one typo teaches them to turn the
+    feature off — but it is a FEW, and they are spent whether the code was right
+    or wrong. Call `spend_2fa_challenge` once the code verifies, so a success can
+    never be replayed at all.
+    """
     try:
         payload = jwt.decode(token, settings.jwt_secret,
                              algorithms=[settings.jwt_algorithm])
         if payload.get("typ") != "2fa":
             return None
-        return int(payload.get("sub"))
+        uid = int(payload.get("sub"))
+        ver = int(payload.get("ver", 0))
+        jti = payload.get("jti")
+        exp = float(payload.get("exp", 0))
     except (PyJWTError, TypeError, ValueError):
         return None
+
+    # A challenge minted before this fix shipped has no jti and cannot be
+    # tracked. Refuse it rather than wave it through: the window is five minutes,
+    # so at worst somebody signs in again.
+    if not jti:
+        return None
+
+    now = time.time()
+    with _2fa_lock:
+        _reap_2fa(now)
+        seen = _used_2fa.setdefault(jti, {"tries": 0, "spent": False, "until": exp})
+        if seen["spent"] or seen["tries"] >= _2FA_MAX_ATTEMPTS:
+            return None
+        seen["tries"] += 1
+    return uid, ver
+
+
+def spend_2fa_challenge(token: str) -> None:
+    """Burn a challenge so a correct code cannot be presented twice."""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret,
+                             algorithms=[settings.jwt_algorithm],
+                             options={"verify_exp": False})
+        jti = payload.get("jti")
+        exp = float(payload.get("exp", 0))
+    except (PyJWTError, TypeError, ValueError):
+        return
+    if not jti:
+        return
+    with _2fa_lock:
+        _used_2fa[jti] = {"tries": _2FA_MAX_ATTEMPTS, "spent": True, "until": exp}
 
 
 def get_current_user(token: str = Depends(oauth2), db: Session = Depends(get_db)) -> User:
