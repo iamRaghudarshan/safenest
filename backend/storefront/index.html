@@ -62,9 +62,13 @@
   .btn.ghost:hover { background:var(--surface); border-color:#d8dee7; }
   .btn.big { padding:15px 26px; font-size:15.5px; }
 
-  nav { position:sticky; top:0; z-index:50; backdrop-filter:saturate(1.6) blur(16px);
+  /* `body > nav`, not `nav`. The footer's link columns are <nav> elements too —
+     correct HTML, and with a bare `nav` selector they inherited sticky
+     positioning, a backdrop blur and a bottom border, which drew a stray rule
+     under the last link of every footer column. */
+  body > nav { position:sticky; top:0; z-index:50; backdrop-filter:saturate(1.6) blur(16px);
         background:color-mix(in srgb, white 78%, transparent); border-bottom:1px solid var(--line); }
-  nav .wrap { display:flex; align-items:center; gap:14px; height:66px; }
+  body > nav .wrap { display:flex; align-items:center; gap:14px; height:66px; }
   /* The supplied logo, used as supplied. An earlier pass redrew the mark as SVG
      and set the wordmark in HTML; it was close but it was not the logo, and a
      logo that is nearly right is worse than one that is simply correct.
@@ -88,10 +92,10 @@
      footer, so the lockup read "Nest" — invisible in the markup, obvious the
      moment it was looked at. */
   .dark-band .brand-word b { color:#fff; }
-  nav .links { margin-left:auto; display:flex; align-items:center; gap:26px; }
-  nav .links a { color:var(--muted); font-weight:500; font-size:14.5px; transition:color .15s ease; }
-  nav .links a:hover { color:var(--brand); }
-  @media (max-width:760px){ nav .links a.hide-sm { display:none; } }
+  body > nav .links { margin-left:auto; display:flex; align-items:center; gap:26px; }
+  body > nav .links a { color:var(--muted); font-weight:500; font-size:14.5px; transition:color .15s ease; }
+  body > nav .links a:hover { color:var(--brand); }
+  @media (max-width:760px){ body > nav .links a.hide-sm { display:none; } }
 
   /* Sections still set --accent, but it now tints the small things — an eyebrow,
      an emphasised word, an icon — and no longer washes the whole band. Eight
@@ -139,8 +143,19 @@
   .hero h1 .accent { color:var(--brand); }
   .hero p.lead { font-size:19.5px; color:var(--muted); margin:26px 0 34px; max-width:42ch; line-height:1.6; }
   .cta-row { display:flex; gap:13px; flex-wrap:wrap; align-items:center; }
-  .trust { display:flex; gap:22px; flex-wrap:wrap; margin-top:30px; color:var(--muted); font-size:13.5px; }
-  .trust b { color:var(--ink); }
+  /* Three facts on one line, separated by hairlines rather than emoji. The
+     emoji version wrapped "Simple subscription" onto a line of its own and put
+     three cartoon glyphs next to 56px display type, which is the cheapest way to
+     make careful typography look unserious. */
+  /* Inline separators drawn with ::before, not borders on flex children. A
+     bordered child that wraps carries its border to the next line and leaves a
+     stray vertical rule hanging in the whitespace; a ::before dot simply wraps
+     with the text it belongs to. The copy is trimmed to fit the hero column on
+     one line at this size — it was overflowing and breaking after two items. */
+  .trust { margin:32px 0 0; color:var(--muted); font-size:13.5px; line-height:2; }
+  .trust span { white-space:nowrap; }
+  .trust span + span::before { content:"·"; margin:0 12px; color:var(--line); font-weight:700; }
+  .trust b { color:var(--ink); font-weight:600; }
   .hero-art { position:relative; }
   .hero-card { background:var(--card); border:1px solid var(--line); border-radius:24px;
                box-shadow:0 40px 90px -30px color-mix(in srgb, var(--c2) 45%, transparent); padding:22px; animation:cardfloat 7s ease-in-out infinite; }
@@ -152,6 +167,52 @@
   .mini div { border-radius:14px; padding:14px 8px; text-align:center; font-size:12px; font-weight:650; color:#fff; box-shadow:0 8px 20px -10px rgba(0,0,0,.35); }
   .mini div span { display:block; font-size:21px; margin-bottom:5px; }
   @media (max-width:880px){ .hero-grid{ grid-template-columns:1fr; } .hero-art{ display:none; } }
+
+  /* ---- FAQ -------------------------------------------------------------
+     Two columns on a wide screen so six questions do not become a column of
+     scrolling, and each one closed by default: an FAQ opened flat is a wall of
+     text that reads as small print. */
+  .faq { max-width:980px; margin:0 auto; display:grid; grid-template-columns:1fr 1fr; gap:0 40px; }
+  @media (max-width:820px){ .faq { grid-template-columns:1fr; } }
+  .faq-item { border-top:1px solid var(--line); }
+  .faq-item summary { list-style:none; cursor:pointer; display:flex; align-items:flex-start;
+                      gap:16px; padding:22px 0; font-weight:600; font-size:16.5px;
+                      color:var(--ink); letter-spacing:-.015em; transition:color .15s ease; }
+  .faq-item summary::-webkit-details-marker { display:none; }
+  .faq-item summary:hover { color:var(--brand); }
+  .faq-item summary span:first-child { flex:1; }
+  .faq-chev { flex:0 0 auto; width:22px; height:22px; border-radius:50%; display:grid;
+              place-items:center; font-size:15px; line-height:1; color:var(--brand);
+              background:color-mix(in srgb, var(--brand) 10%, transparent);
+              transition:transform .2s ease; }
+  .faq-item[open] .faq-chev { transform:rotate(45deg); }
+  .faq-item p { margin:0 0 24px; padding-right:38px; color:var(--muted);
+                font-size:15px; line-height:1.65; }
+  .faq-item p b { color:var(--body); font-weight:600; }
+
+  /* ---- support, folded away ---------------------------------------------
+     It was a full section with its own heading and a second large form, sitting
+     directly after the licence form. Two consecutive forms at the end of a
+     marketing page is where reading stops. */
+  .support-fold { max-width:760px; margin:0 auto; background:var(--card);
+                  border:1px solid var(--line); border-radius:16px; }
+  .support-fold summary { list-style:none; cursor:pointer; display:flex; align-items:center;
+                          gap:16px; padding:22px 24px; }
+  .support-fold summary::-webkit-details-marker { display:none; }
+  .support-fold:hover { border-color:#d8dee7; }
+  .sf-ic { font-size:22px; line-height:1; flex:0 0 auto; }
+  .sf-text { flex:1; display:flex; flex-direction:column; gap:3px; }
+  .sf-text b { color:var(--ink); font-size:15.5px; letter-spacing:-.015em; }
+  .sf-text i { font-style:normal; color:var(--muted); font-size:13.5px; }
+  .sf-chev { color:var(--ink-faint, var(--muted)); font-size:22px; line-height:1;
+             transition:transform .2s ease; }
+  .support-fold[open] .sf-chev { transform:rotate(90deg); }
+  .support-body { padding:0 24px 24px; }
+  .support-body .form-card { max-width:none; margin:0; border:0; border-radius:0;
+                             padding:0; box-shadow:none; background:none; }
+
+  /* Steps now live inside the download section, above the button they lead to. */
+  #download .steps { margin-bottom:38px; }
 
   /* ---- the dark statement band --------------------------------------
      One change of ground on the whole page, spent on the one claim the product
@@ -412,7 +473,7 @@
       radial-gradient(70% 120% at 50% 0%, color-mix(in srgb,var(--brand) 38%,transparent), transparent 70%),
       var(--ink); border:0; }
   .cta h2 { color:#fff; font-size:clamp(32px,4.2vw,48px); letter-spacing:-.035em; }
-  .cta p { color:rgba(255,255,255,.72); font-size:17.5px; margin:18px auto 30px; max-width:52ch; line-height:1.6; }
+  .cta p { color:rgba(255,255,255,.72); font-size:17.5px; margin:18px auto 32px; max-width:62ch; line-height:1.65; }
   .cta .btn { background:#fff; color:var(--ink); border-color:#fff; }
   .cta .btn:hover { background:#eef1f6; }
   .cta .btn.ghost { background:transparent; color:#fff; border-color:rgba(255,255,255,.26); }
@@ -427,8 +488,29 @@
   .ok { background:color-mix(in srgb,var(--c4) 12%,white); color:#0f7a4a; border:1px solid color-mix(in srgb,var(--c4) 30%,white); padding:14px 16px; border-radius:12px; }
   .err { color:#c0362c; font-size:14px; margin-top:10px; }
 
-  footer { border-top:1px solid var(--line); padding:42px 0; color:var(--muted); font-size:14px; }
-  footer .wrap { display:flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:space-between; }
+  /* A real footer. It was one row — logo, copyright, four inline links — which
+     on a page this long reads as the page giving up rather than closing. */
+  footer { border-top:1px solid var(--line); padding:56px 0 0; color:var(--muted); font-size:14px; }
+  .foot-grid { display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:40px; padding-bottom:44px; }
+  .foot-brand p { margin:16px 0 0; max-width:34ch; font-size:14px; line-height:1.6; color:var(--muted); }
+  .foot-col { display:flex; flex-direction:column; gap:11px; }
+  .foot-col h3 { font-size:12px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+                 color:var(--ink); margin:0 0 4px; }
+  .foot-col a { color:var(--muted); font-size:14.5px; transition:color .15s ease; }
+  .foot-col a:hover { color:var(--brand); }
+  .foot-base { display:flex; align-items:center; justify-content:space-between; gap:16px;
+               flex-wrap:wrap; border-top:1px solid var(--line); padding-top:22px; padding-bottom:26px;
+               font-size:13px; }
+  .foot-made { color:var(--ink-faint, #9aa3b2); }
+  /* The AI BIT download gate hangs off this dot. It is deliberately almost
+     invisible and must stay clickable — see aibit-gate.js. */
+  .foot-made .dl-trigger { color:inherit; text-decoration:none; opacity:.4; cursor:default;
+                           padding-left:8px; }
+  @media (max-width:820px){
+    .foot-grid { grid-template-columns:1fr 1fr; gap:32px; }
+    .foot-brand { grid-column:1 / -1; }
+  }
+  @media (max-width:480px){ .foot-grid { grid-template-columns:1fr; } }
 
   .js .reveal { opacity:0; transform:translateY(22px); transition:opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
   .js .reveal.in { opacity:1; transform:none; }
@@ -450,7 +532,8 @@
     <div class="links">
       <a class="hide-sm" href="#privacy">Privacy</a>
       <a class="hide-sm" href="#features">Features</a>
-      <a class="hide-sm" href="#how">How it works</a>
+      <a class="hide-sm" href="#download">How it works</a>
+      <a class="hide-sm" href="#faq">FAQ</a>
       <a class="hide-sm" href="#download">Download</a>
       <a class="hide-sm" href="#support">Support</a>
       <a class="btn ghost" style="padding:10px 18px" href="/">Sign in</a>
@@ -469,11 +552,11 @@
         <a class="btn big" href="#licence">Get SafeNest</a>
         <a class="btn ghost big" href="#how">How it works</a>
       </div>
-      <div class="trust">
-        <span>🛡️ <b>AES-256</b> encrypted vault</span>
-        <span>🏠 <b>Your data never leaves</b> your machine</span>
-        <span>🔄 <b>Simple subscription</b>, cancel anytime</span>
-      </div>
+      <p class="trust">
+        <span><b>AES-256</b> encrypted vault</span>
+        <span><b>Never leaves</b> your machine</span>
+        <span><b>Cancel</b> anytime</span>
+      </p>
     </div>
     <div class="hero-art">
       <!-- The real application, photographed. What stood here was a careful CSS
@@ -500,17 +583,6 @@
 </header>
 
 <!-- STATS (violet) -->
-<section id="stats" class="tint" style="--accent:#7b3ff2; padding:56px 0">
-  <div class="wrap">
-    <div class="stats">
-      <div class="stat reveal"><div class="n">12</div><div class="l">Modules in one home</div></div>
-      <div class="stat reveal"><div class="n">256-bit</div><div class="l">AES encryption</div></div>
-      <div class="stat reveal"><div class="n">0</div><div class="l">Records on our servers</div></div>
-      <div class="stat reveal"><div class="n">100%</div><div class="l">Yours, on your machine</div></div>
-    </div>
-  </div>
-</section>
-
 <!-- PRIVACY DATA-FLOW (teal) -->
 <!-- WHERE YOUR DATA GOES — the claim the whole product rests on.
      It used to be a small piece of clipart (a rounded blue square for a phone, a
@@ -614,35 +686,21 @@
 </section>
 
 <!-- HOW IT WORKS (amber) with animated flow -->
-<section id="how" class="tint" style="--accent:#f59e0b">
+<!-- DOWNLOAD (sky) -->
+<section id="download" class="tint" style="--accent:#0ea5e9">
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="eyebrow">Up and running in minutes</div>
-      <h2>How it works</h2>
+      <h2>Get <em>SafeNest</em></h2>
+      <p>Three steps, and the first one is on this page. One licensed copy, yours to keep.</p>
     </div>
-    <div class="connector reveal" aria-hidden="true" hidden>
-      <svg viewBox="0 0 720 34" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none">
-        <path id="flowline" d="M60 17 H660" fill="none" stroke="#f59e0b" stroke-width="3" stroke-dasharray="2 12" stroke-linecap="round" opacity=".55"/>
-        <circle r="7" fill="#f59e0b"><animateMotion dur="3s" repeatCount="indefinite"><mpath xlink:href="#flowline"/></animateMotion></circle>
-        <circle cx="60" cy="17" r="6" fill="#f59e0b"/><circle cx="360" cy="17" r="6" fill="#f59e0b"/><circle cx="660" cy="17" r="6" fill="#f59e0b"/>
-      </svg>
-    </div>
-    <div class="steps">
+
+    <div class="steps reveal">
       <div class="step reveal"><div class="num">1</div><h3>Download</h3><p>Get the app for Windows or Mac. It installs everything it needs on first run — no database to set up, no account with us.</p></div>
       <div class="step reveal"><div class="num">2</div><h3>Activate</h3><p>Paste the licence key you were sent. Your copy unlocks and runs offline, and stays active for as long as your subscription is current.</p></div>
       <div class="step reveal"><div class="num">3</div><h3>Use anywhere at home</h3><p>Open it in a browser or on your phone over your own Wi-Fi. Back up your whole photo library straight from the SafeNest app.</p></div>
     </div>
-  </div>
-</section>
 
-<!-- DOWNLOAD (sky) -->
-<section id="download" style="--accent:#0ea5e9">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <div class="eyebrow">Get the app</div>
-      <h2>Download <em>SafeNest</em></h2>
-      <p>One licensed copy, yours to keep. Choose your platform below.</p>
-    </div>
     <div class="dl-box reveal">
       <p style="margin:0 0 14px;color:var(--ink);font-weight:600">Request a licence first — your download unlocks the moment you do, right on this page.</p>
       <div class="dl">
@@ -714,14 +772,56 @@
 </section>
 
 <!-- SUPPORT (indigo) -->
-<section id="support" style="--accent:#6366f1">
+<!-- FAQ — the objections this product actually raises. -->
+<section id="faq">
   <div class="wrap">
     <div class="sec-head reveal">
-      <div class="eyebrow">We’re here to help</div>
-      <h2>Need a hand? <em>Get support</em></h2>
-      <p>Trouble activating, a question about a feature, or something not working? Send us a note and we’ll get back to you by email. If you have a licence key, add it so we can find your copy.</p>
+      <div class="eyebrow">Before you ask</div>
+      <h2>The questions <em>everyone asks</em></h2>
     </div>
-    <div class="form-card reveal">
+    <div class="faq">
+      <details class="faq-item reveal">
+        <summary><span>If I stop paying, do I lose everything?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>No. Your records are files on your own computer, and they stay there. The app also exports everything you own &mdash; every account, every photo and document &mdash; into a folder you can copy onto a USB drive, at any time, including after you have stopped.</p>
+      </details>
+      <details class="faq-item reveal">
+        <summary><span>Can you read my records?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>No, and not as a policy &mdash; as a matter of plumbing. We run no server that holds them. There is nothing for us to look in, nothing to lose in a breach of ours, and nothing we could be compelled to hand over.</p>
+      </details>
+      <details class="faq-item reveal">
+        <summary><span>What happens if my computer dies?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>Take the copy to the next one. <b>Profile &rarr; Move everything to another computer</b> writes a folder with every record and file in it; the new machine picks up exactly where the old one stopped. Keeping one on an external drive is the five-minute version of a disaster plan.</p>
+      </details>
+      <details class="faq-item reveal">
+        <summary><span>Do I need to be technical to run it?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>No. It installs everything it needs the first time you open it &mdash; no database to set up, no account to create, nothing to configure. Reaching it from outside your home is the one optional step that takes longer, and the app walks you through it.</p>
+      </details>
+      <details class="faq-item reveal">
+        <summary><span>Can my family have their own sign-ins?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>Yes, as many as your licence covers. Everyone gets their own records and nobody can see anyone else&rsquo;s &mdash; a household, not a shared login.</p>
+      </details>
+      <details class="faq-item reveal">
+        <summary><span>Does it work on my phone?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>Yes. Install the phone app, type in your address, sign in with the same details. On your own Wi-Fi it just works; from outside the house you need a web address, which the app helps you set up. <b>The computer has to be switched on</b> &mdash; your records live on it, not on a server of ours.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- SUPPORT — a quiet second option, not a second full-page ask. -->
+<section id="support" class="tint">
+  <div class="wrap">
+    <details class="support-fold reveal">
+      <summary>
+        <span class="sf-ic">&#128172;</span>
+        <span class="sf-text">
+          <b>Something not working, or a question first?</b>
+          <i>Trouble activating, a feature question, anything at all &mdash; we answer by email.</i>
+        </span>
+        <span class="sf-chev" aria-hidden="true">&rsaquo;</span>
+      </summary>
+      <div class="support-body">
+<div class="form-card reveal">
       <form id="sup">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
           <div><label for="sn">Your name</label><input id="sn" name="name" required autocomplete="name" /></div>
@@ -738,6 +838,8 @@
       </form>
       <div class="ok" id="sup-ok" style="display:none">Thanks — your message is in. We’ll reply to your email as soon as we can.</div>
     </div>
+      </div>
+    </details>
   </div>
 </section>
 
@@ -753,17 +855,48 @@
 </section>
 
 <footer>
-  <div class="wrap">
-    <div class="brand">
-      <img class="brand-logo sm" src="/storefront-img/logo.png" alt="SafeNest" width="520" height="152">
-      <span class="brand-word sm" id="foot-word" hidden><b id="foot-name">Safe</b><i>Nest</i></span>
+  <div class="wrap foot-grid">
+    <div class="foot-brand">
+      <div class="brand">
+        <img class="brand-logo sm" src="/storefront-img/logo.png" alt="SafeNest" width="520" height="152">
+        <span class="brand-word sm" id="foot-word" hidden><b id="foot-name">Safe</b><i>Nest</i></span>
+      </div>
+      <p>Your money, documents, photos and passwords in one private place &mdash;
+         on a machine only you control.</p>
     </div>
-    <div id="foot-copy">© SafeNest. Licensed software. Not for resale or redistribution.</div>
-    <div><a href="/">Sign in</a> &nbsp;·&nbsp; <a href="#download">Download</a> &nbsp;·&nbsp; <a href="#licence">Get a licence</a> &nbsp;·&nbsp; <a id="foot-android" href="/api/public/download?platform=android">🤖 Android app</a> <a href="#" class="dl-trigger" title="AI BIT" style="color:inherit;text-decoration:none;opacity:.4;cursor:default">·</a></div>
+
+    <nav class="foot-col" aria-label="Product">
+      <h3>Product</h3>
+      <a href="#features">What it holds</a>
+      <a href="#screens">See it working</a>
+      <a href="#download">How it works</a>
+      <a href="#licence">Get a licence</a>
+    </nav>
+
+    <nav class="foot-col" aria-label="Apps">
+      <h3>Apps</h3>
+      <a href="#download">Windows</a>
+      <a href="#download">Mac</a>
+      <a id="foot-android" href="/api/public/download?platform=android">Android</a>
+      <a href="/">Sign in</a>
+    </nav>
+
+    <nav class="foot-col" aria-label="More">
+      <h3>More</h3>
+      <a href="#privacy">Privacy</a>
+      <a href="#security">Security</a>
+      <a href="#faq">Questions</a>
+      <a href="#support">Support</a>
+    </nav>
+  </div>
+
+  <div class="wrap foot-base">
+    <div id="foot-copy">&copy; SafeNest. Licensed software. Not for resale or redistribution.</div>
+    <div class="foot-made">Runs on your computer. Not on ours.<a href="#" class="dl-trigger" title="AI BIT">&middot;</a></div>
   </div>
 </footer>
 
-<script src="/storefront.js?v=3.42-reallogo"></script>
+<script src="/storefront.js?v=3.42-polish"></script>
 <style>
 #aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
 #aibit-gate.show{display:flex}
