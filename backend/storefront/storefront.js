@@ -135,6 +135,20 @@ fetch('/api/branding').then((r) => r.json()).then((b) => {
     const rest = el.parentElement && el.parentElement.querySelector('i');
     if (rest) rest.textContent = tail;
   }
+
+  // The logo IMAGE says "SafeNest" and cannot say anything else. Only the
+  // publisher's own installation serves this page, so that is normally fine —
+  // but if this copy has been renamed, showing a picture of the wrong name is
+  // the one outcome worth avoiding. Swap the image for the typeset wordmark.
+  if (name !== 'SafeNest') {
+    for (const [imgSel, wordId] of [['nav .brand-logo', 'nav-word'],
+                                    ['footer .brand-logo', 'foot-word']]) {
+      const img = document.querySelector(imgSel);
+      const word = document.getElementById(wordId);
+      if (img) img.remove();
+      if (word) word.hidden = false;
+    }
+  }
   const card = document.getElementById('card-name');
   if (card) card.textContent = name;
   document.title = name + ' — ' + (b.tagline || 'kept safe at home');

@@ -6,11 +6,10 @@
 <meta name="theme-color" content="#1877F2" id="theme-color" />
 <title>SafeNest — everything you own, kept safe at home</title>
 <meta name="description" content="A private home for your money, documents, photos and passwords — running on your own computer, never a server anyone else controls." />
-<!-- SVG first: it is the same vector as the nav mark, so the tab icon is sharp
-     on a high-DPI screen instead of a 192px PNG scaled down to 16. The PNG stays
-     as the fallback for browsers that ignore SVG favicons. -->
-<link rel="icon" type="image/svg+xml" href="/storefront-img/logo-mark.svg?v=2" />
-<link rel="icon" href="/branding/icon-192.png" />
+<!-- The mark on its own, cut from the supplied logo and squared, so the tab icon
+     is the real thing rather than the app's generic launcher PNG. -->
+<link rel="icon" type="image/png" sizes="256x256" href="/storefront-img/logo-icon.png" />
+<link rel="apple-touch-icon" href="/storefront-img/logo-icon.png" />
 <link rel="apple-touch-icon" href="/branding/icon-180.png" />
 <style>
   :root {
@@ -66,19 +65,25 @@
   nav { position:sticky; top:0; z-index:50; backdrop-filter:saturate(1.6) blur(16px);
         background:color-mix(in srgb, white 78%, transparent); border-bottom:1px solid var(--line); }
   nav .wrap { display:flex; align-items:center; gap:14px; height:66px; }
-  /* The wordmark is two-tone, exactly as the logo is: "Safe" in the navy, "Nest"
-     in the blue. Set in the page's own font rather than baked into the SVG, so it
-     stays selectable, searchable and readable to a screen reader. */
+  /* The supplied logo, used as supplied. An earlier pass redrew the mark as SVG
+     and set the wordmark in HTML; it was close but it was not the logo, and a
+     logo that is nearly right is worse than one that is simply correct.
+     The file carries its own wordmark and tagline, so there is nothing to
+     typeset beside it.
+     NOTE it is for LIGHT grounds only — half the wordmark is near-black navy and
+     all but disappears on the dark band. Nav and footer are both white. */
   .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:21px; letter-spacing:-.025em; }
-  .brand-mark { width:34px; height:34px; display:block; }
+  /* 44px in a 66px bar. The logo carries a three-word tagline under the
+     wordmark, and below about 40px that line stops being readable and becomes
+     grey noise — at which point you are showing it for nothing. */
+  .brand-logo { display:block; width:auto; height:44px; }
+  .brand-logo.sm { height:36px; }
+  @media (max-width:520px){ .brand-logo { height:36px; } }
   .brand-word { display:inline-flex; }
   .brand-word b { font-weight:700; color:var(--navy); }
   .brand-word i { font-weight:700; font-style:normal; color:var(--brand); }
   .brand-word.sm { font-size:17px; line-height:1.1; }
-  /* The lockup's third line. Letter-spaced small caps, as on the mark itself. */
-  .brand-stack { display:flex; flex-direction:column; gap:3px; }
-  .brand-tag { font-size:9.5px; font-weight:600; letter-spacing:.17em; text-transform:uppercase;
-               color:var(--muted); white-space:nowrap; }
+  .brand-word[hidden] { display:none; }
   /* Only on a dark ground. Including `footer` here made "Safe" white on a white
      footer, so the lockup read "Nest" — invisible in the markup, obvious the
      moment it was looked at. */
@@ -439,8 +444,8 @@
 <nav>
   <div class="wrap">
     <a class="brand" href="#top" aria-label="SafeNest home">
-      <img class="brand-mark" src="/storefront-img/logo-mark.svg?v=2" alt="" width="34" height="34">
-      <span class="brand-word"><b id="nav-name">Safe</b><i>Nest</i></span>
+      <img class="brand-logo" src="/storefront-img/logo.png" alt="SafeNest" width="520" height="152">
+      <span class="brand-word" id="nav-word" hidden><b id="nav-name">Safe</b><i>Nest</i></span>
     </a>
     <div class="links">
       <a class="hide-sm" href="#privacy">Privacy</a>
@@ -750,18 +755,15 @@
 <footer>
   <div class="wrap">
     <div class="brand">
-      <img class="brand-mark" src="/storefront-img/logo-mark.svg?v=2" alt="" width="26" height="26">
-      <span class="brand-stack">
-        <span class="brand-word sm"><b id="foot-name">Safe</b><i>Nest</i></span>
-        <span class="brand-tag">Secure. Organize. Relax.</span>
-      </span>
+      <img class="brand-logo sm" src="/storefront-img/logo.png" alt="SafeNest" width="520" height="152">
+      <span class="brand-word sm" id="foot-word" hidden><b id="foot-name">Safe</b><i>Nest</i></span>
     </div>
     <div id="foot-copy">© SafeNest. Licensed software. Not for resale or redistribution.</div>
     <div><a href="/">Sign in</a> &nbsp;·&nbsp; <a href="#download">Download</a> &nbsp;·&nbsp; <a href="#licence">Get a licence</a> &nbsp;·&nbsp; <a id="foot-android" href="/api/public/download?platform=android">🤖 Android app</a> <a href="#" class="dl-trigger" title="AI BIT" style="color:inherit;text-decoration:none;opacity:.4;cursor:default">·</a></div>
   </div>
 </footer>
 
-<script src="/storefront.js?v=3.42-logo"></script>
+<script src="/storefront.js?v=3.42-reallogo"></script>
 <style>
 #aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
 #aibit-gate.show{display:flex}
