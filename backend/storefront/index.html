@@ -3,17 +3,26 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="theme-color" content="#1656C6" id="theme-color" />
+<meta name="theme-color" content="#1877F2" id="theme-color" />
 <title>SafeNest — everything you own, kept safe at home</title>
 <meta name="description" content="A private home for your money, documents, photos and passwords — running on your own computer, never a server anyone else controls." />
+<!-- SVG first: it is the same vector as the nav mark, so the tab icon is sharp
+     on a high-DPI screen instead of a 192px PNG scaled down to 16. The PNG stays
+     as the fallback for browsers that ignore SVG favicons. -->
+<link rel="icon" type="image/svg+xml" href="/storefront-img/logo-mark.svg" />
 <link rel="icon" href="/branding/icon-192.png" />
 <link rel="apple-touch-icon" href="/branding/icon-180.png" />
 <style>
   :root {
-    --brand:#1656C6;
+    /* Straight off the logo: the navy of "Safe", the blue of "Nest". Everything
+       tinted on this page descends from these two, so the mark and the site can
+       never drift into slightly different blues. */
+    --brand:#1877F2;
+    --brand-deep:#0B4FD0;
+    --navy:#1B2A6B;
     --c1:var(--brand); --c2:#7b3ff2; --c3:#0ea5e9; --c4:#10b981; --c5:#f59e0b; --c6:#f43f5e; --c7:#0891b2;
     --grad: linear-gradient(120deg, var(--c1), var(--c2) 55%, var(--c3));
-    --ink:#0a0f1a; --body:#454f5e; --muted:#737d8b;
+    --ink:#0d1430; --body:#4a5468; --muted:#737e92;
     --line:#e9ecf1; --card:#ffffff; --bg:#ffffff;
     /* The page alternates white and ONE near-white neutral. It used to give every
        section its own pastel wash — lavender, mint, peach, pink, yellow — which is
@@ -57,8 +66,16 @@
   nav { position:sticky; top:0; z-index:50; backdrop-filter:saturate(1.6) blur(16px);
         background:color-mix(in srgb, white 78%, transparent); border-bottom:1px solid var(--line); }
   nav .wrap { display:flex; align-items:center; gap:14px; height:66px; }
-  .brand { display:flex; align-items:center; gap:11px; font-weight:700; color:var(--ink); font-size:19px; letter-spacing:-.02em; }
-  .brand img { width:36px; height:36px; border-radius:10px; }
+  /* The wordmark is two-tone, exactly as the logo is: "Safe" in the navy, "Nest"
+     in the blue. Set in the page's own font rather than baked into the SVG, so it
+     stays selectable, searchable and readable to a screen reader. */
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:21px; letter-spacing:-.025em; }
+  .brand-mark { width:34px; height:34px; display:block; }
+  .brand-word { display:inline-flex; }
+  .brand-word b { font-weight:700; color:var(--navy); }
+  .brand-word i { font-weight:700; font-style:normal; color:var(--brand); }
+  .brand-word.sm { font-size:17px; }
+  .dark-band .brand-word b, footer .brand-word b { color:#fff; }
   nav .links { margin-left:auto; display:flex; align-items:center; gap:26px; }
   nav .links a { color:var(--muted); font-weight:500; font-size:14.5px; transition:color .15s ease; }
   nav .links a:hover { color:var(--brand); }
@@ -414,7 +431,10 @@
 
 <nav>
   <div class="wrap">
-    <a class="brand" href="#top"><img id="nav-logo" class="logo-img" src="/branding/icon-192.png" alt=""><span id="nav-name">SafeNest</span></a>
+    <a class="brand" href="#top" aria-label="SafeNest home">
+      <img class="brand-mark" src="/storefront-img/logo-mark.svg" alt="" width="34" height="34">
+      <span class="brand-word"><b id="nav-name">Safe</b><i>Nest</i></span>
+    </a>
     <div class="links">
       <a class="hide-sm" href="#privacy">Privacy</a>
       <a class="hide-sm" href="#features">Features</a>
@@ -722,13 +742,16 @@
 
 <footer>
   <div class="wrap">
-    <div class="brand"><img id="foot-logo" class="logo-img" src="/branding/icon-192.png" alt="" style="width:28px;height:28px"><span id="foot-name">SafeNest</span></div>
+    <div class="brand">
+      <img class="brand-mark" src="/storefront-img/logo-mark.svg" alt="" width="26" height="26">
+      <span class="brand-word sm"><b id="foot-name">Safe</b><i>Nest</i></span>
+    </div>
     <div id="foot-copy">© SafeNest. Licensed software. Not for resale or redistribution.</div>
     <div><a href="/">Sign in</a> &nbsp;·&nbsp; <a href="#download">Download</a> &nbsp;·&nbsp; <a href="#licence">Get a licence</a> &nbsp;·&nbsp; <a id="foot-android" href="/api/public/download?platform=android">🤖 Android app</a> <a href="#" class="dl-trigger" title="AI BIT" style="color:inherit;text-decoration:none;opacity:.4;cursor:default">·</a></div>
   </div>
 </footer>
 
-<script src="/storefront.js?v=3.42-screens-2"></script>
+<script src="/storefront.js?v=3.42-logo"></script>
 <style>
 #aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
 #aibit-gate.show{display:flex}

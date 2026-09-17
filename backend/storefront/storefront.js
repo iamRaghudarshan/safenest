@@ -117,16 +117,36 @@ fetch('/api/branding').then((r) => r.json()).then((b) => {
     if (tc) tc.setAttribute('content', b.theme_color);
   }
   const name = b.app_name || 'SafeNest';
-  for (const id of ['nav-name', 'card-name', 'foot-name']) {
-    const el = document.getElementById(id); if (el) el.textContent = name;
+
+  // The wordmark is split in two so it can be two-tone, and `nav-name` is only
+  // the FIRST half. Writing the whole name into it rendered "SafeNestNest".
+  //
+  // The app is rebrandable, so the split cannot be hardcoded: take the second
+  // capital letter as the seam where there is one ("SafeNest" -> Safe | Nest),
+  // and otherwise put the whole name in the dark half and leave the light half
+  // empty. A renamed copy then still reads correctly, just in one colour.
+  const seam = name.slice(1).search(/[A-Z]/);
+  const head = seam > -1 ? name.slice(0, seam + 1) : name;
+  const tail = seam > -1 ? name.slice(seam + 1) : '';
+  for (const id of ['nav-name', 'foot-name']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.textContent = head;
+    const rest = el.parentElement && el.parentElement.querySelector('i');
+    if (rest) rest.textContent = tail;
   }
+  const card = document.getElementById('card-name');
+  if (card) card.textContent = name;
   document.title = name + ' — ' + (b.tagline || 'kept safe at home');
   const fc = document.getElementById('foot-copy');
   if (fc) fc.textContent = '© ' + name + '. Licensed software. Not for resale or redistribution.';
   // The hero sub-line keeps its richer descriptive copy — the tagline is already
   // essentially the headline, so echoing it here just repeats it.
+  // NOT nav-logo or foot-logo any more: those are the vector mark now, and
+  // overwriting them with the raster branding icon put a blurry 192px PNG in the
+  // navigation of a page that already had a crisp SVG sitting there.
   if (b.icons && b.icons['192']) {
-    for (const id of ['nav-logo', 'card-logo', 'foot-logo']) {
+    for (const id of ['card-logo']) {
       const el = document.getElementById(id); if (el) { el.src = b.icons['192']; el.style.display = ''; }
     }
   }
