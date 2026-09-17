@@ -280,24 +280,64 @@ if (!reduceMotion && window.matchMedia('(hover: hover)').matches) {
     });
   });
 
-  // The hero product drifts against the scroll, a little. Enough to feel like
-  // depth, not enough to notice as an effect — and it stops once the hero is
-  // off screen so nothing is computed for a section nobody is looking at.
-  const art = document.querySelector('.hero-art');
+}
+
+
+// ------------------------------------------------------------------- 3D tilt
+// Cards and the hero product rotate a couple of degrees towards the cursor.
+// Written as an inline transform because the reveal animation owns the same
+// property from a class — inline wins, and by the time anything is hovered the
+// reveal has long finished.
+//
+// Capped at 5 degrees. Beyond that it stops reading as a surface catching the
+// light and starts reading as a gimmick, and text on a steeply rotated plane is
+// genuinely harder to read.
+if (!reduceMotion && window.matchMedia('(hover: hover)').matches) {
+  const MAX = 5;
+  const tiltable = document.querySelectorAll('.feat, .step, .check');
+
+  tiltable.forEach((el) => {
+    el.addEventListener('pointermove', (e) => {
+      const r = el.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width - 0.5;
+      const py = (e.clientY - r.top) / r.height - 0.5;
+      el.style.transform =
+        `rotateY(${px * MAX}deg) rotateX(${-py * MAX}deg) translateY(-3px)`;
+    });
+    el.addEventListener('pointerleave', () => { el.style.transform = ''; });
+  });
+
+  // The hero product tilts with the pointer AND drifts with the scroll, so both
+  // have to be composed in one place — two listeners each writing
+  // `style.transform` would simply overwrite each other, and the bug looks like
+  // "the parallax stopped working" rather than anything to do with tilt.
+  const laptop = document.querySelector('.shot-laptop');
   const hero = document.querySelector('header.hero');
-  if (art && hero) {
-    let ticking = false;
-    let visible = true;
-    new IntersectionObserver(([e]) => { visible = e.isIntersecting; })
-      .observe(hero);
+  if (laptop && hero) {
+    let rx = 0, ry = 0, drift = 0, queued = false, onScreen = true;
+
+    const paint = () => {
+      queued = false;
+      laptop.style.transform =
+        `translate3d(0, ${drift}px, 0) rotateY(${ry}deg) rotateX(${rx}deg)`;
+    };
+    const schedule = () => {
+      if (!queued) { queued = true; requestAnimationFrame(paint); }
+    };
+
+    new IntersectionObserver(([x]) => { onScreen = x.isIntersecting; }).observe(hero);
+
+    hero.addEventListener('pointermove', (e) => {
+      const r = hero.getBoundingClientRect();
+      ry = ((e.clientX - r.left) / r.width - 0.5) * 7;
+      rx = -((e.clientY - r.top) / r.height - 0.5) * 5;
+      schedule();
+    });
+    hero.addEventListener('pointerleave', () => { rx = 0; ry = 0; schedule(); });
     addEventListener('scroll', () => {
-      if (!visible || ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        const y = Math.min(window.scrollY, 700);
-        art.style.transform = `translate3d(0, ${y * -0.055}px, 0)`;
-        ticking = false;
-      });
+      if (!onScreen) return;
+      drift = Math.min(window.scrollY, 700) * -0.055;
+      schedule();
     }, { passive: true });
   }
 }

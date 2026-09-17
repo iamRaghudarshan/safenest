@@ -292,6 +292,104 @@
     }
   }
 
+  /* ====================================================================
+     DEPTH — 3D tilt and scroll-driven motion
+     ==================================================================== */
+
+  /* The grids become a stage. Perspective has to live on the PARENT: put it on
+     the card itself and every card gets its own vanishing point, so they all
+     rotate towards their own centre and the row looks warped rather than lit. */
+  #features-grid, .steps, .checks, .flow { perspective:1400px; }
+
+  .feat, .step, .check {
+    transform-style:preserve-3d;
+    transition:transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease,
+               border-color .2s ease;
+  }
+  /* The icon lifts off the card face. This is the part that actually reads as
+     depth — a plane that rotates is ambiguous until something sits above it. */
+  .feat .ic, .step .num, .check .b { transform:translateZ(26px); transition:transform .35s ease; }
+  .feat:hover .ic { transform:translateZ(42px) scale(1.06); }
+  .feat h3, .step h3 { transform:translateZ(14px); }
+
+  /* The hero product is the focal point, so it gets the most of it — still only
+     a few degrees, but against a large object that is plenty. */
+  .hero-art { perspective:1600px; }
+  .shot-laptop { transform-style:preserve-3d; transition:transform .5s cubic-bezier(.2,.7,.2,1); }
+  .shot-phone { transform:translateZ(60px); }
+
+  /* The lit node in the flow diagram stands off the surface. */
+  .flow-node { transform-style:preserve-3d; transition:transform .35s cubic-bezier(.2,.7,.2,1); }
+  .flow-node.is-home { transform:translateZ(34px); }
+  .flow-node.is-home:hover { transform:translateZ(48px); }
+  .flow-node.is-off { transform:translateZ(-18px); }
+
+  /* --------------------------------------------------------------------
+     Scroll-driven. Bound to scroll POSITION, not to a trigger that fires
+     once — scrub back up and it plays backwards, which is what makes it feel
+     like the page is responding rather than performing.
+     -------------------------------------------------------------------- */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      /* Replaces the one-shot fade, rather than fighting it: both animate
+         transform, and two animations on one property is a coin toss. */
+      .js .reveal {
+        opacity:1; transform:none; transition:none;
+        animation:settle linear both;
+        animation-timeline:view();
+        animation-range:entry 4% entry 46%;
+      }
+      @keyframes settle {
+        from { opacity:0; transform:translateY(34px) rotateX(7deg) scale(.97); }
+        to   { opacity:1; transform:none; }
+      }
+
+      /* The product shot grows very slightly as it comes up the screen, so the
+         section feels like it is being presented rather than scrolled past. */
+      .shot-stage {
+        animation:present linear both;
+        animation-timeline:view();
+        animation-range:entry 0% cover 40%;
+      }
+      @keyframes present {
+        from { transform:perspective(1800px) rotateX(9deg) scale(.93); opacity:.7; }
+        to   { transform:none; opacity:1; }
+      }
+
+      /* Section headings drift up a touch slower than the page, which is the
+         cheapest possible parallax and the least likely to be noticed as one.
+         Applied to the h2, NOT to .sec-head: that element also carries .reveal,
+         whose rule has higher specificity and simply won — the drift was dead
+         CSS that computed to `settle` and never moved anything. */
+      .sec-head h2 {
+        animation:head-drift linear both;
+        animation-timeline:view();
+        animation-range:entry 0% exit 100%;
+      }
+      @keyframes head-drift {
+        from { transform:translateY(16px); }
+        to   { transform:translateY(-16px); }
+      }
+
+      /* The dark band's nodes arrive one after another. */
+      .flow-node {
+        animation:node-in linear both;
+        animation-timeline:view();
+        animation-range:entry 8% entry 55%;
+      }
+      @keyframes node-in {
+        from { opacity:0; transform:translateY(26px) rotateX(10deg); }
+      }
+      .flow-node.is-home { animation-range:entry 14% entry 60%; }
+      .flow-node.is-off  { animation-range:entry 20% entry 65%; }
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .feat, .step, .check, .flow-node, .shot-laptop { transform:none !important; }
+    .feat .ic, .step .num, .check .b, .feat h3, .step h3 { transform:none !important; }
+  }
+
   /* ---- bento -----------------------------------------------------------
      Four columns, and four of the twelve cards take two of them. Twelve equal
      boxes is a spreadsheet: every item claims the same weight, so none of them
@@ -1043,7 +1141,7 @@
   </div>
 </footer>
 
-<script src="/storefront.js?v=3.42-bento"></script>
+<script src="/storefront.js?v=3.42-3d"></script>
 <style>
 #aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
 #aibit-gate.show{display:flex}
