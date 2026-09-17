@@ -390,6 +390,20 @@
     .feat .ic, .step .num, .check .b, .feat h3, .step h3 { transform:none !important; }
   }
 
+  /* The hero's storage claim. Set apart from the trust line because it is an
+     argument, not a fact in passing — and because it is the one thing on this
+     page a reader can price against what they are already paying every month. */
+  .hero-note {
+    display:flex; gap:14px; align-items:flex-start; margin-top:26px;
+    padding:16px 18px; border-radius:14px; max-width:50ch;
+    background:color-mix(in srgb, var(--brand) 5%, #fff);
+    border:1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  }
+  .hn-ic { font-size:20px; line-height:1.3; flex:0 0 auto; }
+  .hero-note b { display:block; color:var(--ink); font-size:14.5px; font-weight:600;
+                 letter-spacing:-.01em; margin-bottom:4px; }
+  .hero-note i { font-style:normal; color:var(--muted); font-size:13.5px; line-height:1.55; }
+
   /* ---- bento -----------------------------------------------------------
      Four columns, and four of the twelve cards take two of them. Twelve equal
      boxes is a spreadsheet: every item claims the same weight, so none of them
@@ -802,6 +816,18 @@
         <span><b>Never leaves</b> your machine</span>
         <span><b>Cancel</b> anytime</span>
       </p>
+
+      <!-- The storage point, given its own space because it is the one claim a
+           reader can check against what they already pay for. Everyone with a
+           phone is currently being charged monthly for somewhere to put photos. -->
+      <div class="hero-note">
+        <span class="hn-ic">&#128444;&#65039;</span>
+        <span>
+          <b>Your whole photo library, with no storage plan to buy.</b>
+          <i>Photos, videos and scanned paperwork are limited by the disk in your
+             computer &mdash; not by a tier, an upgrade, or a price per gigabyte.</i>
+        </span>
+      </div>
     </div>
     <div class="hero-art">
       <!-- The real application, photographed. What stood here was a careful CSS
@@ -904,7 +930,7 @@
     <div class="sec-head reveal">
       <div class="eyebrow">The actual app</div>
       <h2>This is what you <em>get</em></h2>
-      <p>Not a mock-up. These are screenshots of the running application, on a machine like yours.</p>
+      <p>Not a mock-up. Seven screens from the running application, on a machine like yours.</p>
     </div>
     <div class="shots reveal">
       <div class="shot-tabs" id="shot-tabs"></div>
@@ -1141,7 +1167,7 @@
   </div>
 </footer>
 
-<script src="/storefront.js?v=3.42-3d"></script>
+<script src="/storefront.js?v=3.42-gallery"></script>
 <style>
 #aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
 #aibit-gate.show{display:flex}

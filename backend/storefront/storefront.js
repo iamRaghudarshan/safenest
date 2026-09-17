@@ -70,6 +70,9 @@ const card = ([i, t, d, c, span], n) =>
 // the rest load when someone actually asks for them.
 const SCREENS = [
   ['Dashboard', 'dashboard', 'Everything due, the moment you open it'],
+  ['Photos', 'gallery', 'Your whole library — searchable by who and what is in it'],
+  ['Documents', 'documents', 'Scanned, sorted, and found by searching inside them'],
+  ['Vault', 'vault', 'Passwords and secrets, sealed with AES-256'],
   ['Expenses', 'expenses', 'What you spent, grouped by day'],
   ['Investments', 'investments', 'What you hold, and what it is worth now'],
   ['Insurance', 'insurance', 'Policies, premiums and renewal dates'],
