@@ -45,7 +45,12 @@ def _rel_meta(rel) -> dict:
     return {"available": False}
 
 
-@public.get("/download")
+# HEAD as well as GET. FastAPI, unlike plain Starlette, does not add HEAD to a
+# GET route, so `curl -I` and every download manager that checks a file before
+# fetching it got a 404 for a link that downloads perfectly — which reads as a
+# dead link rather than an unsupported method. This is the one URL customers
+# paste into other tools, so it is the one that has to answer both.
+@public.api_route("/download", methods=["GET", "HEAD"])
 def public_download(request: Request, platform: str = "", db: Session = Depends(get_db)):
     """Serve the current GENERIC build to an anonymous visitor.
 
