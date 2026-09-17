@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Film grain, generated rather than photographed so it weighs nothing.
+       It goes over the dark band. A large flat dark area on a screen shows
+       banding in the gradient and reads as plastic; a few percent of noise
+       breaks the bands up and gives the surface something to be. -->
+  <filter id="n">
+    <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/>
+    <feColorMatrix type="saturate" values="0"/>
+  </filter>
+  <rect width="200" height="200" filter="url(#n)" opacity="0.5"/>
+</svg>

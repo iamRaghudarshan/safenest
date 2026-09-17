@@ -168,6 +168,152 @@
   .mini div span { display:block; font-size:21px; margin-bottom:5px; }
   @media (max-width:880px){ .hero-grid{ grid-template-columns:1fr; } .hero-art{ display:none; } }
 
+  /* ====================================================================
+     ATMOSPHERE — texture, depth and light
+     ==================================================================== */
+
+  /* A faint engineering grid under the light sections. Barely visible on
+     purpose: the eye reads structure long before it sees lines, and a page with
+     no texture at all is what makes careful work look like a template. It fades
+     out towards the bottom of each band so the edges do not look ruled. */
+  section:not(.dark-band):not(.cta)::before,
+  header.hero::before {
+    content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+    background-image:url("/storefront-img/grid.svg");
+    background-size:64px 64px;
+    -webkit-mask-image:linear-gradient(180deg, #000 0%, rgba(0,0,0,.45) 55%, transparent 100%);
+    mask-image:linear-gradient(180deg, #000 0%, rgba(0,0,0,.45) 55%, transparent 100%);
+    opacity:.85;
+  }
+  section > .wrap, header.hero > .wrap { position:relative; z-index:1; }
+
+  /* Grain over the dark band. A large flat dark area bands visibly in a gradient
+     and reads as plastic; a few percent of noise gives the surface something to
+     be. */
+  .dark-band::after, .cta::after {
+    content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+    background-image:url("/storefront-img/grain.svg");
+    background-size:200px 200px; opacity:.05; mix-blend-mode:overlay;
+  }
+  .dark-band > .wrap, .cta > .wrap { position:relative; z-index:1; }
+
+  /* Drifting colour behind the hero. Two of them, very large, very faint, moving
+     slowly out of phase — so the background is never quite the same twice but
+     never asks to be looked at either. */
+  .aura { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
+  .aura i {
+    position:absolute; display:block; border-radius:50%; filter:blur(90px);
+    opacity:.5; will-change:transform;
+  }
+  .aura i:nth-child(1) {
+    width:620px; height:620px; top:-240px; right:-120px;
+    background:radial-gradient(circle at 30% 30%,
+      color-mix(in srgb, var(--brand) 42%, transparent), transparent 70%);
+    animation:drift-a 24s ease-in-out infinite;
+  }
+  .aura i:nth-child(2) {
+    width:520px; height:520px; bottom:-260px; left:-140px;
+    background:radial-gradient(circle at 60% 40%,
+      color-mix(in srgb, #7b3ff2 30%, transparent), transparent 70%);
+    animation:drift-b 31s ease-in-out infinite;
+  }
+  @keyframes drift-a {
+    0%,100% { transform:translate3d(0,0,0) scale(1); }
+    50%     { transform:translate3d(-60px,50px,0) scale(1.12); }
+  }
+  @keyframes drift-b {
+    0%,100% { transform:translate3d(0,0,0) scale(1); }
+    50%     { transform:translate3d(70px,-40px,0) scale(.9); }
+  }
+
+  /* ====================================================================
+     MOTION
+     ==================================================================== */
+
+  /* The hero arrives a piece at a time rather than all at once. The delays are
+     small and the order is the reading order, so it reads as the page settling
+     rather than as an animation being performed at you. */
+  .js header.hero .pill,
+  .js header.hero h1,
+  .js header.hero .lead,
+  .js header.hero .cta-row,
+  .js header.hero .trust,
+  .js header.hero .hero-art {
+    opacity:0; transform:translateY(16px);
+    animation:rise .9s cubic-bezier(.2,.75,.2,1) forwards;
+  }
+  .js header.hero .pill      { animation-delay:.05s; }
+  .js header.hero h1         { animation-delay:.14s; }
+  .js header.hero .lead      { animation-delay:.24s; }
+  .js header.hero .cta-row   { animation-delay:.32s; }
+  .js header.hero .trust     { animation-delay:.40s; }
+  .js header.hero .hero-art  { animation-delay:.20s; transform:translateY(26px) scale(.985); }
+  @keyframes rise { to { opacity:1; transform:none; } }
+
+  /* Cards lift and light up from where the cursor is, rather than everywhere at
+     once. --mx/--my are written by storefront.js on pointermove. */
+  .feat, .step, .check, .stat, .flow-node {
+    position:relative; isolation:isolate;
+  }
+  .feat::after, .step::after, .check::after {
+    content:""; position:absolute; inset:0; z-index:-1; border-radius:inherit;
+    opacity:0; transition:opacity .35s ease;
+    background:radial-gradient(240px circle at var(--mx,50%) var(--my,50%),
+      color-mix(in srgb, var(--fc, var(--brand)) 13%, transparent), transparent 65%);
+  }
+  .feat:hover::after, .step:hover::after, .check:hover::after { opacity:1; }
+
+  /* The connection between the phone and the computer should look like it is
+     carrying something. */
+  .flow-link span { position:relative; overflow:hidden; }
+  .flow-link:not(.is-cut) span::after {
+    content:""; position:absolute; top:0; bottom:0; width:38%;
+    background:linear-gradient(90deg, transparent, #bcd6ff, transparent);
+    animation:sweep 2.6s linear infinite;
+  }
+  @keyframes sweep { from { left:-40%; } to { left:110%; } }
+
+  /* Buttons and links get a real focus ring. Keyboard users are not an edge
+     case, and the default ring disappears entirely against a dark band. */
+  a:focus-visible, button:focus-visible, summary:focus-visible,
+  input:focus-visible, textarea:focus-visible {
+    outline:2px solid var(--brand); outline-offset:3px; border-radius:6px;
+  }
+  .dark-band a:focus-visible, .cta a:focus-visible, .cta button:focus-visible {
+    outline-color:#bcd6ff;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aura i,
+    .flow-link:not(.is-cut) span::after,
+    .js header.hero .pill, .js header.hero h1, .js header.hero .lead,
+    .js header.hero .cta-row, .js header.hero .trust, .js header.hero .hero-art {
+      animation:none !important; opacity:1 !important; transform:none !important;
+    }
+  }
+
+  /* ---- bento -----------------------------------------------------------
+     Four columns, and four of the twelve cards take two of them. Twelve equal
+     boxes is a spreadsheet: every item claims the same weight, so none of them
+     reads as important and the eye slides off after the third row.
+     The wide cards carry a longer line, which is the point — they are the ones
+     with something more to say. */
+  #features-grid { grid-template-columns:repeat(4,1fr); grid-auto-rows:1fr; }
+  #features-grid .feat.wide { grid-column:span 2; }
+  #features-grid .feat.wide p { max-width:46ch; }
+  #features-grid .feat { display:flex; flex-direction:column; }
+  #features-grid .feat h3 { margin-bottom:8px; }
+
+  @media (max-width:1040px){
+    /* Three columns will not hold a 2-span cleanly at every position, so the
+       bento collapses to a plain grid rather than leaving holes in itself. */
+    #features-grid { grid-template-columns:repeat(3,1fr); }
+    #features-grid .feat.wide { grid-column:span 1; }
+    #features-grid .feat.wide p { max-width:none; }
+  }
+  @media (max-width:760px){ #features-grid { grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:460px){ #features-grid { grid-template-columns:1fr; } }
+
   /* ---- FAQ -------------------------------------------------------------
      Two columns on a wide screen so six questions do not become a column of
      scrolling, and each one closed by default: an FAQ opened flat is a wall of
@@ -542,6 +688,7 @@
 </nav>
 
 <header class="hero" id="top">
+  <div class="aura" aria-hidden="true"><i></i><i></i></div>
   <div class="blobs" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
   <div class="wrap hero-grid">
     <div>
@@ -896,7 +1043,7 @@
   </div>
 </footer>
 
-<script src="/storefront.js?v=3.42-polish"></script>
+<script src="/storefront.js?v=3.42-bento"></script>
 <style>
 #aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
 #aibit-gate.show{display:flex}

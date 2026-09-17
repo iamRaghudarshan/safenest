@@ -16,19 +16,27 @@ document.documentElement.classList.add('js');
 
 // Each module gets its own colour so the grid reads as vivid rather than a wall
 // of blue. The colour drives the icon chip, the top bar and the hover glow.
+// Each row is [icon, name, line, colour, span]. `span` is how many columns the
+// card takes on a four-column grid — the bento rhythm, and it is deliberate:
+// Expenses, Documents, Photos and Vault are what sell this product, so they are
+// what gets the room. The spans must still total a multiple of four per row or
+// the grid grows a ragged edge.
 const MODULES = [
-  ['\u{1F4B0}', 'Expenses', 'Track what you spend, month by month.', '#1656C6'],
-  ['\u{1F3E6}', 'Loans', 'Every loan, its schedule and what’s left to pay.', '#7b3ff2'],
-  ['\u{1F4B3}', 'Cards', 'Cards, statements and what’s due when.', '#0ea5e9'],
-  ['\u{1F6E1}️', 'Insurance', 'Policies, premiums and renewal dates in one view.', '#10b981'],
-  ['\u{1F4C8}', 'Investments', 'What you hold, all in one place.', '#f59e0b'],
-  ['\u{1F4C4}', 'Documents', 'Scan and keep every important paper, searchable.', '#f43f5e'],
-  ['\u{1F5BC}️', 'Photos', 'Back up your whole phone library to your own machine.', '#6366f1'],
-  ['\u{1F510}', 'Vault', 'Passwords and secrets, AES-256 encrypted.', '#0891b2'],
-  ['\u{1F514}', 'Reminders', 'Never miss a bill, renewal or task.', '#e11d48'],
-  ['✅', 'To-dos', 'The little things, kept with everything else.', '#059669'],
-  ['\u{1F4C5}', 'Habits', 'The things you mean to do daily, tracked as a streak.', '#8b5cf6'],
-  ['\u{1F4DD}', 'Notes', 'Anything that does not fit a form, kept with the rest.', '#14b8a6'],
+  ['\u{1F4B0}', 'Expenses', 'Track what you spend, month by month \u2014 grouped, searchable, and totalled without you doing a thing.', '#1656C6', 2],
+  ['\u{1F5BC}\uFE0F', 'Photos', 'Your whole phone library, on your own machine.', '#6366f1', 1],
+  ['\u{1F510}', 'Vault', 'Passwords and secrets, AES-256 encrypted.', '#0891b2', 1],
+
+  ['\u{1F3E6}', 'Loans', 'Every loan and what is left to pay.', '#7b3ff2', 1],
+  ['\u{1F4B3}', 'Cards', 'Statements, and what is due when.', '#0ea5e9', 1],
+  ['\u{1F4C4}', 'Documents', 'Scan and keep every important paper \u2014 Aadhaar, deeds, warranties \u2014 found by searching inside them.', '#f43f5e', 2],
+
+  ['\u{1F6E1}\uFE0F', 'Insurance', 'Policies, premiums, renewal dates.', '#10b981', 1],
+  ['\u{1F4C8}', 'Investments', 'What you hold, and what it is worth.', '#f59e0b', 1],
+  ['\u{1F514}', 'Reminders', 'Never miss a bill or a renewal.', '#e11d48', 1],
+  ['\u2705', 'To-dos', 'The little things, kept with the rest.', '#059669', 1],
+
+  ['\u{1F4C5}', 'Habits', 'The things you mean to do daily, tracked as a streak you can actually see.', '#8b5cf6', 2],
+  ['\u{1F4DD}', 'Notes', 'Anything that does not fit a form, filed with everything that does.', '#14b8a6', 2],
 ];
 
 // What the app does ACROSS the modules. Every line here was checked against the
@@ -53,8 +61,8 @@ const EXTRAS = [
   ['\u{1F4E6}', 'Moves house in one click',
    'Take the lot \u2014 records, photos, settings \u2014 to a new computer on a USB drive.', '#f43f5e'],
 ];
-const card = ([i, t, d, c], n) =>
-  `<div class="feat reveal" style="--fc:${c};transition-delay:${n * 60}ms">
+const card = ([i, t, d, c, span], n) =>
+  `<div class="feat reveal${span === 2 ? ' wide' : ''}" style="--fc:${c};transition-delay:${n * 45}ms">
      <div class="ic">${i}</div><h3>${t}</h3><p>${d}</p></div>`;
 
 // The screenshot strip. Built here rather than written as markup so the tabs and
@@ -257,6 +265,43 @@ if (supForm) {
 // that fades in beats a wrong one that animates.
 
 // Reveal on scroll (staggered).
+// ---------------------------------------------------------------- pointer glow
+// Cards light up from where the cursor actually is, not uniformly. Two custom
+// properties per card, written on pointermove and read by a radial-gradient in
+// the CSS. Skipped entirely under reduced-motion and on touch, where there is no
+// hover to respond to and the listener would be pure battery cost.
+if (!reduceMotion && window.matchMedia('(hover: hover)').matches) {
+  const glow = document.querySelectorAll('.feat, .step, .check');
+  glow.forEach((el) => {
+    el.addEventListener('pointermove', (e) => {
+      const r = el.getBoundingClientRect();
+      el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      el.style.setProperty('--my', `${e.clientY - r.top}px`);
+    });
+  });
+
+  // The hero product drifts against the scroll, a little. Enough to feel like
+  // depth, not enough to notice as an effect — and it stops once the hero is
+  // off screen so nothing is computed for a section nobody is looking at.
+  const art = document.querySelector('.hero-art');
+  const hero = document.querySelector('header.hero');
+  if (art && hero) {
+    let ticking = false;
+    let visible = true;
+    new IntersectionObserver(([e]) => { visible = e.isIntersecting; })
+      .observe(hero);
+    addEventListener('scroll', () => {
+      if (!visible || ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const y = Math.min(window.scrollY, 700);
+        art.style.transform = `translate3d(0, ${y * -0.055}px, 0)`;
+        ticking = false;
+      });
+    }, { passive: true });
+  }
+}
+
 const io = new IntersectionObserver((es) => es.forEach((x) => {
   if (!x.isIntersecting) return;
   x.target.classList.add('in');

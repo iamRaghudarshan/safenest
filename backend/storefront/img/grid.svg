@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- A 64px engineering grid, laid behind the light sections at very low
+       opacity. It is the cheapest way to stop a white page reading as "blank":
+       the eye picks up structure long before it consciously sees lines, and a
+       page with no texture at all is what makes careful work look like a
+       template. Tiled by CSS background-repeat, so this file stays 300 bytes. -->
+  <defs>
+    <pattern id="p" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0v64" fill="none" stroke="#0d1430" stroke-width="1" stroke-opacity="0.055"/>
+    </pattern>
+  </defs>
+  <rect width="64" height="64" fill="url(#p)"/>
+</svg>

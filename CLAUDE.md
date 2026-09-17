@@ -1569,6 +1569,18 @@ Two edge traps: **Cloudflare 403s the default `Python-urllib` User-Agent** (send
 browser one), and **it caches a `.js` or image URL for hours** — so fixing a file
 is not enough, bump its `?v=` too.
 
+**Headless Chrome reports `prefers-reduced-motion: reduce` by default.** Every CSS
+animation on the storefront is correctly gated on that, so a headless check will
+report `animationName: none` for all of them and look like the motion is broken
+when it is working exactly as intended. To test motion, send
+
+```
+Emulation.setEmulatedMedia features=[{name:"prefers-reduced-motion", value:"no-preference"}]
+```
+
+first. It also means screenshots are taken with entrance animations already
+settled, which is what you want for a still.
+
 ### 14.9 GitHub: use `iamRaghudarshan`, and why it kept breaking
 
 `iamRaghudarshan` is the owner's **personal** account and the only one these three
