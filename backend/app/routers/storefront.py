@@ -11,6 +11,7 @@ Three audiences:
   /api/licence-requests    admin + publisher — review and approve/reject those asks
   /get                     the storefront HTML page itself
 """
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -293,6 +294,36 @@ def storefront_script():
         return Response(_SCRIPT.read_text(encoding="utf-8"),
                         media_type="application/javascript")
     raise HTTPException(404, "Not found")
+
+
+# Product screenshots for the storefront. Same origin because the page's CSP is
+# img-src 'self' — which is also the honest arrangement for a product whose pitch
+# is that nothing about you is fetched from anybody else's server.
+#
+# They live beside the page in backend/storefront/img/, deliberately NOT in
+# frontend/dist/: vite empties that directory on every build, which is exactly
+# how the AI BIT download site went missing.
+_IMG = _PAGE.parent / "img"
+_IMG_TYPES = {".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg",
+              ".svg": "image/svg+xml"}
+
+
+@pages.get("/storefront-img/{name}", include_in_schema=False)
+def storefront_image(name: str):
+    """One image out of that folder, by exact name.
+
+    The name is rebuilt rather than joined, so a crafted "../../backend/.env"
+    cannot walk out of the directory — the segment arrives URL-decoded.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}\.(webp|png|jpg|svg)", name):
+        raise HTTPException(404, "Not found")
+    path = _IMG / name
+    if not path.is_file():
+        raise HTTPException(404, "Not found")
+    r = FileResponse(str(path), media_type=_IMG_TYPES[path.suffix.lower()])
+    # Long cache: the filename changes when the picture does.
+    r.headers["Cache-Control"] = "public, max-age=604800"
+    return r
 
 
 @pages.get("/install-mac.sh", include_in_schema=False)

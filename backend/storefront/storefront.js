@@ -57,6 +57,48 @@ const card = ([i, t, d, c], n) =>
   `<div class="feat reveal" style="--fc:${c};transition-delay:${n * 60}ms">
      <div class="ic">${i}</div><h3>${t}</h3><p>${d}</p></div>`;
 
+// The screenshot strip. Built here rather than written as markup so the tabs and
+// the images cannot drift apart, and so only the first image is fetched eagerly —
+// the rest load when someone actually asks for them.
+const SCREENS = [
+  ['Dashboard', 'dashboard', 'Everything due, the moment you open it'],
+  ['Expenses', 'expenses', 'What you spent, grouped by day'],
+  ['Investments', 'investments', 'What you hold, and what it is worth now'],
+  ['Insurance', 'insurance', 'Policies, premiums and renewal dates'],
+];
+const tabs = document.getElementById('shot-tabs');
+const stage = document.getElementById('shot-stage');
+if (tabs && stage) {
+  // ONE image whose src changes, not four stacked with `hidden` on three of them.
+  // That was the first attempt and it silently never loaded anything: a
+  // display:none image with loading="lazy" is never fetched, and un-hiding it did
+  // not reliably start the fetch either — so three of the four tabs showed
+  // nothing at all, with no console error to give it away.
+  stage.innerHTML = '<img alt="" decoding="async">';
+  const img = stage.querySelector('img');
+  tabs.innerHTML = SCREENS.map(([label], i) =>
+    `<button type="button" class="shot-tab${i ? '' : ' on'}" data-i="${i}">${label}</button>`).join('');
+  const btns = [...tabs.querySelectorAll('.shot-tab')];
+
+  const show = (i) => {
+    const [label, file, alt] = SCREENS[i];
+    img.src = `/storefront-img/${file}.webp`;
+    img.alt = `${label} — ${alt}`;
+    btns.forEach((x, n) => x.classList.toggle('on', n === i));
+  };
+  show(0);
+
+  tabs.addEventListener('click', (e) => {
+    const b = e.target.closest('.shot-tab');
+    if (b) show(+b.dataset.i);
+  });
+  // Fetch on hover so the swap feels instant when the click lands.
+  tabs.addEventListener('pointerover', (e) => {
+    const b = e.target.closest('.shot-tab');
+    if (b) new Image().src = `/storefront-img/${SCREENS[+b.dataset.i][1]}.webp`;
+  });
+}
+
 const grid = document.getElementById('features-grid');
 if (grid) grid.innerHTML = MODULES.map(card).join('');
 

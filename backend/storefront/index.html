@@ -124,6 +124,47 @@
   .mini div span { display:block; font-size:21px; margin-bottom:5px; }
   @media (max-width:880px){ .hero-grid{ grid-template-columns:1fr; } .hero-art{ display:none; } }
 
+  /* A tabbed strip of real screens. One big image at a time rather than a row
+     of thumbnails: a screenshot shrunk to a third of a column is unreadable, and
+     an unreadable screenshot persuades nobody of anything. */
+  .shots { max-width:1000px; margin:0 auto; }
+  .shot-tabs { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-bottom:26px; }
+  .shot-tab { appearance:none; font:inherit; cursor:pointer; font-weight:550; font-size:14.5px;
+              padding:9px 18px; border-radius:999px; border:1px solid var(--line);
+              background:#fff; color:var(--muted); transition:all .15s ease; }
+  .shot-tab:hover { border-color:#d8dee7; color:var(--ink); }
+  .shot-tab.on { background:var(--ink); border-color:var(--ink); color:#fff; }
+  .shot-stage { position:relative; border:1px solid var(--line); border-radius:16px;
+                overflow:hidden; background:#fff; box-shadow:var(--shadow-lift); }
+  .shot-stage img { display:block; width:100%; height:auto; }
+  /* Reserve the space so switching tabs cannot make the page jump. */
+  .shot-stage { min-height:clamp(220px, 42vw, 620px); }
+  .shot-note { text-align:center; color:var(--muted); font-size:13.5px; margin-top:16px; }
+
+  /* ---- real product screenshots ---------------------------------------
+     A frame around a photograph, rather than a drawing of a computer. The
+     device chrome is deliberately minimal: enough to read as a laptop and a
+     phone, not so much that it competes with what is on the screen. */
+  .shot-laptop { position:relative; animation:cardfloat 8s ease-in-out infinite; }
+  .shot-lid { background:linear-gradient(#141b2e,#0b1220); border-radius:14px; padding:12px 12px 14px;
+              box-shadow:0 40px 80px -34px rgba(10,15,26,.55); }
+  .shot-cam { display:block; width:5px; height:5px; border-radius:50%; background:#39445a; margin:0 auto 9px; }
+  .shot-lid img { display:block; width:100%; height:auto; border-radius:6px; background:#fff; }
+  .shot-base { position:relative; width:116%; margin-left:-8%; height:14px;
+               background:linear-gradient(#e4e9f1,#c3ccd9); border-radius:2px 2px 12px 12px;
+               box-shadow:0 18px 30px -14px rgba(11,18,32,.42); }
+  .shot-base::after { content:""; position:absolute; top:0; left:50%; transform:translateX(-50%);
+                      width:72px; height:6px; background:#b4bdcc; border-radius:0 0 8px 8px; }
+  /* Further out and further down than the first attempt, which parked the phone
+     over the middle of the laptop screen and hid the thing the laptop was there
+     to show. */
+  .shot-phone { position:absolute; right:-34px; bottom:-48px; width:138px;
+                background:linear-gradient(#141b2e,#0b1220); border-radius:26px; padding:8px;
+                box-shadow:0 30px 56px -20px rgba(11,18,32,.55);
+                animation:cardfloat 6s ease-in-out infinite; animation-delay:-2s; }
+  .shot-phone img { display:block; width:100%; height:auto; border-radius:19px; background:#fff; }
+  @media (max-width:980px){ .shot-phone { display:none; } }
+
   /* Hero product preview: a browser-framed dashboard + a phone showing backup */
   /* realistic laptop: lid (dark bezel) with camera, screen, and a wider base */
   .laptop { position:relative; animation:cardfloat 8s ease-in-out infinite; }
@@ -339,77 +380,24 @@
       </div>
     </div>
     <div class="hero-art">
-      <div class="laptop reveal">
-        <div class="lid">
-          <span class="cam"></span>
-          <div class="screen">
-        <div class="win-bar"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
-          <div class="addr"><span>🔒</span> safenest.home</div></div>
-        <div class="dash">
-          <aside class="side">
-            <div class="side-logo"><img id="card-logo" class="logo-img" src="/branding/icon-192.png" alt=""></div>
-            <span class="si on" style="--sc:#1656C6">🏠</span>
-            <span class="si" style="--sc:#7b3ff2">🖼️</span>
-            <span class="si" style="--sc:#0ea5e9">🔐</span>
-            <span class="si" style="--sc:#10b981">📄</span>
-            <span class="si" style="--sc:#f59e0b">🛡️</span>
-            <span class="si" style="--sc:#f43f5e">🔔</span>
-          </aside>
-          <div class="main">
-            <div class="greet">
-              <div><div class="hi">Good evening,</div><div class="who" id="card-name">SafeNest</div></div>
-              <div class="ava"></div>
-            </div>
-            <div class="cards3">
-              <div class="c"><div class="ct">This month</div><div class="cv">₹48,250</div>
-                <svg class="spark" viewBox="0 0 90 26" xmlns="http://www.w3.org/2000/svg"><g fill="#1656C6"><rect x="2" y="14" width="9" height="12" rx="2"/><rect x="15" y="9" width="9" height="17" rx="2"/><rect x="28" y="17" width="9" height="9" rx="2"/><rect x="41" y="6" width="9" height="20" rx="2"/><rect x="54" y="12" width="9" height="14" rx="2"/><rect x="67" y="3" width="9" height="23" rx="2"/><rect x="80" y="10" width="8" height="16" rx="2"/></g></svg></div>
-              <div class="c"><div class="ct">Upcoming</div><div class="cv">3 bills</div>
-                <svg class="spark" viewBox="0 0 90 26" xmlns="http://www.w3.org/2000/svg"><polyline points="2,20 17,14 32,17 47,8 62,11 77,5 88,9" fill="none" stroke="#7b3ff2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-              <div class="c"><div class="ct">Documents</div><div class="cv">126</div>
-                <svg class="spark" viewBox="0 0 90 26" xmlns="http://www.w3.org/2000/svg"><g fill="#10b981"><rect x="2" y="10" width="9" height="16" rx="2"/><rect x="15" y="7" width="9" height="19" rx="2"/><rect x="28" y="13" width="9" height="13" rx="2"/><rect x="41" y="4" width="9" height="22" rx="2"/><rect x="54" y="9" width="9" height="17" rx="2"/><rect x="67" y="14" width="9" height="12" rx="2"/><rect x="80" y="7" width="8" height="19" rx="2"/></g></svg></div>
-            </div>
-            <div class="panel">
-              <div class="pt">Recent activity</div>
-              <div class="prow"><span class="ri" style="background:#10b98122">📄</span><span>Aadhaar.pdf added to Documents</span><span class="rt">2m</span></div>
-              <div class="prow"><span class="ri" style="background:#7b3ff222">🖼️</span><span>1,248 photos backed up</span><span class="rt">1h</span></div>
-              <div class="prow"><span class="ri" style="background:#f59e0b22">🛡️</span><span>Car insurance renews in 12 days</span><span class="rt">1d</span></div>
-            </div>
-          </div>
+      <!-- The real application, photographed. What stood here was a careful CSS
+           drawing of a dashboard — a sidebar, three stat tiles, a fake sparkline
+           — and for a product whose entire pitch is "this runs on your own
+           machine", an artist's impression of the UI is the one picture a
+           sceptical visitor cannot verify. These are screenshots of the actual
+           build, taken from a throwaway instance seeded with an ordinary
+           household's records, so nothing here is invented twice. -->
+      <div class="shot-laptop reveal">
+        <div class="shot-lid">
+          <span class="shot-cam"></span>
+          <img src="/storefront-img/dashboard.webp" alt="The SafeNest dashboard, showing bills due and recent activity"
+               width="1200" height="806" loading="eager" decoding="async">
         </div>
-          </div>
-        </div>
-        <div class="base"></div>
+        <div class="shot-base"></div>
       </div>
-      <div class="phone reveal">
-        <span class="isl"></span><span class="btn-r"></span><span class="btn-l"></span>
-        <div class="scr">
-          <div class="ph-head">
-            <svg class="gp" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M20 20 C12 18 12 4 20 4 C28 4 28 18 20 20Z" fill="#4285F4"/>
-              <path d="M20 20 C12 18 12 4 20 4 C28 4 28 18 20 20Z" fill="#EA4335" transform="rotate(90 20 20)"/>
-              <path d="M20 20 C12 18 12 4 20 4 C28 4 28 18 20 20Z" fill="#FBBC05" transform="rotate(180 20 20)"/>
-              <path d="M20 20 C12 18 12 4 20 4 C28 4 28 18 20 20Z" fill="#34A853" transform="rotate(270 20 20)"/>
-            </svg>
-            <span class="ph-app">Photos</span>
-            <span class="ph-ava"></span>
-          </div>
-          <div class="pg">
-            <span style="background:linear-gradient(135deg,#ff9a56,#ff5e62)"></span>
-            <span style="background:linear-gradient(135deg,#43cea2,#185a9d)"></span>
-            <span style="background:linear-gradient(135deg,#f6d365,#fda085)"></span>
-            <span style="background:linear-gradient(135deg,#a1c4fd,#c2e9fb)"></span>
-            <span style="background:linear-gradient(135deg,#84fab0,#8fd3f4)"></span>
-            <span style="background:linear-gradient(135deg,#fbc2eb,#a18cd1)"></span>
-            <span style="background:linear-gradient(135deg,#5ee7df,#b490ca)"></span>
-            <span style="background:linear-gradient(135deg,#f093fb,#f5576c)"></span>
-            <span style="background:linear-gradient(135deg,#4facfe,#00f2fe)"></span>
-          </div>
-          <div class="ph-status">
-            <div class="ph-line"><span class="d"></span> Backing up · 1,248</div>
-            <div class="ph-bar"><i></i></div>
-            <div class="ph-cap">72% · to your computer</div>
-          </div>
-        </div>
+      <div class="shot-phone reveal">
+        <img src="/storefront-img/phone-home.webp" alt="SafeNest on a phone" width="210" height="430"
+             loading="lazy" decoding="async">
       </div>
     </div>
   </div>
@@ -497,6 +485,22 @@
       <p>The work you would otherwise do by hand — sorting photos, chasing renewals, moving to a new machine — the app does for you.</p>
     </div>
     <div class="grid" id="extras-grid"></div>
+  </div>
+</section>
+
+<!-- SCREENS — the actual application, not an illustration of it -->
+<section id="screens" style="--accent:#0ea5e9">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">The actual app</div>
+      <h2>This is what you <em>get</em></h2>
+      <p>Not a mock-up. These are screenshots of the running application, on a machine like yours.</p>
+    </div>
+    <div class="shots reveal">
+      <div class="shot-tabs" id="shot-tabs"></div>
+      <div class="shot-stage" id="shot-stage"></div>
+      <p class="shot-note">Records shown are a sample household&rsquo;s, not anybody&rsquo;s real ones.</p>
+    </div>
   </div>
 </section>
 
@@ -669,7 +673,7 @@
   </div>
 </footer>
 
-<script src="/storefront.js?v=3.42-modules12"></script>
+<script src="/storefront.js?v=3.42-screens-2"></script>
 <style>
 #aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
 #aibit-gate.show{display:flex}
