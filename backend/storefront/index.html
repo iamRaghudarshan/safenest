@@ -124,6 +124,67 @@
   .mini div span { display:block; font-size:21px; margin-bottom:5px; }
   @media (max-width:880px){ .hero-grid{ grid-template-columns:1fr; } .hero-art{ display:none; } }
 
+  /* ---- the dark statement band --------------------------------------
+     One change of ground on the whole page, spent on the one claim the product
+     stands or falls on. Everything else is light; this is not, and that is the
+     point — it reads as the moment the page stops describing features and makes
+     an argument. */
+  .dark-band { background:
+      radial-gradient(90% 130% at 50% -10%, color-mix(in srgb,var(--brand) 40%,transparent), transparent 68%),
+      var(--ink);
+      border-block:0; color:rgba(255,255,255,.72); }
+  .dark-band .eyebrow { color:rgba(255,255,255,.5); }
+  .dark-band h2 { color:#fff; }
+  .dark-band .sec-head h2 em { color:#7fb0ff; }
+  .dark-band .sec-head p { color:rgba(255,255,255,.66); }
+
+  .flow { display:grid; grid-template-columns:1fr auto 1fr auto 1fr; align-items:stretch;
+          gap:0; max-width:1040px; margin:0 auto; }
+  .flow-node { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12);
+               border-radius:18px; padding:30px 26px; text-align:center; position:relative;
+               transition:border-color .2s ease, background .2s ease; }
+  .flow-node:hover { border-color:rgba(255,255,255,.22); background:rgba(255,255,255,.08); }
+  .flow-ic { font-size:34px; line-height:1; margin-bottom:16px; }
+  .flow-node h3 { color:#fff; font-size:18px; margin:0 0 9px; letter-spacing:-.02em; }
+  .flow-node p { color:rgba(255,255,255,.62); font-size:14px; line-height:1.55; margin:0; }
+
+  /* The middle node is where everything actually is, so it is the one that is lit. */
+  .flow-node.is-home { background:rgba(127,176,255,.12); border-color:rgba(127,176,255,.38);
+                       box-shadow:0 0 0 1px rgba(127,176,255,.14), 0 24px 60px -30px rgba(127,176,255,.6); }
+  .flow-tag { display:inline-block; margin-top:14px; font-size:11.5px; font-weight:650;
+              letter-spacing:.08em; text-transform:uppercase; color:#bcd6ff;
+              background:rgba(127,176,255,.16); border:1px solid rgba(127,176,255,.3);
+              padding:5px 11px; border-radius:999px; }
+
+  /* The third node is deliberately dimmed and dashed: it is the one place your
+     records are NOT, and the design should say so before the text does. */
+  .flow-node.is-off { background:transparent; border-style:dashed; border-color:rgba(255,255,255,.14); }
+  .flow-node.is-off .flow-ic { opacity:.4; }
+  .flow-node.is-off h3 { color:rgba(255,255,255,.55); }
+  .flow-node.is-off p { color:rgba(255,255,255,.4); }
+
+  .flow-link { display:flex; flex-direction:column; align-items:center; justify-content:center;
+               gap:9px; padding:0 18px; min-width:120px; }
+  .flow-link span { display:block; width:100%; height:2px; border-radius:2px;
+                    background:linear-gradient(90deg, rgba(127,176,255,.15), rgba(127,176,255,.85)); }
+  .flow-link b { font-size:11px; font-weight:650; letter-spacing:.1em; text-transform:uppercase;
+                 color:rgba(127,176,255,.85); }
+  .flow-link.is-cut span { background:repeating-linear-gradient(90deg,
+                            rgba(255,255,255,.22) 0 7px, transparent 7px 14px); }
+  .flow-link.is-cut b { color:rgba(255,255,255,.38); position:relative; }
+  /* A line through the word, because "blocked" should look blocked. */
+  .flow-link.is-cut b::after { content:""; position:absolute; left:-3px; right:-3px; top:50%;
+                               height:1px; background:currentColor; }
+
+  @media (max-width:900px){
+    .flow { grid-template-columns:1fr; gap:14px; }
+    .flow-link { flex-direction:row; min-width:0; padding:2px 0; }
+    .flow-link span { width:38px; height:2px; }
+  }
+
+  .flow-foot { text-align:center; max-width:60ch; margin:44px auto 0;
+               color:rgba(255,255,255,.55); font-size:15px; line-height:1.65; }
+
   /* A tabbed strip of real screens. One big image at a time rather than a row
      of thumbnails: a screenshot shrunk to a third of a column is unreadable, and
      an unreadable screenshot persuades nobody of anything. */
@@ -278,19 +339,22 @@
   @keyframes ripple { 0%{ transform:scale(.35); opacity:.9; } 100%{ transform:scale(1); opacity:0; } }
   .shield .core { width:120px; height:120px; border-radius:32px; display:grid; place-items:center; font-size:52px; color:#fff;
                   background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 55%,var(--c3))); box-shadow:0 24px 50px -18px color-mix(in srgb,var(--accent) 60%,transparent); z-index:1; animation:cardfloat 6s ease-in-out infinite; }
-  .checks { display:grid; gap:14px; }
+  .checks { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; max-width:960px; margin:0 auto; }
+  @media (max-width:760px){ .checks { grid-template-columns:1fr; } }
   .check { display:flex; gap:14px; align-items:flex-start; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; transition:border-color .2s ease; }
   .check:hover { border-color:#d8dee7; }
   .check .b { width:34px;height:34px;border-radius:10px; display:grid; place-items:center; color:#fff; font-size:17px; flex:0 0 auto;
               background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 55%,var(--c4))); }
-  .check b { color:var(--ink); } .check span { color:var(--muted); font-size:14px; }
+  .check b { color:var(--ink); display:block; margin-bottom:4px; font-size:15.5px; letter-spacing:-.015em; }
+  .check span { color:var(--muted); font-size:14px; line-height:1.55; }
+  .check .b { align-self:flex-start; }
 
   /* STEPS + animated connector */
-  .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; position:relative; }
+  .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; position:relative; max-width:1000px; margin:0 auto; }
   @media (max-width:760px){ .steps{ grid-template-columns:1fr; } }
   .connector { max-width:720px; margin:0 auto 6px; height:34px; }
   .connector svg { width:100%; height:100%; overflow:visible; }
-  .step { position:relative; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:28px 22px; transition:transform .2s ease, box-shadow .2s ease; }
+  .step { position:relative; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:34px 28px; transition:transform .2s ease, box-shadow .2s ease; }
   .step:hover { transform:translateY(-3px); box-shadow:var(--shadow-lift); border-color:#d8dee7; }
   .step .num { width:38px; height:38px; border-radius:50%; background:var(--ink); color:#fff; font-weight:700; display:grid; place-items:center; box-shadow:none; margin-bottom:18px; font-size:15px; }
   .step h3 { font-size:18px; margin:0 0 8px; letter-spacing:-.02em; } .step p { font-size:14.5px; color:var(--muted); margin:0; line-height:1.6; }
@@ -416,52 +480,49 @@
 </section>
 
 <!-- PRIVACY DATA-FLOW (teal) -->
-<section id="privacy" style="--accent:#0891b2">
+<!-- WHERE YOUR DATA GOES — the claim the whole product rests on.
+     It used to be a small piece of clipart (a rounded blue square for a phone, a
+     monitor, a grey cloud) adrift in half a screen of white, with the legend set
+     in 12px underneath. The single most important thing the page says was also
+     the quietest thing on it. It is now a dark band: the page's one change of
+     ground, placed at the moment the argument is made. -->
+<section id="privacy" class="dark-band">
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="eyebrow">Where your data goes</div>
-      <h2>It flows to <em>your computer</em> — never to us</h2>
-      <p>Your phone backs up to the machine in your home. Nothing is copied to our servers, because we don't run any that hold your records.</p>
+      <h2>It flows to <em>your computer.</em><br>Never to us.</h2>
+      <p>Your phone backs up to the machine in your home. Nothing is copied to our servers &mdash; because we don&rsquo;t run any that could hold your records.</p>
     </div>
-    <div class="flow-wrap reveal">
-      <svg class="flow-svg" viewBox="0 0 680 240" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-label="Data flows from your phone to your own computer, and is blocked from outside servers">
-        <defs>
-          <linearGradient id="gdev" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0891b2"/><stop offset="1" stop-color="#1656C6"/></linearGradient>
-        </defs>
-        <!-- flowing path phone -> computer -->
-        <path id="p1" d="M175 120 H300" fill="none" stroke="#0891b2" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round" opacity=".55"/>
-        <circle r="7" fill="#0891b2"><animateMotion dur="1.8s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="linear"><mpath xlink:href="#p1"/></animateMotion></circle>
-        <circle r="7" fill="#10b981"><animateMotion dur="1.8s" begin="0.9s" repeatCount="indefinite"><mpath xlink:href="#p1"/></animateMotion></circle>
-        <!-- phone -->
-        <g>
-          <rect x="70" y="66" width="105" height="108" rx="16" fill="#fff" stroke="#dbe2ee" stroke-width="2"/>
-          <rect x="82" y="80" width="81" height="72" rx="8" fill="url(#gdev)" opacity=".9"/>
-          <circle cx="122.5" cy="163" r="4" fill="#c7d0de"/>
-          <text x="122" y="205" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#0b1220">Your phone</text>
-        </g>
-        <!-- your computer with lock -->
-        <g>
-          <rect x="300" y="60" width="150" height="100" rx="12" fill="#fff" stroke="#dbe2ee" stroke-width="2"/>
-          <rect x="312" y="72" width="126" height="66" rx="6" fill="url(#gdev)"/>
-          <rect x="360" y="160" width="30" height="16" fill="#dbe2ee"/><rect x="338" y="176" width="74" height="8" rx="4" fill="#c7d0de"/>
-          <g transform="translate(357,86)"><rect x="0" y="16" width="36" height="28" rx="6" fill="#fff"/><path d="M6 16 v-6 a12 12 0 0 1 24 0 v6" fill="none" stroke="#fff" stroke-width="5"/><circle cx="18" cy="30" r="4" fill="#0891b2"/></g>
-          <text x="375" y="205" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#0b1220">Your computer</text>
-        </g>
-        <!-- blocked: outside servers -->
-        <path d="M470 120 H545" fill="none" stroke="#f43f5e" stroke-width="3" stroke-dasharray="6 7" opacity=".5"/>
-        <g opacity=".65">
-          <path d="M560 128 a26 26 0 0 1 4 -51 a30 30 0 0 1 56 8 a22 22 0 0 1 -6 43 z" fill="#eef1f6" stroke="#cfd7e3" stroke-width="2"/>
-          <text x="600" y="205" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="700" fill="#8a94a3">Outside servers</text>
-        </g>
-        <!-- red X over the blocked link -->
-        <g transform="translate(507,120)"><circle r="15" fill="#fff" stroke="#f43f5e" stroke-width="2.5"/><path d="M-6 -6 L6 6 M6 -6 L-6 6" stroke="#f43f5e" stroke-width="3" stroke-linecap="round"/></g>
-      </svg>
-      <div class="flow-legend">
-        <span>🟢 <b>Flows to your home</b></span>
-        <span>⛔ <b>Blocked from any server</b></span>
-        <span>🔐 <b>Encrypted on arrival</b></span>
+
+    <div class="flow reveal">
+      <div class="flow-node">
+        <div class="flow-ic">&#128241;</div>
+        <h3>Your phone</h3>
+        <p>Photos and documents leave the phone encrypted.</p>
+      </div>
+
+      <div class="flow-link" aria-hidden="true"><span></span><b>encrypted</b></div>
+
+      <div class="flow-node is-home">
+        <div class="flow-ic">&#127968;</div>
+        <h3>Your computer</h3>
+        <p>They land here, on a machine you own, in an AES&#8209;256 vault.</p>
+        <span class="flow-tag">Everything lives here</span>
+      </div>
+
+      <div class="flow-link is-cut" aria-hidden="true"><span></span><b>blocked</b></div>
+
+      <div class="flow-node is-off">
+        <div class="flow-ic">&#9729;&#65039;</div>
+        <h3>Our servers</h3>
+        <p>There is nothing to reach. We run no server that stores your records.</p>
       </div>
     </div>
+
+    <p class="flow-foot reveal">
+      Which is also why we cannot read them, cannot lose them in a breach of ours,
+      and cannot be made to hand them over.
+    </p>
   </div>
 </section>
 
@@ -511,17 +572,11 @@
       <div class="eyebrow">Built to be trusted</div>
       <h2>Serious security, <em>by default</em></h2>
     </div>
-    <div class="sec-grid">
-      <div class="shield reveal" aria-hidden="true">
-        <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
-        <div class="core">🛡️</div>
-      </div>
-      <div class="checks">
-        <div class="check reveal"><div class="b">🔐</div><div><b>AES-256 encrypted vault.</b> <span>Passwords and secrets are sealed with the same encryption banks use.</span></div></div>
-        <div class="check reveal"><div class="b">✍️</div><div><b>Signed, verified licences.</b> <span>Ed25519 signatures, checked offline on your own machine.</span></div></div>
-        <div class="check reveal"><div class="b">🏠</div><div><b>Nothing leaves your device.</b> <span>Photos and documents are served only to you, over signed links that expire.</span></div></div>
-        <div class="check reveal"><div class="b">🧪</div><div><b>Independently reviewed.</b> <span>A full security pass (VAPT/SAST/DAST) — kept that way.</span></div></div>
-      </div>
+    <div class="checks">
+      <div class="check reveal"><div class="b">🔐</div><div><b>AES-256 encrypted vault.</b> <span>Passwords and secrets are sealed with the same encryption banks use.</span></div></div>
+      <div class="check reveal"><div class="b">✍️</div><div><b>Signed, verified licences.</b> <span>Ed25519 signatures, checked offline on your own machine.</span></div></div>
+      <div class="check reveal"><div class="b">🏠</div><div><b>Nothing leaves your device.</b> <span>Photos and documents are served only to you, over signed links that expire.</span></div></div>
+      <div class="check reveal"><div class="b">🧪</div><div><b>Independently reviewed.</b> <span>A full security pass (VAPT/SAST/DAST) — kept that way.</span></div></div>
     </div>
   </div>
 </section>
@@ -533,7 +588,7 @@
       <div class="eyebrow">Up and running in minutes</div>
       <h2>How it works</h2>
     </div>
-    <div class="connector reveal" aria-hidden="true">
+    <div class="connector reveal" aria-hidden="true" hidden>
       <svg viewBox="0 0 720 34" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none">
         <path id="flowline" d="M60 17 H660" fill="none" stroke="#f59e0b" stroke-width="3" stroke-dasharray="2 12" stroke-linecap="round" opacity=".55"/>
         <circle r="7" fill="#f59e0b"><animateMotion dur="3s" repeatCount="indefinite"><mpath xlink:href="#flowline"/></animateMotion></circle>
