@@ -2171,8 +2171,16 @@ function PhoneBackupSheet({ rows, reload, onClose }: {
  *  half-configured case — which is the one that actually causes trouble.
  */
 interface AlwaysOn {
-  startup: { supported: boolean; enabled: boolean; platform: string; path?: string; reason?: string }
-  tunnel: { installed: boolean; configured: boolean; running: boolean; reason: string }
+  startup: {
+    supported: boolean; enabled: boolean; platform: string; path?: string; reason?: string
+    /** Started by a service or scheduled task this app cannot switch off. */
+    managed?: boolean
+  }
+  tunnel: {
+    installed: boolean; configured: boolean; running: boolean; reason: string
+    /** The connector is alive but belongs to a service, not to this process. */
+    external?: boolean
+  }
 }
 
 interface UpdateState {
@@ -2862,13 +2870,20 @@ function AlwaysOnRow({ onOpenWeb }: { onOpenWeb: () => void }) {
 
   const on = st.startup.enabled
   const tunnelOk = st.tunnel.running
+  // Installed by install-services.ps1 as a SYSTEM task, or by whoever set this
+  // machine up. Either way it is not ours to switch off, and the toggle below
+  // would report success and change nothing.
+  const managed = !!st.startup.managed
+  const external = !!st.tunnel.external
 
   return (
     <SettingsDisclosure icon="🖥️" tint={on ? 'var(--ok)' : 'var(--ink-faint)'}
       label="Keep it running"
       sub={on
         ? (tunnelOk
-            ? 'Starts with this computer, and is reachable from anywhere'
+            ? (managed
+                ? 'Runs as a background service, and is reachable from anywhere'
+                : 'Starts with this computer, and is reachable from anywhere')
             : 'Starts with this computer, but nothing outside can reach it')
         : 'Only runs while you have it open'}
       // The half-configured case is the one that causes trouble: told to serve,
@@ -2877,25 +2892,44 @@ function AlwaysOnRow({ onOpenWeb }: { onOpenWeb: () => void }) {
 
       <SettingsBlock>
         <p className="form-hint" style={{ marginTop: 0 }}>
-          {st.startup.supported
-            ? `With this on, ${appName()} starts by itself whenever you switch this computer on — so your records are reachable from anywhere without you opening anything. No administrator rights needed.`
-            : st.startup.reason}
+          {/* "No administrator rights needed" describes the per-user mechanism
+              this app can set up itself. On a machine where a SYSTEM task
+              already does the job it is a flat contradiction of the sentence
+              below it, which says the opposite. */}
+          {!st.startup.supported
+            ? st.startup.reason
+            : managed
+              ? `${appName()} is already installed to run whenever this computer is on, whether or not anybody signs in.`
+              : `With this on, ${appName()} starts by itself whenever you switch this computer on — so your records are reachable from anywhere without you opening anything. No administrator rights needed.`}
         </p>
         <div className="ao">
           <div className={`ao-state${on ? ' on' : ''}`}>
             <span className="ao-dot" aria-hidden="true" />
             <div>
-              <b>{on ? 'Starts with this computer' : 'Only runs when you open it'}</b>
+              <b>{managed
+                ? 'Runs as a background service'
+                : on ? 'Starts with this computer' : 'Only runs when you open it'}</b>
               <span>{on
                 ? 'Switch the computer on and it is serving.'
                 : 'Close it or restart, and your address stops answering.'}</span>
             </div>
           </div>
 
-          <button className={on ? 'btn ghost block' : 'btn block'} disabled={busy || !st.startup.supported}
-            onClick={toggle}>
-            {busy ? 'Working…' : on ? 'Stop starting automatically' : 'Start with my computer'}
-          </button>
+          {/* No toggle when something else owns it. Turning a SYSTEM scheduled
+              task off needs administrator rights this app does not have, so the
+              button would have reported success and stopped nothing. */}
+          {managed ? (
+            <p className="form-hint" style={{ marginBottom: 0 }}>
+              This was set up outside the app and keeps running even when nobody is
+              signed in — which is what you want on a machine acting as a server.
+              To change it, use the uninstall script that installed it.
+            </p>
+          ) : (
+            <button className={on ? 'btn ghost block' : 'btn block'} disabled={busy || !st.startup.supported}
+              onClick={toggle}>
+              {busy ? 'Working…' : on ? 'Stop starting automatically' : 'Start with my computer'}
+            </button>
+          )}
 
           {/* The second half of the promise. Starting at login is no use if the
               connector is not running, so say which piece is missing. */}
@@ -2904,7 +2938,9 @@ function AlwaysOnRow({ onOpenWeb }: { onOpenWeb: () => void }) {
             <div>
               <b>{tunnelOk ? 'Reachable from anywhere' : 'On this network only'}</b>
               <span>{tunnelOk
-                ? 'The connection to your web address is up.'
+                ? (external
+                    ? 'The connector is up, run as its own service.'
+                    : 'The connection to your web address is up.')
                 : st.tunnel.installed
                   ? 'No web address set up yet.'
                   : 'The Cloudflare connector is not installed on this computer.'}</span>
@@ -2916,10 +2952,16 @@ function AlwaysOnRow({ onOpenWeb }: { onOpenWeb: () => void }) {
             </button>
           )}
 
+          {/* "Delete that file" is true of the per-user .cmd this app writes and
+              false of a scheduled task, which is not a file and needs admin
+              rights to remove. Saying it anyway would send somebody looking for
+              a file that is not there. */}
           {on && st.startup.path && (
             <p className="form-hint" style={{ marginBottom: 0 }}>
-              Recorded in <code>{st.startup.path}</code> — you can delete that file
-              yourself at any time.
+              {managed
+                ? <>Registered as <code>{st.startup.path}</code>.</>
+                : <>Recorded in <code>{st.startup.path}</code> — you can delete that
+                   file yourself at any time.</>}
             </p>
           )}
         </div>

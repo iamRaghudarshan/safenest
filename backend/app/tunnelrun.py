@@ -189,13 +189,48 @@ def restart() -> None:
     start()
 
 
+def _foreign_connector() -> bool:
+    """Is a cloudflared running that this app did not start?
+
+    It reported "On this network only" on a machine that was answering the public
+    internet at that moment, because `_proc` only ever knows about a connector
+    THIS process launched. On any installation where the connector is a Windows
+    service or a scheduled task — which is how it is set up when somebody wants it
+    up before anyone logs in — that is every time.
+
+    Saying "unreachable" to somebody whose site is live is worse than saying
+    nothing: it sends them to fix a tunnel that is already working.
+    """
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["tasklist", "/fi", "imagename eq cloudflared.exe", "/nh"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+            return "cloudflared" in out.lower()
+        out = subprocess.run(["pgrep", "-x", "cloudflared"],
+                             capture_output=True, text=True, timeout=10).stdout
+        return bool(out.strip())
+    except Exception:
+        # A detection failure must not be reported as "not running" with any
+        # confidence, but there is nothing better to say, so fall back to what we
+        # do know for certain: our own child process.
+        return False
+
+
 def status() -> dict:
     ok, why = configured()
-    running = bool(_proc and _proc.poll() is None)
+    ours = bool(_proc and _proc.poll() is None)
+    theirs = False if ours else _foreign_connector()
     return {
         "installed": bool(binary()),
         "configured": ok,
-        "running": running,
+        "running": ours or theirs,
+        # True when the connector is alive but belongs to a service or a scheduled
+        # task rather than to us. The screen needs this: offering to "set up my
+        # web address" to fix a tunnel that is already up is the wrong advice, and
+        # stopping it is not ours to do.
+        "external": theirs,
         "config_path": str(config_path()),
         "reason": "" if ok else why,
     }

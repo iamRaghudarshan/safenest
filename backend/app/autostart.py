@@ -95,8 +95,33 @@ def _win_disable() -> None:
         pass
 
 
+def _win_scheduled_task() -> str:
+    """The name of a scheduled task that starts this app, or "".
+
+    The per-user .cmd is not the only way the app gets started at boot, and on
+    this machine it is not the way it happens: `install-services.ps1` registers
+    SYSTEM tasks so the app is serving before anybody logs in. Judging only by the
+    Startup folder, the app then told its owner "Only runs while you have it
+    open" — on a machine that had been serving continuously since the last
+    reboot.
+
+    Names, not a wildcard search: a substring match on "App" would claim any
+    unrelated task as ours.
+    """
+    for name in ("AppAPI", "SafeNestAPI", "FinMateAPI"):
+        try:
+            r = subprocess.run(["schtasks", "/query", "/tn", name],
+                               capture_output=True, text=True, timeout=10,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if r.returncode == 0:
+                return name
+        except Exception:
+            continue
+    return ""
+
+
 def _win_enabled() -> bool:
-    return _cmd_file().is_file()
+    return _cmd_file().is_file() or bool(_win_scheduled_task())
 
 
 # ------------------------------------------------------------------------- Mac
@@ -164,6 +189,7 @@ def status() -> dict:
     if not supported():
         return {"supported": False, "enabled": False, "platform": platform.system(),
                 "reason": "Starting at login is only set up for Windows and macOS."}
+    task = _win_scheduled_task() if _WINDOWS else ""
     enabled = _win_enabled() if _WINDOWS else _mac_enabled()
     where = str(_cmd_file() if _WINDOWS else _plist_path())
     return {
@@ -172,7 +198,12 @@ def status() -> dict:
         "platform": "windows" if _WINDOWS else "mac",
         # Shown to the owner: this is a file they can delete themselves, and
         # saying where it is keeps the mechanism honest.
-        "path": where,
+        "path": f"Scheduled task \u201c{task}\u201d" if task else where,
+        # Started by something this app cannot switch off. The toggle has to say
+        # so rather than offering to turn off a SYSTEM task it has no rights to
+        # touch — a switch that reports success and changes nothing is worse than
+        # no switch.
+        "managed": bool(task),
         "needs_admin": False,
     }
 
