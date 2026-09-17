@@ -1358,7 +1358,271 @@ the operator sees.
 
 ---
 
-## 14. Current state (23 August 2026)
+## 14. Current state (17 September 2026)
+
+> **Read this section first if you are new to this machine.** It is the handover:
+> what is running, what changed, what is still owed, and the traps that cost time.
+> Everything below the "Earlier runs" heading is history and can be skimmed.
+
+### 14.0 The 60-second picture
+
+| | |
+|---|---|
+| Website | `https://safenesthub.in` (and `www.`) |
+| App | `https://app.safenesthub.in` — sign in here |
+| Machine | `DESKTOP-6KK3ELO`, rebuilt from scratch 16 Sep 2026 |
+| Desktop release | **3.42**, Windows **and** Mac, published and downloadable |
+| Repos | `iamRaghudarshan/safenest`, `/ai-bit`, `/safenest-mobile` — all **public** |
+| Secrets | `D:\AI PRO\SafeNest-Setup-and-Credentials.md` — **outside every repo, never commit it** |
+
+**Both domains matter.** `safenest.raghudarshan.online` is the OLD address, still
+live on the OLD machine, and must keep answering until §6 is cleared. Retiring it
+early strands customers — it has already happened once.
+
+**No secrets in this file or any CLAUDE.md.** All three repositories are public.
+Credentials, keys and tokens live only in the setup document above and in
+`backend/.env`, both gitignored and neither ever committed.
+
+### 14.1 Why this machine was rebuilt
+
+A whole-of-D: drive copy in Sep 2026 completed partially: some folders arrived
+intact, others got their top layer of files and empty subfolders. It was not a
+disk fault. The clearest tell was `.git` — the index survived while
+`.git/objects` did not, so git reported every tracked file as deleted and could
+restore none of it.
+
+Destroyed and since restored from GitHub: this repo, `D:\AI TUBE` (ai-bit),
+`D:\AI PRO\safenest-mobile`. Also destroyed: **the Flutter SDK** at `D:\flutter`
+(3.2 MB of a ~2 GB install), replaced with a clean 3.47.4; the remains are parked
+at `D:\flutter.broken-20260916`.
+
+**If you ever re-copy this drive, use robocopy, not Explorer** — it logs what it
+skips and handles paths over 260 characters, which is what kills `node_modules`
+and `venv` every time:
+
+```
+robocopy "<source>" "<dest>" /E /Z /R:1 /W:1 /XJ /LOG:D:\copy.log /TEE
+```
+
+**Before any `git reset --hard` on a gutted checkout**, hash-compare every
+surviving file against the remote first (`git ls-tree -r origin/main` for blob
+hashes vs `git hash-object` locally). `reset --hard` does not delete *untracked*
+files, so generated leftovers are safe — check whether a file is in the index
+before worrying about it.
+
+### 14.2 What is running here
+
+| Name | Kind | What it runs |
+|---|---|---|
+| `AppMySQL` | Windows service | mysqld on **port 3307** |
+| `AppAPI` | SYSTEM scheduled task | uvicorn on `0.0.0.0:8080` |
+| `AppTunnel` | SYSTEM scheduled task | cloudflared, the named tunnel |
+
+The stock `MySQL80` service on 3306 is a **different instance — leave it alone.**
+
+These run as SYSTEM, so an ordinary PowerShell session **cannot see them**:
+`Get-ScheduledTask AppAPI` answers "not found" from a normal prompt even though
+the task exists. Check from an elevated prompt before concluding anything is
+broken.
+
+**Restarting the API needs elevation.** Run `Restart App API.bat` and approve the
+UAC prompt. Two things to know:
+
+- `schtasks /end` ends the TASK and does **not** reliably take its process tree.
+  The uvicorn parent survives, the task still reads Running, the following `/run`
+  is a no-op, and a naive script reports success while the OLD code serves every
+  request. The .bat now kills whatever holds port 8080 first. This cost an
+  afternoon of "my change has no effect".
+- **Verify the process actually changed**, not merely that the API answers.
+  Compare the PID on 8080 before and after. A declined UAC prompt looks exactly
+  like a successful restart from the outside.
+
+### 14.3 What shipped on 16–17 September
+
+- **Domain move.** One origin serves both hostnames; only what `/` returns
+  differs, decided from the Host header (`settings.matches_site_host`). `www.` is
+  stripped from both sides, and `safenesthub.in.evil.com` correctly does not match.
+- **Desktop 3.42, Windows and Mac**, published and current. The Mac half is built
+  by the existing `build-mac.yml` workflow on GitHub's macOS runners and fetched
+  with `packaging/fetch_mac_build.py`. **A Mac build cannot be produced on this
+  machine** — PyInstaller freezes the interpreter running it — but CI has always
+  been the route, so "we cannot build for Mac" is wrong.
+- **Two-step sign-in is reachable at last.** `auth.py` had six careful routes and
+  nothing in `frontend/src` called any of them. Worse, enabling it via the API
+  would have BROKEN the login screen: `auth.tsx` ran `tokenStore.set(s.token)`
+  unconditionally and a 2FA response carries no token, so it stored the string
+  `"undefined"`. Now at **Profile → Account → Two-step sign-in**.
+- **A replay hole, found by testing it.** `login_2fa`'s own docstring claimed the
+  challenge was single-use. It was not — a stateless JWT that nothing consumed, so
+  the same challenge and code signed in twice. Challenges now carry a `jti`, are
+  spent on success, allow a few attempts for a mistyped code, and are checked
+  against `token_version` (which they carried and never verified).
+- **Profile went from eighteen top-level sections to eleven.** See §14.5.
+- **The storefront was redesigned** and now shows real screenshots of the app.
+- **The AI BIT download site was rescued.** See §14.4.
+- `VAULT_KEY_LEGACY_HEX` removed from `.env` after confirming zero vault rows
+  still needed it. The previous file is beside it as `.env.bak-<timestamp>`.
+
+### 14.4 `frontend/dist/` is a build output — never park anything there
+
+`npm run build` **empties it** (vite's `emptyOutDir` defaults to true). The AI BIT
+download site used to live there, so every web rebuild silently deleted the phone
+app's APK, its update manifest and the download gate. From a phone the symptom is
+an update check that times out, which gets debugged as a network fault.
+
+Those three files now live in **`aibit/`** and are served at root paths by
+explicit routes in `main.py` — root because every installed copy of the phone app
+polls `https://<host>/ai-bit-latest.json` forever (the address is compiled in) and
+the gate must be same-origin under `script-src 'self'`. Publishing stays
+restart-free: drop a new APK in that folder and edit the manifest. The APK is
+gitignored; the manifest and the gate are tracked.
+
+The APK route takes the version as a path parameter and **validates it against a
+pattern rather than joining it** — without that, `/ai-bit-../../backend/.env.apk`
+would serve the licence signing key, because the segment arrives URL-decoded.
+
+Storefront images live in `backend/storefront/img/` for the same reason, served by
+`/storefront-img/{name}` with the same kind of guard.
+
+### 14.5 The Profile screen is grouped on purpose — do not append to the bottom
+
+It reached **eighteen** top-level sections. The growth was nobody's mistake: each
+feature arrived with its own heading, card and explanatory footer, which is right
+for one feature and wrong for eighteen. Between them they printed the Wi-Fi
+address three times and the web address four, had two different sections titled
+Notifications, and split the three exports across two distant groups worded as
+three unrelated features.
+
+It is now eleven groups. The rules that keep it there:
+
+- **One question, one group.** "Reaching this app", "Use it on your phone", "Act
+  as my server" and "On my Wi-Fi" were four headings for *can I open this from
+  somewhere else*; they are one section, `AccessSection`.
+- **A heading over a single row is noise.** Household, iPhone backup and the web
+  address are rows inside groups that already exist.
+- **Diagnostics collapse; problems do not.** `SettingsDisclosure` (settings.tsx)
+  takes an `attention` flag — pass it when the thing being hidden is broken and
+  the row carries a badge. It badges rather than auto-expanding: on a machine
+  reached only by its public address the firewall block is real, permanent and
+  irrelevant, and auto-expanding meant a wall of Windows instructions on every
+  visit.
+- **Rename the sheet when you rename the row, then grep for the old heading.**
+  `lanaccess.py` was printing "Profile > On my Wi-Fi" to a user, and this file
+  named two groups that no longer existed.
+
+Adding a setting means finding the group it belongs to. If it genuinely belongs to
+none, that is worth a conversation, not a nineteenth heading.
+
+### 14.6 The app must not lie about whether it is serving
+
+Profile's "Keep it running" read *"Only runs while you have it open"* and *"On
+this network only"* on a machine that had been answering the public internet
+continuously since its last reboot. Two causes, same shape — each check only
+recognised the mechanism the app sets up **itself**:
+
+- `autostart._win_enabled()` looked only for the per-user `.cmd` in the Startup
+  folder. `install-services.ps1` registers SYSTEM scheduled tasks instead.
+- `tunnelrun.status()` read `running` from `_proc`, which only knows about a
+  connector *this process* launched.
+
+Both now also report **who owns it** (`managed`, `external`), because the screen
+must not offer "set up my web address" to fix a tunnel that is already up, nor
+show a toggle that would report success and stop nothing — switching off a SYSTEM
+task needs rights the app does not have.
+
+### 14.7 Taking product screenshots without touching real records
+
+Marketing images are not worth one invented row in somebody's financial records.
+The storefront screenshots were made like this, and it is the pattern to reuse:
+
+1. Start a second instance on its own port against a throwaway SQLite file —
+   `DB_ENGINE=sqlite`, `DB_FILE=%TEMP%\...`, `MEDIA_ROOT=%TEMP%\...`, a dummy
+   `JWT_SECRET`/`VAULT_KEY_HEX`, and **no licence signing key**.
+2. `create_admin.py` against it (there is no register endpoint), seed via the API.
+3. Screenshot with headless Chrome over CDP.
+4. Stop it and delete the database.
+
+The live MySQL on 3307 is never touched. The page says out loud that the records
+shown are a sample.
+
+### 14.8 Verifying anything on this project
+
+**There is no backend test suite.** End-to-end scripts are the only tests, and on
+this project "it compiles" and "the endpoint answers" have been wrong repeatedly.
+Three real bugs in one session were found only by exercising things:
+
+- Rendering Profile in headless Chrome showed a row silently missing:
+  `/api/system/records-location` answers **200 with an empty path** on this
+  install, and the fallback only fired on an HTTP error. tsc and the build were
+  both clean.
+- The 2FA replay hole, above.
+- A restart that reported success had not restarted.
+
+Useful specifics: headless Chrome over CDP with the `websockets` package (already
+in `backend/venv`) works well — seed `localStorage['finmate.token']`, click
+through, read the DOM. Wait **9s+** after opening Profile;
+`/api/hosting/local-network` shells out to netsh and takes ~3.4s. Write scripts
+that restore state in a `finally` block — one of mine enabled 2FA on the only
+admin account.
+
+Two edge traps: **Cloudflare 403s the default `Python-urllib` User-Agent** (send a
+browser one), and **it caches a `.js` or image URL for hours** — so fixing a file
+is not enough, bump its `?v=` too.
+
+### 14.9 GitHub: use `iamRaghudarshan`, and why it kept breaking
+
+`iamRaghudarshan` is the owner's **personal** account and the only one these three
+repositories may be pushed under. `proteamsolutionsit-pixel` is their employer's.
+
+The stored credential reverted to the company account **three times in two days**,
+and the cause was not a mistake anyone made: the system gitconfig sets
+`credential.helper=manager`, so every repository on the machine shared one Windows
+Credential Manager entry, and VS Code and the codex CLI both sign in to GitHub and
+both write it.
+
+Fixed permanently, two layers:
+
+1. Each repo has a local `credential.helper=` (**empty — this resets the inherited
+   list**; without it `manager` is still consulted and nothing changes) followed by
+   `store --file=C:/Users/Pro-TEAM/.git-credentials-personal`, locked to the user
+   with icacls. Verified by writing the company account into the Windows store on
+   purpose: all three repos still authenticated correctly.
+2. A `pre-push` hook in each repo asks GitHub who the credential belongs to and
+   refuses anything that is not `iamRaghudarshan`. This catches what layer 1
+   cannot: a VALID token for the wrong account, where the push would otherwise
+   succeed silently under the employer's name.
+
+**Hooks live in `.git/hooks/`, which is not cloned** — a fresh clone needs both
+layers set up again. Commit identity is set **per repo**, never globally: the
+machine's global identity belongs to unrelated company work.
+
+`backend/.env` also holds a `GITHUB_TOKEN`, read **only** by
+`packaging/fetch_mac_build.py` to download the Mac artifact. The app never loads
+it, so no endpoint can return it. It had silently expired (401), which is the
+whole reason the Mac build appeared impossible for a while — **check that token
+before believing the Mac half cannot be built.**
+
+### 14.10 Still owed
+
+1. **Rotate the secrets that passed through a chat transcript** — the Cloudflare
+   API token, the GitHub PAT, and the admin password. Replacing the PAT means two
+   places: the credential file in §14.9 **and** `GITHUB_TOKEN` in `backend/.env`.
+2. **Reissue the live licences from this machine.** The issuer is inside a signed
+   Ed25519 token and cannot be rewritten remotely, so every live licence has to be
+   reissued against the new domain and *activated* before the old hostname stops
+   answering.
+3. **Ship an AI BIT build before retiring the old domain.**
+   `lib/src/data/update_service.dart` now points at `safenesthub.in`, but only in
+   source — no build carries it. Installed copies only learn a new address from a
+   build that already has it. A tag triggers CI, so that is the owner's to run.
+4. **The app icon is still the old raster.** The website uses a new vector mark at
+   `backend/storefront/img/logo-mark.svg`; the app's branding icon was left alone
+   because changing it regenerates the PWA icons and goes into every customer
+   bundle.
+
+### Earlier runs
+
+#### 23 August – 4 September 2026
 
 ### "Build the app" / "build all" = EVERY platform
 
