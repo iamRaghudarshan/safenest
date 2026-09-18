@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SafeNest — Everything you own, kept safe at home</title>
+<meta name="theme-color" content="#07080c" id="theme-color" />
+<meta name="description" content="A private home for your money, documents, photos and passwords — running on your own computer, not on anybody's server." />
+
+<link rel="canonical" href="https://safenesthub.in/" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="SafeNest" />
+<meta property="og:title" content="SafeNest — Everything you own, kept safe at home" />
+<meta property="og:description" content="A private home for your money, documents, photos and passwords — running on your own computer, not on anybody's server." />
+<meta property="og:url" content="https://safenesthub.in/" />
+<meta property="og:image" content="https://safenesthub.in/storefront-img/logo.png" />
+<meta property="og:image:alt" content="SafeNest" />
+<meta property="og:locale" content="en_IN" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="SafeNest — Everything you own, kept safe at home" />
+<meta name="twitter:description" content="A private home for your money, documents, photos and passwords — running on your own computer, not on anybody's server." />
+<meta name="twitter:image" content="https://safenesthub.in/storefront-img/logo.png" />
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "SafeNest",
+  "applicationCategory": "FinanceApplication",
+  "operatingSystem": "Windows, macOS",
+  "url": "https://safenesthub.in/",
+  "description": "A private home for your money, documents, photos and passwords — running on your own computer, not on anybody's server.",
+  "image": "https://safenesthub.in/storefront-img/logo.png",
+  "offers": { "@type": "Offer", "availability": "https://schema.org/InStock", "url": "https://safenesthub.in/#licence" }
+}
+</script>
+
+<link rel="icon" type="image/png" sizes="256x256" href="/storefront-img/logo-icon.png" />
+<link rel="apple-touch-icon" href="/storefront-img/logo-icon.png" />
+
+<style>
+/* ===================================================================
+   SafeNest — dark product site.
+   Rewritten rather than restyled. The previous page was light, banded and
+   card-heavy; four passes of restyling made it better without ever making it
+   look like a different site, which is what was actually being asked for.
+   This is a different site: one dark ground, the product at full size, and a
+   single light band where the argument is made.
+   =================================================================== */
+:root{
+  --bg:#07080c;
+  --surface:#0c0e15;
+  --raised:#12151f;
+  --raised-2:#171b28;
+  --line:rgba(255,255,255,.075);
+  --line-2:rgba(255,255,255,.14);
+  --ink:#f3f5f9;
+  --body:#c3cad8;
+  --muted:#8d97a9;
+  --faint:#5c6579;
+  --brand:#2e86ff;
+  --brand-2:#6aa8ff;
+  --brand-deep:#0b4fd0;
+  --navy:#1B2A6B;
+  --ok:#31c48d;
+  --warn:#f5a524;
+
+  --s1:4px;  --s2:8px;  --s3:12px; --s4:16px; --s5:24px;
+  --s6:32px; --s7:48px; --s8:64px; --s9:88px; --s10:112px;
+  --sec:var(--s10);
+  --r1:10px; --r2:14px; --r3:20px; --r4:28px;
+  --wrap:1200px;
+  --font:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+}
+@media (max-width:900px){ :root{ --sec:var(--s9) } }
+@media (max-width:560px){ :root{ --sec:var(--s8) } }
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--body);font-family:var(--font);
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+h1,h2,h3,h4{color:var(--ink);margin:0;line-height:1.08;letter-spacing:-.035em;font-weight:700}
+h1{font-size:clamp(34px,4.3vw,52px)}
+h2{font-size:clamp(30px,3.9vw,48px)}
+h3{font-size:clamp(18px,1.5vw,21px);letter-spacing:-.02em}
+p{margin:0}
+a{color:var(--brand-2);text-decoration:none}
+img{max-width:100%;display:block}
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 24px}
+section{position:relative;padding:var(--sec) 0}
+
+/* progress + skip */
+#progress{position:fixed;top:0;left:0;height:2px;width:0;z-index:120;background:linear-gradient(90deg,var(--brand),var(--brand-2))}
+.skip-link{position:absolute;left:14px;top:-60px;z-index:200;background:var(--brand);color:#fff;
+  padding:11px 18px;border-radius:0 0 10px 10px;font-weight:600;font-size:14px;transition:top .18s}
+.skip-link:focus{top:0}
+
+/* ---------------------------------------------------------- buttons */
+.btn{appearance:none;border:1px solid transparent;cursor:pointer;font:inherit;font-weight:600;
+  font-size:15px;padding:13px 24px;border-radius:var(--r1);display:inline-flex;align-items:center;
+  justify-content:center;gap:9px;background:var(--brand);color:#fff;
+  transition:background .16s,transform .16s,box-shadow .16s,border-color .16s;
+  box-shadow:0 1px 0 rgba(255,255,255,.12) inset,0 10px 30px -12px rgba(46,134,255,.7)}
+.btn:hover{background:#3d90ff;transform:translateY(-1px);box-shadow:0 1px 0 rgba(255,255,255,.16) inset,0 16px 40px -14px rgba(46,134,255,.8)}
+.btn:active{transform:none}
+.btn[disabled]{background:#2b3140;color:#8d97a9;box-shadow:none;cursor:not-allowed;transform:none}
+.btn.ghost{background:rgba(255,255,255,.04);color:var(--ink);border-color:var(--line-2);box-shadow:none}
+.btn.ghost:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.24)}
+.btn.big{padding:15px 28px;font-size:15.5px}
+.btn.block{width:100%}
+
+/* ---------------------------------------------------------- nav */
+nav{position:sticky;top:0;z-index:100;background:rgba(7,8,12,.72);
+  backdrop-filter:saturate(1.5) blur(14px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;gap:16px;height:70px}
+/* The supplied lockup is drawn for light backgrounds: half the wordmark is
+   near-black navy and disappears here. Washing the whole thing white would fix
+   the contrast and throw away the brand blue with it. So the MARK is used as
+   supplied — it is blue and reads perfectly on dark — and the wordmark is
+   typeset beside it, keeping the two-tone the logo intends. */
+.brand{display:flex;align-items:center;gap:11px;flex:0 0 auto}
+.brand-mark{height:36px;width:36px}
+.brand-word{display:inline-flex;font-size:21px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.brand-word b{color:#fff;font-weight:700}
+.brand-word i{color:var(--brand-2);font-weight:700;font-style:normal}
+.brand-tag{display:block;font-size:8.5px;font-weight:600;letter-spacing:.17em;text-transform:uppercase;
+  color:var(--faint);margin-top:3px}
+.brand-stack{display:flex;flex-direction:column}
+.links{margin-left:auto;display:flex;align-items:center;gap:4px}
+.links a{color:var(--muted);font-size:14.5px;font-weight:500;padding:9px 13px;border-radius:9px;
+  transition:color .15s,background .15s}
+.links a:hover{color:var(--ink);background:rgba(255,255,255,.05)}
+.links .nav-cta{margin-left:8px}
+.nav-toggle{display:none;width:44px;height:44px;margin-left:auto;padding:12px 10px;background:none;
+  border:1px solid var(--line-2);border-radius:11px;cursor:pointer;flex-direction:column;
+  justify-content:space-between}
+.nav-toggle span{display:block;height:2px;border-radius:2px;background:var(--ink);transition:transform .22s,opacity .18s}
+.nav-toggle[aria-expanded="true"] span:nth-child(1){transform:translateY(8px) rotate(45deg)}
+.nav-toggle[aria-expanded="true"] span:nth-child(2){opacity:0}
+.nav-toggle[aria-expanded="true"] span:nth-child(3){transform:translateY(-8px) rotate(-45deg)}
+@media (max-width:940px){
+  .nav-toggle{display:flex}
+  .links{position:absolute;left:0;right:0;top:100%;flex-direction:column;align-items:stretch;gap:0;
+    background:var(--surface);border-bottom:1px solid var(--line);padding:8px 24px 20px;
+    max-height:0;overflow:hidden;transition:max-height .3s ease}
+  .links[hidden]{display:none}
+  .links.open{max-height:78vh;overflow:auto}
+  .links a{padding:15px 4px;font-size:16.5px;color:var(--ink);border-bottom:1px solid var(--line)}
+  .links a:last-child{border-bottom:0}
+  .links .nav-cta{margin:14px 0 0;padding:14px}
+}
+@media (min-width:941px){ .links{max-height:none!important;overflow:visible!important} }
+
+/* ---------------------------------------------------------- hero */
+.hero{padding:var(--s9) 0 var(--s10);overflow:hidden}
+.hero-grid{display:grid;grid-template-columns:1.02fr .98fr;gap:var(--s7);align-items:center}
+@media (max-width:1040px){ .hero-grid{grid-template-columns:1fr;gap:var(--s7)} }
+.glow{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.glow i{position:absolute;display:block;border-radius:50%;filter:blur(110px);opacity:.55}
+.glow i:nth-child(1){width:720px;height:720px;top:-330px;right:-180px;
+  background:radial-gradient(circle,rgba(46,134,255,.5),transparent 68%);animation:g1 26s ease-in-out infinite}
+.glow i:nth-child(2){width:560px;height:560px;bottom:-320px;left:-160px;
+  background:radial-gradient(circle,rgba(123,63,242,.34),transparent 68%);animation:g2 33s ease-in-out infinite}
+@keyframes g1{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(-60px,54px,0) scale(1.1)}}
+@keyframes g2{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(70px,-44px,0) scale(.92)}}
+.hero .wrap{position:relative;z-index:1}
+.eyebrow-pill{display:inline-flex;align-items:center;gap:9px;font-size:13px;font-weight:500;
+  color:var(--body);background:rgba(255,255,255,.045);border:1px solid var(--line-2);
+  padding:7px 15px;border-radius:999px;margin-bottom:26px}
+.eyebrow-pill i{width:7px;height:7px;border-radius:50%;background:var(--ok);display:block;
+  box-shadow:0 0 0 0 rgba(49,196,141,.65);animation:ping 2.4s infinite}
+@keyframes ping{70%{box-shadow:0 0 0 9px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.hero h1 .hl{background:linear-gradient(100deg,var(--brand-2),#a9c9ff);-webkit-background-clip:text;
+  background-clip:text;-webkit-text-fill-color:transparent}
+.lead{font-size:18.5px;color:var(--muted);margin:24px 0 32px;max-width:46ch;line-height:1.62}
+.cta-row{display:flex;gap:12px;flex-wrap:wrap}
+.hero-facts{display:flex;flex-wrap:wrap;gap:0;margin-top:34px;font-size:13.5px;color:var(--muted)}
+.hero-facts span{white-space:nowrap}
+.hero-facts span+span::before{content:"";display:inline-block;width:4px;height:4px;border-radius:50%;
+  background:var(--faint);margin:0 14px;vertical-align:middle}
+.hero-facts b{color:var(--ink);font-weight:600}
+@media (max-width:560px){
+  .hero-facts{flex-direction:column;gap:6px}
+  .hero-facts span+span::before{display:none}
+}
+/* storage claim */
+.storage-note{display:flex;gap:14px;margin-top:28px;padding:17px 19px;border-radius:var(--r2);
+  max-width:52ch;background:linear-gradient(180deg,rgba(46,134,255,.11),rgba(46,134,255,.045));
+  border:1px solid rgba(46,134,255,.26)}
+.storage-note .ic{font-size:19px;line-height:1.35;flex:0 0 auto}
+.storage-note b{display:block;color:var(--ink);font-size:14.5px;margin-bottom:4px;letter-spacing:-.01em}
+.storage-note i{font-style:normal;color:var(--muted);font-size:13.5px;line-height:1.55}
+
+/* device frame */
+.shot-laptop{position:relative;transform-style:preserve-3d;transition:transform .5s cubic-bezier(.2,.7,.2,1)}
+.frame{position:relative;border-radius:var(--r3);padding:11px;background:linear-gradient(160deg,#20263a,#0d1018);
+  border:1px solid var(--line-2);box-shadow:0 60px 120px -50px rgba(0,0,0,.9),0 0 90px -40px rgba(46,134,255,.45)}
+.frame img{border-radius:12px;width:100%;height:auto}
+.shot-phone{position:absolute;right:-34px;bottom:-54px;width:132px;padding:7px;border-radius:26px;
+  background:linear-gradient(160deg,#20263a,#0d1018);border:1px solid var(--line-2);
+  box-shadow:0 40px 70px -28px rgba(0,0,0,.95);transform:translateZ(60px)}
+.shot-phone img{border-radius:20px}
+@media (max-width:1040px){ .shot-phone{display:none} }
+
+/* ---------------------------------------------------------- section heads */
+.eyebrow{display:block;font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--brand-2);margin-bottom:16px}
+.sec-head{max-width:720px;margin:0 auto var(--s7);text-align:center}
+.sec-head.left{margin-left:0;text-align:left}
+.sec-head p{font-size:17.5px;color:var(--muted);margin-top:18px;line-height:1.6}
+.sec-head h2 em{font-style:normal;color:var(--brand-2)}
+
+/* ---------------------------------------------------------- proof strip */
+.proof{border-block:1px solid var(--line);background:var(--surface);padding:var(--s6) 0}
+.proof-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s5);text-align:center}
+@media (max-width:760px){ .proof-grid{grid-template-columns:repeat(2,1fr);gap:var(--s6) var(--s5)} }
+.proof-grid .n{font-size:clamp(26px,3vw,36px);font-weight:700;color:var(--ink);letter-spacing:-.04em;line-height:1}
+.proof-grid .l{margin-top:9px;font-size:13.5px;color:var(--muted)}
+
+/* ---------------------------------------------------------- light band */
+.light{background:#f6f7fa;color:#4a5468;border-block:1px solid rgba(0,0,0,.06)}
+.light h2,.light h3{color:#0d1430}
+.light .eyebrow{color:#6b768c}
+.light .sec-head p{color:#5d6879}
+.light .sec-head h2 em{color:var(--brand)}
+
+.flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;max-width:1040px;margin:0 auto;perspective:1400px}
+@media (max-width:900px){ .flow{grid-template-columns:1fr;gap:14px} }
+.node{background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:var(--r3);padding:30px 26px;
+  text-align:center;transition:transform .35s,box-shadow .3s;transform-style:preserve-3d}
+.node .ic{font-size:32px;line-height:1;margin-bottom:15px}
+.node h3{font-size:18px;margin-bottom:8px}
+.node p{font-size:14px;color:#5d6879;line-height:1.55}
+.node.home{background:linear-gradient(180deg,#eaf2ff,#fff);border-color:rgba(46,134,255,.4);
+  box-shadow:0 26px 60px -34px rgba(46,134,255,.85);transform:translateZ(30px)}
+.node.off{background:transparent;border-style:dashed;border-color:rgba(0,0,0,.14);transform:translateZ(-16px)}
+.node.off .ic{opacity:.34} .node.off h3{color:#8a93a4} .node.off p{color:#98a1b1}
+.tag{display:inline-block;margin-top:14px;font-size:11px;font-weight:650;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--brand-deep);background:rgba(46,134,255,.12);
+  border:1px solid rgba(46,134,255,.3);padding:5px 11px;border-radius:999px}
+.link{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:0 18px;min-width:118px}
+.link span{display:block;width:100%;height:2px;border-radius:2px;position:relative;overflow:hidden;
+  background:linear-gradient(90deg,rgba(46,134,255,.18),rgba(46,134,255,.85))}
+.link span::after{content:"";position:absolute;top:0;bottom:0;width:38%;
+  background:linear-gradient(90deg,transparent,#fff,transparent);animation:sweep 2.6s linear infinite}
+@keyframes sweep{from{left:-40%}to{left:110%}}
+.link b{font-size:11px;font-weight:650;letter-spacing:.11em;text-transform:uppercase;color:var(--brand-deep)}
+.link.cut span{background:repeating-linear-gradient(90deg,rgba(0,0,0,.18) 0 7px,transparent 7px 14px)}
+.link.cut span::after{display:none}
+.link.cut b{color:#98a1b1;position:relative}
+.link.cut b::after{content:"";position:absolute;left:-3px;right:-3px;top:50%;height:1px;background:currentColor}
+@media (max-width:900px){ .link{flex-direction:row;min-width:0;padding:2px 0} .link span{width:44px} }
+.flow-foot{text-align:center;max-width:62ch;margin:var(--s7) auto 0;color:#5d6879;font-size:15.5px;line-height:1.65}
+
+/* ---------------------------------------------------------- tour */
+.tour{display:grid;grid-template-columns:1fr 1fr;gap:var(--s8);align-items:center;margin-bottom:var(--s9)}
+.tour:last-child{margin-bottom:0}
+.tour.flip .tour-copy{order:2}
+@media (max-width:920px){
+  .tour{grid-template-columns:1fr;gap:var(--s6);margin-bottom:var(--s8)}
+  .tour.flip .tour-copy{order:0}
+}
+.tour-copy h2{font-size:clamp(26px,3vw,38px);margin-bottom:18px}
+.tour-copy p{color:var(--muted);font-size:16.5px;line-height:1.65}
+.tour-list{list-style:none;margin:24px 0 0;padding:0;display:grid;gap:12px}
+.tour-list li{display:flex;gap:11px;align-items:flex-start;font-size:15px;color:var(--body)}
+.tour-list li::before{flex:0 0 auto;width:18px;height:18px;margin-top:3px;border-radius:50%;
+  background:rgba(46,134,255,.16);border:1px solid rgba(46,134,255,.42);
+  content:"¹3";color:var(--brand-2);font-size:11px;font-weight:700;
+  display:grid;place-items:center;line-height:1}
+.tour-shot{border-radius:var(--r3);overflow:hidden;border:1px solid var(--line-2);background:var(--raised);
+  box-shadow:0 50px 100px -48px rgba(0,0,0,.9);transition:transform .4s,box-shadow .4s}
+.tour-shot:hover{transform:translateY(-4px);box-shadow:0 60px 110px -46px rgba(0,0,0,.95),0 0 70px -40px rgba(46,134,255,.5)}
+.tour-shot img{width:100%;height:auto}
+
+/* ---------------------------------------------------------- cards / bento */
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+#features-grid .feat.wide{grid-column:span 2}
+@media (max-width:1040px){ .grid{grid-template-columns:repeat(3,1fr)} #features-grid .feat.wide{grid-column:span 1} }
+@media (max-width:720px){ .grid{grid-template-columns:repeat(2,1fr)} }
+@media (max-width:440px){ .grid{grid-template-columns:1fr} }
+.feat{--fc:var(--brand);position:relative;isolation:isolate;background:var(--raised);
+  border:1px solid var(--line);border-radius:var(--r2);padding:22px 20px;overflow:hidden;
+  transition:transform .35s cubic-bezier(.2,.7,.2,1),border-color .25s,background .25s}
+.feat::after{content:"";position:absolute;inset:0;z-index:-1;opacity:0;transition:opacity .35s;
+  background:radial-gradient(240px circle at var(--mx,50%) var(--my,50%),
+    color-mix(in srgb,var(--fc) 22%,transparent),transparent 62%)}
+.feat:hover{border-color:var(--line-2);background:var(--raised-2)}
+.feat:hover::after{opacity:1}
+.feat .ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font-size:19px;
+  margin-bottom:14px;background:color-mix(in srgb,var(--fc) 26%,transparent);
+  border:1px solid color-mix(in srgb,var(--fc) 40%,transparent)}
+.feat h3{font-size:16px;margin-bottom:6px}
+.feat p{font-size:14px;color:var(--muted);line-height:1.55}
+#extras-grid{grid-template-columns:repeat(2,1fr);gap:0 44px;margin-top:var(--s5)}
+#extras-grid .feat{background:none;border:0;border-top:1px solid var(--line);border-radius:0;
+  padding:24px 0;display:grid;grid-template-columns:40px 1fr;gap:16px;align-items:start}
+#extras-grid .feat::after{display:none}
+#extras-grid .feat:hover{background:none;transform:none}
+#extras-grid .feat .ic{margin:0}
+#extras-grid .feat h3,#extras-grid .feat p{grid-column:2}
+@media (max-width:720px){ #extras-grid{grid-template-columns:1fr} }
+
+/* ---------------------------------------------------------- screens */
+.shots{max-width:1060px;margin:0 auto}
+.shot-tabs{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:28px}
+.shot-tab{appearance:none;font:inherit;cursor:pointer;font-weight:500;font-size:14.5px;padding:9px 18px;
+  border-radius:999px;border:1px solid var(--line-2);background:rgba(255,255,255,.03);color:var(--muted);
+  transition:all .16s}
+.shot-tab:hover{color:var(--ink);border-color:rgba(255,255,255,.26)}
+.shot-tab.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.shot-stage{position:relative;border:1px solid var(--line-2);border-radius:var(--r3);overflow:hidden;
+  background:var(--raised);aspect-ratio:2000/1344;box-shadow:0 60px 120px -50px rgba(0,0,0,.9)}
+.shot-stage img{width:100%;height:100%;object-fit:cover}
+.shot-note{text-align:center;color:var(--faint);font-size:13.5px;margin-top:16px}
+
+/* ---------------------------------------------------------- security */
+.checks{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;max-width:960px;margin:0 auto}
+@media (max-width:760px){ .checks{grid-template-columns:1fr} }
+.check{display:flex;gap:14px;background:var(--raised);border:1px solid var(--line);
+  border-radius:var(--r2);padding:19px 21px;transition:border-color .2s,background .2s}
+.check:hover{border-color:var(--line-2);background:var(--raised-2)}
+.check .b{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:16px;
+  flex:0 0 auto;background:rgba(49,196,141,.16);border:1px solid rgba(49,196,141,.34)}
+.check b{display:block;color:var(--ink);font-size:15.5px;margin-bottom:4px;letter-spacing:-.015em}
+.check span{color:var(--muted);font-size:14px;line-height:1.55}
+
+/* ---------------------------------------------------------- steps + get */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:1000px;margin:0 auto var(--s7)}
+@media (max-width:760px){ .steps{grid-template-columns:1fr} }
+.step{background:var(--raised);border:1px solid var(--line);border-radius:var(--r2);padding:30px 26px;
+  position:relative;isolation:isolate;transition:transform .35s,border-color .25s}
+.step:hover{border-color:var(--line-2)}
+.step .num{width:36px;height:36px;border-radius:50%;background:var(--brand);color:#fff;font-weight:700;
+  display:grid;place-items:center;margin-bottom:17px;font-size:15px}
+.step h3{margin-bottom:8px}
+.step p{font-size:14.5px;color:var(--muted);line-height:1.6}
+.get-box{max-width:820px;margin:0 auto;background:var(--raised);border:1px solid var(--line-2);
+  border-radius:var(--r3);padding:36px 32px;text-align:center}
+.get-os{text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--r2);
+  padding:20px 22px;margin-top:16px}
+.os-h{font-weight:650;color:var(--ink);margin-bottom:11px;font-size:15.5px}
+.dl-meta{color:var(--muted);font-size:13px;line-height:1.6}
+.cmd-row{display:flex;gap:9px;align-items:stretch;background:#05060a;border:1px solid var(--line-2);
+  border-radius:var(--r1);overflow:hidden}
+.cmd-row code{flex:1;overflow-x:auto;white-space:nowrap;padding:12px 14px;font-size:12.5px;color:#a9c9ff;
+  display:flex;align-items:center}
+.cmd-row .btn{border-radius:0;padding:0 18px}
+details.open-help{margin-top:18px;text-align:left}
+details.open-help summary{cursor:pointer;color:var(--brand-2);font-weight:500;font-size:14.5px;padding:8px 0}
+details.open-help ol{color:var(--muted);font-size:14px;line-height:1.7;padding-left:20px}
+
+/* ---------------------------------------------------------- forms */
+.form-card{max-width:600px;margin:0 auto;background:var(--raised);border:1px solid var(--line-2);
+  border-radius:var(--r3);padding:34px 32px}
+label{display:block;font-weight:500;font-size:14px;color:var(--body);margin:16px 0 7px}
+input,textarea{width:100%;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r1);
+  padding:13px 15px;color:var(--ink);font:inherit;font-size:15px;transition:border-color .16s,box-shadow .16s}
+input::placeholder,textarea::placeholder{color:var(--faint)}
+input:focus,textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(46,134,255,.2)}
+textarea{resize:vertical;min-height:110px}
+.err{color:#ff6b7f;font-size:13.5px;min-height:20px;margin-top:10px}
+.ok{color:var(--ok);font-size:15px;line-height:1.6}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:560px){ .field-row{grid-template-columns:1fr} }
+
+/* ---------------------------------------------------------- faq */
+.faq{max-width:980px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:0 44px}
+@media (max-width:820px){ .faq{grid-template-columns:1fr} }
+.faq-item{border-top:1px solid var(--line)}
+.faq-item summary{list-style:none;cursor:pointer;display:flex;gap:16px;align-items:flex-start;
+  padding:22px 0;font-weight:600;font-size:16.5px;color:var(--ink);letter-spacing:-.015em;transition:color .15s}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary:hover{color:var(--brand-2)}
+.faq-item summary span:first-child{flex:1}
+.faq-chev{flex:0 0 auto;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  font-size:15px;color:var(--brand-2);background:rgba(46,134,255,.14);transition:transform .2s}
+.faq-item[open] .faq-chev{transform:rotate(45deg)}
+.faq-item p{margin:0 0 24px;padding-right:38px;color:var(--muted);font-size:15px;line-height:1.65}
+.faq-item p b{color:var(--body);font-weight:600}
+
+/* support fold */
+.support-fold{max-width:760px;margin:0 auto;background:var(--raised);border:1px solid var(--line);border-radius:var(--r2)}
+.support-fold summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:16px;padding:22px 24px}
+.support-fold summary::-webkit-details-marker{display:none}
+.support-fold:hover{border-color:var(--line-2)}
+.sf-ic{font-size:21px;flex:0 0 auto}
+.sf-text{flex:1;display:flex;flex-direction:column;gap:3px}
+.sf-text b{color:var(--ink);font-size:15.5px}
+.sf-text i{font-style:normal;color:var(--muted);font-size:13.5px}
+.sf-chev{color:var(--faint);font-size:22px;transition:transform .2s}
+.support-fold[open] .sf-chev{transform:rotate(90deg)}
+.support-body{padding:0 24px 26px}
+.support-body .form-card{max-width:none;margin:0;border:0;padding:0;background:none}
+
+/* ---------------------------------------------------------- cta + footer */
+.cta{text-align:center;background:
+  radial-gradient(80% 130% at 50% 0%,rgba(46,134,255,.2),transparent 66%),var(--surface);
+  border-top:1px solid var(--line)}
+.cta h2{margin-bottom:18px}
+.cta p{color:var(--muted);font-size:17.5px;max-width:58ch;margin:0 auto 32px;line-height:1.65}
+footer{border-top:1px solid var(--line);padding:var(--s8) 0 0;color:var(--muted);font-size:14px}
+.foot-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:44px;padding-bottom:var(--s7)}
+@media (max-width:820px){ .foot-grid{grid-template-columns:1fr 1fr;gap:34px} .foot-brand{grid-column:1/-1} }
+@media (max-width:480px){ .foot-grid{grid-template-columns:1fr} }
+.foot-brand p{margin-top:16px;max-width:34ch;line-height:1.6;color:var(--muted)}
+.foot-col{display:flex;flex-direction:column;gap:11px}
+.foot-col h3{font-size:12px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--ink);margin-bottom:4px}
+.foot-col a{color:var(--muted);font-size:14.5px;transition:color .15s}
+.foot-col a:hover{color:var(--brand-2)}
+.foot-base{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  border-top:1px solid var(--line);padding:22px 0 28px;font-size:13px;color:var(--faint)}
+.foot-base .dl-trigger{color:inherit;opacity:.45;cursor:default;padding-left:8px}
+
+/* ---------------------------------------------------------- motion */
+.js .reveal{opacity:0;transform:translateY(26px);transition:opacity .75s cubic-bezier(.2,.7,.2,1),transform .75s cubic-bezier(.2,.7,.2,1)}
+.js .reveal.in{opacity:1;transform:none}
+@supports (animation-timeline:view()){
+  @media (prefers-reduced-motion:no-preference){
+    .js .reveal{opacity:1;transform:none;transition:none;animation:settle linear both;
+      animation-timeline:view();animation-range:entry 4% entry 46%}
+    @keyframes settle{from{opacity:0;transform:translateY(32px) scale(.98)}to{opacity:1;transform:none}}
+  }
+}
+a:focus-visible,button:focus-visible,summary:focus-visible,input:focus-visible,textarea:focus-visible{
+  outline:2px solid var(--brand-2);outline-offset:3px;border-radius:6px}
+@media (prefers-reduced-motion:reduce){
+  .glow i,.link span::after,.eyebrow-pill i{animation:none!important}
+  .js .reveal{opacity:1!important;transform:none!important;transition:none}
+  *{scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<nav aria-label="Primary">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="SafeNest home">
+      <img class="brand-mark" src="/storefront-img/logo-icon.png" alt="" width="256" height="256">
+      <span class="brand-stack">
+        <span class="brand-word" id="nav-word"><b id="nav-name">Safe</b><i>Nest</i></span>
+        <span class="brand-tag">Secure. Organize. Relax.</span>
+      </span>
+    </a>
+    <div class="links" id="nav-links">
+      <a href="#privacy">Privacy</a>
+      <a href="#tour">Product</a>
+      <a href="#features">Modules</a>
+      <a href="#download">How it works</a>
+      <a href="#faq">FAQ</a>
+      <a class="btn ghost nav-cta" href="https://app.safenesthub.in/">Sign in</a>
+    </div>
+    <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false"
+            aria-controls="nav-links" aria-label="Open menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<main id="main">
+
+<header class="hero" id="top">
+  <div class="glow" aria-hidden="true"><i></i><i></i></div>
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow-pill"><i></i> Runs on your computer — not our servers</span>
+      <h1>Everything you own,<br><span class="hl">kept safe at home.</span></h1>
+      <p class="lead">Your money, documents, photos and passwords in one private place —
+        on a machine only you control.</p>
+      <div class="cta-row">
+        <a class="btn big" href="#licence">Get SafeNest</a>
+        <a class="btn ghost big" href="#tour">See the product</a>
+      </div>
+      <p class="hero-facts">
+        <span><b>AES-256</b> encrypted vault</span>
+        <span><b>Never leaves</b> your machine</span>
+        <span><b>Cancel</b> anytime</span>
+      </p>
+      <div class="storage-note">
+        <span class="ic">&#128444;&#65039;</span>
+        <span>
+          <b>Your whole photo library, with no storage plan to buy.</b>
+          <i>Photos, videos and scanned paperwork are limited by the disk in your computer —
+             not by a tier, an upgrade, or a price per gigabyte.</i>
+        </span>
+      </div>
+    </div>
+    <div class="shot-laptop reveal">
+      <div class="frame">
+        <img src="/storefront-img/dashboard.webp" width="1200" height="806"
+             alt="The SafeNest dashboard, showing bills due and recent activity" fetchpriority="high">
+      </div>
+      <div class="shot-phone">
+        <img src="/storefront-img/phone-home.webp" width="210" height="430" alt="SafeNest on a phone" loading="lazy">
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="proof" style="padding-block:var(--s6)">
+  <div class="wrap">
+    <div class="proof-grid">
+      <div class="reveal"><div class="n">12</div><div class="l">Modules in one place</div></div>
+      <div class="reveal"><div class="n">256-bit</div><div class="l">AES encrypted vault</div></div>
+      <div class="reveal"><div class="n">0</div><div class="l">Records on our servers</div></div>
+      <div class="reveal"><div class="n">2</div><div class="l">Desktop &amp; phone apps</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- The one light band on the site: the moment the argument is made. -->
+<section id="privacy" class="light">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Where your data goes</span>
+      <h2>It flows to <em>your computer.</em><br>Never to us.</h2>
+      <p>Your phone backs up to the machine in your home. Nothing is copied to our servers —
+         because we don't run any that could hold your records.</p>
+    </div>
+    <div class="flow reveal">
+      <div class="node">
+        <div class="ic">&#128241;</div><h3>Your phone</h3>
+        <p>Photos and documents leave the phone encrypted.</p>
+      </div>
+      <div class="link" aria-hidden="true"><span></span><b>encrypted</b></div>
+      <div class="node home">
+        <div class="ic">&#127968;</div><h3>Your computer</h3>
+        <p>They land here, on a machine you own, in an AES&#8209;256 vault.</p>
+        <span class="tag">Everything lives here</span>
+      </div>
+      <div class="link cut" aria-hidden="true"><span></span><b>blocked</b></div>
+      <div class="node off">
+        <div class="ic">&#9729;&#65039;</div><h3>Our servers</h3>
+        <p>There is nothing to reach. We run no server that stores your records.</p>
+      </div>
+    </div>
+    <p class="flow-foot reveal">Which is also why we cannot read them, cannot lose them in a breach
+      of ours, and cannot be made to hand them over.</p>
+  </div>
+</section>
+
+<!-- PRODUCT TOUR — the app at full size, alternating. -->
+<section id="tour">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">The actual app</span>
+      <h2>Not a mock-up. <em>The product.</em></h2>
+      <p>Screens from the running application, on a machine like yours.</p>
+    </div>
+
+    <div class="tour reveal">
+      <div class="tour-copy">
+        <h2>Every photo you own, on your own disk</h2>
+        <p>The whole library off your phone and onto a machine you control — then made findable.</p>
+        <ul class="tour-list">
+          <li>Groups people by face, without sending a thing anywhere</li>
+          <li>Search by what a photo shows, not just its filename</li>
+          <li>Finds exact and near-duplicate copies and gives the space back</li>
+          <li>No storage tier — the disk is the limit</li>
+        </ul>
+      </div>
+      <div class="tour-shot"><img src="/storefront-img/gallery.webp" width="1000" height="672" loading="lazy"
+        alt="The SafeNest photo gallery, with People, Albums and content search"></div>
+    </div>
+
+    <div class="tour flip reveal">
+      <div class="tour-copy">
+        <h2>Paperwork you can actually find again</h2>
+        <p>Scan it once. Aadhaar, deeds, policies, warranties, payslips — sorted and searchable.</p>
+        <ul class="tour-list">
+          <li>Scan straight from the phone camera</li>
+          <li>Sorted into categories as it arrives</li>
+          <li>Found by searching the text inside the page</li>
+          <li>Served only to you, over links that expire</li>
+        </ul>
+      </div>
+      <div class="tour-shot"><img src="/storefront-img/documents.webp" width="1000" height="672" loading="lazy"
+        alt="The SafeNest documents screen, with scanning and categories"></div>
+    </div>
+
+    <div class="tour reveal">
+      <div class="tour-copy">
+        <h2>The money, without the spreadsheet</h2>
+        <p>Expenses, loans, cards, insurance and investments in one place, with what is due next
+           on the front page.</p>
+        <ul class="tour-list">
+          <li>Every bill and EMI, with what is overdue first</li>
+          <li>Renewal dates that warn you before they pass</li>
+          <li>What you hold, and what it is worth now</li>
+          <li>One daily summary, at a time you choose</li>
+        </ul>
+      </div>
+      <div class="tour-shot"><img src="/storefront-img/expenses.webp" width="1000" height="672" loading="lazy"
+        alt="The SafeNest expenses screen"></div>
+    </div>
+
+    <div class="shots reveal" style="margin-top:var(--s9)">
+      <div class="shot-tabs" id="shot-tabs"></div>
+      <div class="shot-stage" id="shot-stage"></div>
+      <p class="shot-note">Records shown are a sample household's, not anybody's real ones.</p>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Twelve modules, one home</span>
+      <h2>Everything in <em>one private place</em></h2>
+      <p>A complete home for your financial life and personal records — organised, searchable, and yours alone.</p>
+    </div>
+    <div class="grid" id="features-grid"></div>
+
+    <div class="sec-head reveal" style="margin-top:var(--s9)">
+      <span class="eyebrow">And everything around them</span>
+      <h2>Not just <em>a place to put things</em></h2>
+      <p>The work you would otherwise do by hand — sorting photos, chasing renewals, moving to a
+         new machine — the app does for you.</p>
+    </div>
+    <div class="grid" id="extras-grid"></div>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Built to be trusted</span>
+      <h2>Serious security, <em>by default</em></h2>
+    </div>
+    <div class="checks">
+      <div class="check reveal"><div class="b">&#128272;</div><div><b>AES-256 encrypted vault.</b>
+        <span>Passwords and secrets are sealed with the same encryption banks use.</span></div></div>
+      <div class="check reveal"><div class="b">&#9997;&#65039;</div><div><b>Signed, verified licences.</b>
+        <span>Ed25519 signatures, checked offline on your own machine.</span></div></div>
+      <div class="check reveal"><div class="b">&#127968;</div><div><b>Nothing leaves your device.</b>
+        <span>Photos and documents are served only to you, over signed links that expire.</span></div></div>
+      <div class="check reveal"><div class="b">&#129514;</div><div><b>Independently reviewed.</b>
+        <span>A full security pass (VAPT/SAST/DAST) — kept that way.</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Up and running in minutes</span>
+      <h2>Get <em>SafeNest</em></h2>
+      <p>Three steps, and the first one is on this page. One licensed copy, yours to keep.</p>
+    </div>
+    <div class="steps reveal">
+      <div class="step"><div class="num">1</div><h3>Download</h3>
+        <p>Get the app for Windows or Mac. It installs everything it needs on first run — no database
+           to set up, no account with us.</p></div>
+      <div class="step"><div class="num">2</div><h3>Activate</h3>
+        <p>Paste the licence key you were sent. Your copy unlocks and runs offline, and stays active
+           for as long as your subscription is current.</p></div>
+      <div class="step"><div class="num">3</div><h3>Use anywhere at home</h3>
+        <p>Open it in a browser or on your phone over your own Wi-Fi. Back up your whole photo library
+           straight from the SafeNest app.</p></div>
+    </div>
+    <div class="get-box reveal">
+      <p style="margin:0 0 16px;color:var(--ink);font-weight:600">Request a licence first — your download
+        unlocks the moment you do, right on this page.</p>
+      <a class="btn big" href="#licence">Request a licence to download &rarr;</a>
+      <div class="dl-meta" id="dl-meta" style="margin-top:14px">Checking for the latest version…</div>
+      <details class="open-help">
+        <summary>The first time you open it, your computer may warn you</summary>
+        <p class="dl-meta" style="margin-top:10px">This app runs entirely on your own machine and is not
+          distributed through an app store, so Windows and macOS ask you to confirm you trust it.
+          That is expected.</p>
+        <ol>
+          <li><b>Windows:</b> if you see “Windows protected your PC”, click <b>More info</b> → <b>Run anyway</b>.</li>
+          <li><b>Mac:</b> if it offers only <b>Move to Bin</b>, <b>right-click</b> the app → <b>Open</b> → <b>Open</b>.</li>
+        </ol>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section id="licence">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Licensing</span>
+      <h2>Request a <em>licence</em></h2>
+      <p>SafeNest runs on a simple subscription. Send your details and we'll issue a key to activate
+         your app — and if you ever stop, you can still export everything you own.</p>
+    </div>
+    <div class="form-card reveal">
+      <form id="req">
+        <label for="rn">Your name</label>
+        <input id="rn" name="name" required autocomplete="name" />
+        <label for="re">Email</label>
+        <input id="re" name="email" type="email" required autocomplete="email" />
+        <label for="rm">Anything you'd like to tell us (optional)</label>
+        <textarea id="rm" name="message" rows="3"></textarea>
+        <div class="err" id="req-err" role="alert" aria-live="assertive"></div>
+        <p style="margin-top:20px"><button class="btn big block" type="submit" id="req-btn">Request a licence &rarr;</button></p>
+      </form>
+      <div class="ok" id="req-ok" style="display:none" role="status" aria-live="polite" tabindex="-1">
+        Thanks — your request is in. We'll email your licence key shortly.
+      </div>
+
+      <div id="req-download" style="display:none;margin-top:24px">
+        <p style="font-weight:600;color:var(--ink);margin:0 0 14px">Get SafeNest now — activate it with the key once it arrives.</p>
+
+        <div class="get-os">
+          <div class="os-h">&#129513; Windows</div>
+          <a class="btn big block" id="dl-windows" href="/api/public/download?platform=windows">&#11015; Download for Windows</a>
+          <p class="dl-meta" style="margin-top:10px">If Windows shows “protected your PC”, click <b>More info → Run anyway</b> —
+            that is expected for any app not sold through a store.</p>
+        </div>
+
+        <div class="get-os">
+          <div class="os-h">&#63743; Mac <span style="font-weight:400;color:var(--muted);font-size:12.5px">— Apple Silicon (M1 or newer), macOS 11+</span></div>
+          <p class="dl-meta" style="margin:0 0 10px">Open <b>Terminal</b> (&#8984; + Space, type “Terminal”, Return), paste this one line and press Return:</p>
+          <div class="cmd-row">
+            <code id="mac-cmd">curl -fsSL /install-mac.sh | bash</code>
+            <button type="button" class="btn ghost" id="mac-copy">Copy</button>
+          </div>
+          <p class="dl-meta" style="margin-top:10px">Apple blocks apps it hasn't personally reviewed, so a normal download shows a
+            “damaged” warning. This one line installs SafeNest safely and opens it.
+            <br><a id="dl-mac" href="/api/public/download?platform=mac">Prefer to download the file manually?</a></p>
+        </div>
+
+        <div class="get-os">
+          <div class="os-h">&#129302; Android <span style="font-weight:400;color:var(--muted);font-size:12.5px">— APK, installed directly</span></div>
+          <a class="btn big block" id="dl-android" href="/api/public/download?platform=android">&#11015; Download for Android</a>
+          <p class="dl-meta" style="margin-top:10px">Android does not use an app store here — download the APK and tap it to install.
+            (iPhone is on TestFlight, not a download.)</p>
+        </div>
+
+        <p class="dl-meta" style="margin-top:18px">On first launch the app asks you to create your sign-in, then shows an
+          activation screen — paste the key there.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Before you ask</span>
+      <h2>The questions <em>everyone asks</em></h2>
+    </div>
+    <div class="faq">
+      <details class="faq-item reveal"><summary><span>If I stop paying, do I lose everything?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>No. Your records are files on your own computer, and they stay there. The app also exports everything you own —
+          every account, every photo and document — into a folder you can copy onto a USB drive, at any time,
+          including after you have stopped.</p></details>
+      <details class="faq-item reveal"><summary><span>Can you read my records?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>No, and not as a policy — as a matter of plumbing. We run no server that holds them. There is nothing for us to
+          look in, nothing to lose in a breach of ours, and nothing we could be compelled to hand over.</p></details>
+      <details class="faq-item reveal"><summary><span>What happens if my computer dies?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>Take the copy to the next one. <b>Profile → Move everything to another computer</b> writes a folder with every
+          record and file in it; the new machine picks up exactly where the old one stopped.</p></details>
+      <details class="faq-item reveal"><summary><span>Do I need to be technical to run it?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>No. It installs everything it needs the first time you open it — no database to set up, no account to create,
+          nothing to configure. Reaching it from outside your home is the one optional step, and the app walks you through it.</p></details>
+      <details class="faq-item reveal"><summary><span>Can my family have their own sign-ins?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>Yes, as many as your licence covers. Everyone gets their own records and nobody can see anyone else's —
+          a household, not a shared login.</p></details>
+      <details class="faq-item reveal"><summary><span>Does it work on my phone?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+        <p>Yes. Install the phone app, type in your address, sign in with the same details. On your own Wi-Fi it just works;
+          from outside the house you need a web address, which the app helps you set up.
+          <b>The computer has to be switched on</b> — your records live on it, not on a server of ours.</p></details>
+    </div>
+  </div>
+</section>
+
+<section id="support">
+  <div class="wrap">
+    <details class="support-fold reveal">
+      <summary>
+        <span class="sf-ic">&#128172;</span>
+        <span class="sf-text">
+          <b>Something not working, or a question first?</b>
+          <i>Trouble activating, a feature question, anything at all — we answer by email.</i>
+        </span>
+        <span class="sf-chev" aria-hidden="true">&rsaquo;</span>
+      </summary>
+      <div class="support-body">
+        <div class="form-card">
+          <form id="sup">
+            <div class="field-row">
+              <div><label for="sn">Your name</label><input id="sn" name="name" required autocomplete="name" /></div>
+              <div><label for="se">Email</label><input id="se" name="email" type="email" required autocomplete="email" /></div>
+            </div>
+            <label for="sk">Licence key (optional)</label>
+            <input id="sk" name="licence_key" placeholder="L-XXXXXXXX" autocomplete="off" />
+            <label for="ss">Subject</label>
+            <input id="ss" name="subject" required />
+            <label for="sb">How can we help?</label>
+            <textarea id="sb" name="body" rows="4" required></textarea>
+            <div class="err" id="sup-err" role="alert" aria-live="assertive"></div>
+            <p style="margin-top:20px"><button class="btn big block" type="submit" id="sup-btn">Send to support &rarr;</button></p>
+          </form>
+          <div class="ok" id="sup-ok" style="display:none" role="status" aria-live="polite" tabindex="-1">
+            Thanks — your message is in. We'll reply to your email as soon as we can.
+          </div>
+        </div>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <h2 class="reveal">Your records deserve a home you control.</h2>
+    <p class="reveal">Download SafeNest, activate your licence, and keep everything you own in one
+      private, encrypted place — on your own machine.</p>
+    <div class="cta-row reveal" style="justify-content:center">
+      <a class="btn big" href="#licence">Request a licence &amp; download</a>
+      <a class="btn ghost big" href="#support">Get support</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot-grid">
+    <div class="foot-brand">
+      <a class="brand" href="#top" aria-label="SafeNest home">
+        <img class="brand-mark" src="/storefront-img/logo-icon.png" alt="" width="256" height="256" style="height:32px;width:32px">
+        <span class="brand-word" id="foot-word"><b id="foot-name">Safe</b><i>Nest</i></span>
+      </a>
+      <p>Your money, documents, photos and passwords in one private place — on a machine only you control.</p>
+    </div>
+    <nav class="foot-col" aria-label="Product">
+      <h3>Product</h3>
+      <a href="#tour">The app</a><a href="#features">Modules</a>
+      <a href="#download">How it works</a><a href="#licence">Get a licence</a>
+    </nav>
+    <nav class="foot-col" aria-label="Apps">
+      <h3>Apps</h3>
+      <a href="#download">Windows</a><a href="#download">Mac</a>
+      <a id="foot-android" href="/api/public/download?platform=android">Android</a>
+      <a href="https://app.safenesthub.in/">Sign in</a>
+    </nav>
+    <nav class="foot-col" aria-label="More">
+      <h3>More</h3>
+      <a href="#privacy">Privacy</a><a href="#security">Security</a>
+      <a href="#faq">Questions</a><a href="#support">Support</a>
+    </nav>
+  </div>
+  <div class="wrap foot-base">
+    <div id="foot-copy">&copy; SafeNest. Licensed software. Not for resale or redistribution.</div>
+    <div>Runs on your computer. Not on ours.<a href="#" class="dl-trigger" title="AI BIT">&middot;</a></div>
+  </div>
+</footer>
+
+<span id="card-name" hidden></span>
+
+<script src="/storefront.js?v=4.0-dark"></script>
+<div id="aibit-gate">
+  <div class="aib-card">
+    <button class="aib-x" id="aibit-x" aria-label="Close">&times;</button>
+    <div class="aib-ico">&#129302;</div>
+    <h3>AI BIT</h3>
+    <p id="aibit-sub">Enter the password to download.</p>
+    <input id="aibit-pw" type="password" inputmode="numeric" placeholder="Password" autocomplete="off" aria-label="Download password">
+    <div class="aib-err" id="aibit-err"></div>
+    <button class="aib-ok" id="aibit-go">Download</button>
+  </div>
+</div>
+<style>
+#aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
+#aibit-gate.show{display:flex}
+#aibit-gate .aib-card{position:relative;width:min(380px,94vw);background:#17171b;color:#f5f5f7;border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:32px 26px;text-align:center;box-shadow:0 24px 60px -20px rgba(0,0,0,.7)}
+#aibit-gate .aib-x{position:absolute;top:10px;right:14px;background:none;border:none;color:#a7a7b0;font-size:1.5rem;line-height:1;cursor:pointer}
+#aibit-gate .aib-ico{width:54px;height:54px;margin:0 auto 12px;border-radius:15px;display:grid;place-items:center;font-size:1.5rem;background:rgba(255,0,51,.14);border:1px solid rgba(255,0,51,.3)}
+#aibit-gate h3{margin:0;font-size:1.25rem;font-weight:800}
+#aibit-gate p{color:#a7a7b0;margin:8px 0 16px;font-size:.92rem}
+#aibit-gate input{width:100%;padding:13px 15px;border-radius:11px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#f5f5f7;font-size:1.05rem;text-align:center;letter-spacing:.15em;outline:none;box-sizing:border-box}
+#aibit-gate input:focus{border-color:#FF0033}
+#aibit-gate .aib-err{color:#ff375a;font-size:.84rem;min-height:18px;margin:9px 0 4px}
+#aibit-gate .aib-ok{width:100%;margin-top:6px;padding:13px;border:none;border-radius:11px;cursor:pointer;font-weight:700;font-size:1rem;color:#fff;background:linear-gradient(135deg,#ff2b52,#ED0E0D)}
+</style>
+<script src="/aibit-gate.js?v=2.23.0-1" defer></script>
+</body>
+</html>
