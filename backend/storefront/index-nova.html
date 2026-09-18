@@ -297,6 +297,11 @@ section.band-2{background:var(--band-2)}
 .row2 > div > p{margin-top:var(--s4); font-size:16px; color:var(--body)}
 .marks{list-style:none; margin:var(--s6) 0 0; padding:0; display:grid; gap:var(--s4)}
 .marks li{position:relative; padding-left:38px; font-size:15.5px; color:var(--body)}
+/* Section illustrations. No window frame around these: a drawing in a
+   titlebar would be pretending to be a screenshot. */
+.art{width:100%; height:auto; max-width:600px; margin-inline:auto; display:block}
+@media (max-width:1000px){ .art{max-width:460px} }
+
 .marks li::before{
   /* Outlined circled tick, as the reference uses -- not a filled dot. */
   content:"\2713"; position:absolute; left:0; top:2px;
@@ -304,26 +309,6 @@ section.band-2{background:var(--band-2)}
   border:1.5px solid var(--blue); color:var(--blue);
   font-size:12px; font-weight:700; display:grid; place-items:center;
 }
-/* A screenshot with no edge reads as a fragment. A window bar reads as a
-   desktop application, which is what this product actually is -- and it gives
-   the crop a deliberate boundary instead of an arbitrary one. Drawn in CSS so
-   it stays sharp at any size and costs nothing to download. */
-.frame{
-  border-radius:14px; overflow:hidden; background:#121a29;
-  border:1px solid rgba(20,28,45,.10);
-  box-shadow:0 34px 80px -30px rgba(20,30,55,.5);
-}
-.frame::before{
-  content:""; display:block; height:36px;
-  border-bottom:1px solid rgba(255,255,255,.07);
-  background:
-    radial-gradient(circle 5px at 20px 50%, #ec6a5e 97%, transparent 100%),
-    radial-gradient(circle 5px at 40px 50%, #f4bf4f 97%, transparent 100%),
-    radial-gradient(circle 5px at 60px 50%, #61c454 97%, transparent 100%),
-    #1b2233;
-}
-.frame img{width:100%; display:block}
-@media (max-width:620px){ .frame::before{height:26px; background-size:auto} }
 
 .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .row2-aside{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); align-items:start}
@@ -339,15 +324,6 @@ section.band-2{background:var(--band-2)}
 /* ===================================================================
    SCREEN TABS
    =================================================================== */
-#shot-tabs{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-bottom:var(--s6)}
-.shot-tab{
-  padding:10px 20px; border-radius:var(--r-pill); cursor:pointer;
-  background:#fff; border:1px solid var(--line); font-size:14.5px; color:var(--body);
-  transition:all .18s ease;
-}
-.shot-tab:hover{border-color:var(--blue); color:var(--blue)}
-.shot-tab.on{background:var(--blue); color:#fff; border-color:var(--blue); font-weight:500}
-#shot-stage{max-width:1120px; margin-inline:auto}
 
 /* ===================================================================
    STEPS
@@ -482,7 +458,6 @@ footer .brand-word i{color:#79b0f7}
 
     <div class="links" id="nav-links">
       <a href="#what">Features</a>
-      <a href="#screens">Screens</a>
       <a href="#privacy">Privacy</a>
       <a href="#how">How it works</a>
       <a href="#faq">FAQ</a>
@@ -517,7 +492,7 @@ footer .brand-word i{color:#79b0f7}
         and your records stay there.</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="#licence">Get Started <span class="arrow">&#8250;</span></a>
-        <a class="btn btn-outline" href="#screens">See the screens</a>
+        <a class="btn btn-outline" href="#what">What it keeps</a>
       </div>
       <p class="hero-note">Windows and Mac &middot; works offline &middot; no account with us</p>
     </div>
@@ -556,9 +531,7 @@ footer .brand-word i{color:#79b0f7}
       </ul>
     </div>
     <div class="reveal">
-      <div class="frame">
-        <img src="/storefront-img/gallery.webp?v=5" alt="The SafeNest photo library" width="1200" height="760" loading="lazy" />
-      </div>
+      <img class="art" src="/storefront-img/art-photos.svg" alt="Receipts, bills and warranty cards photographed and filed" width="760" height="580" loading="lazy" />
     </div>
   </div>
 </section>
@@ -580,9 +553,7 @@ footer .brand-word i{color:#79b0f7}
       </ul>
     </div>
     <div class="reveal">
-      <div class="frame">
-        <img src="/storefront-img/documents.webp?v=5" alt="The SafeNest document cabinet" width="1200" height="760" loading="lazy" />
-      </div>
+      <img class="art" src="/storefront-img/art-papers.svg" alt="A folder of documents kept behind a shield, with a renewal date" width="760" height="580" loading="lazy" />
     </div>
   </div>
 </section>
@@ -603,22 +574,8 @@ footer .brand-word i{color:#79b0f7}
       </ul>
     </div>
     <div class="reveal">
-      <div class="frame">
-        <img src="/storefront-img/expenses.webp?v=5" alt="The SafeNest expense ledger" width="1200" height="760" loading="lazy" />
-      </div>
+      <img class="art" src="/storefront-img/art-ledger.svg" alt="Spending and holdings shown as a chart, a card and coins" width="760" height="580" loading="lazy" />
     </div>
-  </div>
-</section>
-
-<!-- ===================== SCREENS ===================== -->
-<section id="screens">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <h2>Have a proper look <em>first</em></h2>
-      <p>These are screenshots of the running application, not mock-ups.</p>
-    </div>
-    <div id="shot-tabs" aria-label="Application screens"></div>
-    <div id="shot-stage" class="frame"></div>
   </div>
 </section>
 
@@ -836,7 +793,7 @@ footer .brand-word i{color:#79b0f7}
       on anyone else&rsquo;s machine.</p>
     <div class="hero-cta">
       <a class="btn btn-primary" href="#licence">Get Started <span class="arrow" style="background:rgba(47,128,237,.15)">&#8250;</span></a>
-      <a class="btn btn-outline" href="#screens">Look at the screens again</a>
+      <a class="btn btn-outline" href="#how">How it works</a>
     </div>
   </div>
 </section>
@@ -855,7 +812,7 @@ footer .brand-word i{color:#79b0f7}
           Your documents, photos and money stay in your house.</p>
       </div>
       <div class="foot-col"><h4>Product</h4>
-        <nav><a href="#what">Features</a><a href="#screens">Screens</a>
+        <nav><a href="#what">Features</a>
           <a href="#capabilities">Capabilities</a><a href="#privacy">Privacy</a></nav></div>
       <div class="foot-col"><h4>Get started</h4>
         <nav><a href="#how">How it works</a><a href="#licence">Request a licence</a><a href="#faq">FAQ</a></nav></div>
@@ -869,6 +826,6 @@ footer .brand-word i{color:#79b0f7}
   </div>
 </footer>
 
-<script src="/storefront.js?v=5.4-shots"></script>
+<script src="/storefront.js?v=6.0-art"></script>
 </body>
 </html>

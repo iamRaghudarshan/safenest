@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 580" width="760" height="580" role="img" aria-label="Spending and holdings shown as a chart, a card and a stack of coins">
+  <defs>
+    <linearGradient id="gm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EEF4FE"/><stop offset="1" stop-color="#DFEAFD"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#gm)" d="M400 44 C575 44 706 152 690 306 C674 456 542 534 384 532 C226 530 76 462 68 306 C60 150 225 44 400 44 Z"/>
+  <ellipse cx="380" cy="500" rx="214" ry="24" fill="#CFDEFA" opacity=".75"/>
+
+  <!-- what went out, by month -->
+  <rect x="176" y="126" width="392" height="262" rx="20" fill="#FFFFFF" stroke="#DCE7FC" stroke-width="3"/>
+  <rect x="204" y="156" width="96" height="11" rx="5.5" fill="#C9D8F4"/>
+  <rect x="204" y="180" width="64" height="16" rx="8" fill="#2B3560"/>
+
+  <rect x="212" y="292" width="46" height="56" rx="10" fill="#C9DCF8"/>
+  <rect x="280" y="262" width="46" height="86" rx="10" fill="#9FC0F0"/>
+  <rect x="348" y="232" width="46" height="116" rx="10" fill="#5C6BE0"/>
+  <rect x="416" y="274" width="46" height="74" rx="10" fill="#9FC0F0"/>
+  <rect x="484" y="210" width="46" height="138" rx="10" fill="#2F80ED"/>
+  <path d="M204 358 H540" stroke="#E4EBF8" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- and what it is worth now -->
+  <path d="M235 276 L303 248 L371 220 L439 256 L507 196" fill="none" stroke="#2B3560"
+        stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".25"/>
+  <circle cx="507" cy="196" r="11" fill="#2B3560"/>
+  <circle cx="507" cy="196" r="4.5" fill="#FFFFFF"/>
+
+  <g transform="rotate(9 512 430)">
+    <rect x="404" y="374" width="224" height="140" rx="18" fill="#5C6BE0"/>
+    <rect x="404" y="404" width="224" height="20" fill="#4A59CC"/>
+    <rect x="428" y="448" width="42" height="30" rx="7" fill="#F4BF4F"/>
+    <rect x="486" y="460" width="62" height="9" rx="4.5" fill="#FFFFFF" opacity=".85"/>
+    <rect x="560" y="460" width="42" height="9" rx="4.5" fill="#FFFFFF" opacity=".5"/>
+  </g>
+
+  <g>
+    <ellipse cx="200" cy="456" rx="46" ry="15" fill="#D8A63F"/>
+    <rect x="154" y="434" width="92" height="22" fill="#F4BF4F"/>
+    <ellipse cx="200" cy="434" rx="46" ry="15" fill="#F7CE62"/>
+    <ellipse cx="200" cy="420" rx="46" ry="15" fill="#D8A63F"/>
+    <rect x="154" y="398" width="92" height="22" fill="#F4BF4F"/>
+    <ellipse cx="200" cy="398" rx="46" ry="15" fill="#F7CE62"/>
+  </g>
+
+  <g fill="#2F80ED">
+    <path d="M124 128 C124 141 130 147 143 147 C130 147 124 153 124 166 C124 153 118 147 105 147 C118 147 124 141 124 128 Z"/>
+  </g>
+  <g fill="#8FB6F5">
+    <path d="M664 148 C664 158 668 162 678 162 C668 162 664 166 664 176 C664 166 660 162 650 162 C660 162 664 158 664 148 Z"/>
+    <path d="M100 330 C100 339 104 343 113 343 C104 343 100 347 100 356 C100 347 96 343 87 343 C96 343 100 339 100 330 Z"/>
+    <path d="M676 306 C676 316 680 320 690 320 C680 320 676 324 676 334 C676 324 672 320 662 320 C672 320 676 316 676 306 Z"/>
+  </g>
+</svg>

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 580" width="760" height="580" role="img" aria-label="A folder of documents kept behind a shield, with a renewal date">
+  <defs>
+    <linearGradient id="gd" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EEF4FE"/><stop offset="1" stop-color="#DFEAFD"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#gd)" d="M400 44 C575 44 706 152 690 306 C674 456 542 534 384 532 C226 530 76 462 68 306 C60 150 225 44 400 44 Z"/>
+  <ellipse cx="380" cy="500" rx="214" ry="24" fill="#CFDEFA" opacity=".75"/>
+
+  <!-- folder back, with its tab -->
+  <path d="M150 288 a18 18 0 0 1 18 -18 h122 l30 34 h240 a18 18 0 0 1 18 18 v160
+           a18 18 0 0 1 -18 18 H168 a18 18 0 0 1 -18 -18 Z" fill="#6A78E8"/>
+
+  <!-- the papers, drawn between the two folder panels so they sit inside it -->
+  <g transform="rotate(-7 280 260)">
+    <rect x="206" y="158" width="172" height="212" rx="12" fill="#FFFFFF" stroke="#DCE7FC" stroke-width="3"/>
+    <rect x="228" y="184" width="76" height="10" rx="5" fill="#2F80ED"/>
+    <rect x="228" y="208" width="122" height="8" rx="4" fill="#E9EFFA"/>
+    <rect x="228" y="228" width="104" height="8" rx="4" fill="#E9EFFA"/>
+    <rect x="228" y="248" width="116" height="8" rx="4" fill="#E9EFFA"/>
+  </g>
+  <g transform="rotate(5 396 246)">
+    <rect x="318" y="144" width="176" height="226" rx="12" fill="#FFFFFF" stroke="#DCE7FC" stroke-width="3"/>
+    <rect x="340" y="170" width="68" height="10" rx="5" fill="#5C6BE0"/>
+    <rect x="340" y="194" width="126" height="8" rx="4" fill="#E9EFFA"/>
+    <rect x="340" y="214" width="108" height="8" rx="4" fill="#E9EFFA"/>
+    <rect x="340" y="234" width="120" height="8" rx="4" fill="#E9EFFA"/>
+    <rect x="340" y="254" width="92" height="8" rx="4" fill="#E9EFFA"/>
+  </g>
+
+  <!-- folder front -->
+  <path d="M150 340 h440 v138 a18 18 0 0 1 -18 18 H168 a18 18 0 0 1 -18 -18 Z" fill="#5C6BE0"/>
+  <rect x="150" y="340" width="440" height="11" fill="#4A59CC"/>
+
+  <!-- the vault: a shield with a keyhole -->
+  <g transform="translate(590 240)">
+    <path d="M-52 6 L0 -16 L52 6 V56 C52 94 24 118 0 126 C-24 118 -52 94 -52 56 Z" fill="#2F80ED"/>
+    <path d="M-52 6 L0 -16 V126 C-24 118 -52 94 -52 56 Z" fill="#3D8BF0"/>
+    <circle cx="0" cy="50" r="13" fill="#FFFFFF"/>
+    <path d="M0 58 v24" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <!-- the renewal date that finds you -->
+  <g transform="rotate(-8 186 190)">
+    <rect x="132" y="144" width="108" height="94" rx="12" fill="#FFFFFF" stroke="#DCE7FC" stroke-width="3"/>
+    <path d="M132 156 a12 12 0 0 1 12 -12 h84 a12 12 0 0 1 12 12 v10 H132 Z" fill="#2F80ED"/>
+    <rect x="152" y="184" width="30" height="10" rx="5" fill="#2B3560"/>
+    <rect x="192" y="184" width="30" height="10" rx="5" fill="#DCE7FC"/>
+    <rect x="152" y="204" width="30" height="10" rx="5" fill="#DCE7FC"/>
+    <rect x="192" y="204" width="30" height="10" rx="5" fill="#DCE7FC"/>
+  </g>
+
+  <g fill="#2F80ED">
+    <path d="M118 372 C118 385 124 391 137 391 C124 391 118 397 118 410 C118 397 112 391 99 391 C112 391 118 385 118 372 Z"/>
+  </g>
+  <g fill="#8FB6F5">
+    <path d="M676 152 C676 162 680 166 690 166 C680 166 676 170 676 180 C676 170 672 166 662 166 C672 166 676 162 676 152 Z"/>
+    <path d="M660 418 C660 428 664 432 674 432 C664 432 660 436 660 446 C660 436 656 432 646 432 C656 432 660 428 660 418 Z"/>
+    <path d="M300 104 C300 113 304 117 313 117 C304 117 300 121 300 130 C300 121 296 117 287 117 C296 117 300 113 300 104 Z"/>
+  </g>
+</svg>
