@@ -8,6 +8,46 @@
 <meta name="description" content="A private home for your money, documents, photos and passwords — running on your own computer, never a server anyone else controls." />
 <!-- The mark on its own, cut from the supplied logo and squared, so the tab icon
      is the real thing rather than the app's generic launcher PNG. -->
+<link rel="canonical" href="https://safenesthub.in/" />
+
+<!-- Open Graph / Twitter. Without these a shared link renders as a bare URL,
+     which for a product that spreads by word of mouth is the first impression.
+     og:image is the real logo, served same-origin like everything else. -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="SafeNest" />
+<meta property="og:title" content="SafeNest — Everything you own, kept safe at home" />
+<meta property="og:description" content="A private home for your money, documents, photos and passwords — running on your own computer, never a server anyone else controls." />
+<meta property="og:url" content="https://safenesthub.in/" />
+<meta property="og:image" content="https://safenesthub.in/storefront-img/logo.png" />
+<meta property="og:image:alt" content="SafeNest" />
+<meta property="og:locale" content="en_IN" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="SafeNest — Everything you own, kept safe at home" />
+<meta name="twitter:description" content="A private home for your money, documents, photos and passwords — running on your own computer, never a server anyone else controls." />
+<meta name="twitter:image" content="https://safenesthub.in/storefront-img/logo.png" />
+
+<!-- Structured data. Only what is verifiable: it is a real desktop application,
+     for Windows and macOS, and it requires a licence. Deliberately NO
+     aggregateRating and NO review — there are no reviews, and inventing them is
+     both dishonest and a manual action waiting to happen. No `price` either,
+     because the number is not published on this page. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "SafeNest",
+  "applicationCategory": "FinanceApplication",
+  "operatingSystem": "Windows, macOS",
+  "url": "https://safenesthub.in/",
+  "description": "A private home for your money, documents, photos and passwords — running on your own computer, never a server anyone else controls.",
+  "image": "https://safenesthub.in/storefront-img/logo.png",
+  "offers": {
+    "@type": "Offer",
+    "availability": "https://schema.org/InStock",
+    "url": "https://safenesthub.in/#licence"
+  }
+}
+</script>
 <link rel="icon" type="image/png" sizes="256x256" href="/storefront-img/logo-icon.png" />
 <link rel="apple-touch-icon" href="/storefront-img/logo-icon.png" />
 <link rel="apple-touch-icon" href="/branding/icon-180.png" />
@@ -33,6 +73,15 @@
        dating detail on the page; depth now comes from a hairline and restraint. */
     --shadow: 0 1px 2px rgba(10,15,26,.04), 0 8px 24px -12px rgba(10,15,26,.10);
     --shadow-lift: 0 2px 4px rgba(10,15,26,.05), 0 18px 40px -18px rgba(10,15,26,.16);
+    /* Spacing scale. Section padding, card padding and gaps used to be chosen
+       one at a time — 104 here, 40 there, 26 somewhere else. It looked fine,
+       which is exactly why it survived, but every new section was a fresh
+       judgement call with nothing to check it against. */
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px;
+    --s-6:32px; --s-7:44px; --s-8:64px; --s-9:88px; --s-10:104px;
+    /* One place to change how much air every band gets. */
+    --section-y:var(--s-10);
+    --radius-sm:10px; --radius-md:var(--radius); --radius-lg:20px;
     --font:'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --accent:var(--brand);
   }
@@ -95,13 +144,12 @@
   body > nav .links { margin-left:auto; display:flex; align-items:center; gap:26px; }
   body > nav .links a { color:var(--muted); font-weight:500; font-size:14.5px; transition:color .15s ease; }
   body > nav .links a:hover { color:var(--brand); }
-  @media (max-width:760px){ body > nav .links a.hide-sm { display:none; } }
 
   /* Sections still set --accent, but it now tints the small things — an eyebrow,
      an emphasised word, an icon — and no longer washes the whole band. Eight
      coloured bands down one page read as a template; one neutral alternation
      reads as a product. */
-  section { position:relative; padding:104px 0; }
+  section { position:relative; padding:var(--section-y) 0; }
   section.tint { background:var(--surface); border-block:1px solid var(--line); }
   /* Neutral. Sections still declare their own --accent for icons and small
      details, but running it through the eyebrow AND the heading put six different
@@ -118,7 +166,7 @@
   .sec-head p { font-size:17.5px; margin-top:18px; color:var(--muted); line-height:1.6; }
 
   /* HERO */
-  header.hero { position:relative; overflow:hidden; padding:112px 0 100px; }
+  header.hero { position:relative; overflow:hidden; padding:var(--s-10) 0 var(--s-9); }
   .blobs { position:absolute; inset:-20% -10% auto -10%; height:150%; z-index:-1; }
   /* Kept, but quiet. At opacity .5 the three blobs were the loudest thing above
      the fold and fought the headline for attention. */
@@ -152,8 +200,14 @@
      stray vertical rule hanging in the whitespace; a ::before dot simply wraps
      with the text it belongs to. The copy is trimmed to fit the hero column on
      one line at this size — it was overflowing and breaking after two items. */
-  .trust { margin:32px 0 0; color:var(--muted); font-size:13.5px; line-height:2; }
+  .trust { margin:var(--s-6) 0 0; color:var(--muted); font-size:13.5px; line-height:2; }
   .trust span { white-space:nowrap; }
+  /* On a phone the three facts wrapped into a ragged block with a separator
+     dangling at the start of a line. Stacked, they read as a list. */
+  @media (max-width:560px){
+    .trust { display:flex; flex-direction:column; gap:var(--s-1); line-height:1.6; }
+    .trust span + span::before { content:none; }
+  }
   .trust span + span::before { content:"·"; margin:0 12px; color:var(--line); font-weight:700; }
   .trust b { color:var(--ink); font-weight:600; }
   .hero-art { position:relative; }
@@ -404,6 +458,74 @@
                  letter-spacing:-.01em; margin-bottom:4px; }
   .hero-note i { font-style:normal; color:var(--muted); font-size:13.5px; line-height:1.55; }
 
+  /* 104px of band padding on a 390px screen spends a third of the viewport on
+     nothing. One token, one place. */
+  @media (max-width:900px){ :root { --section-y:var(--s-9); } }
+  @media (max-width:560px){ :root { --section-y:var(--s-8); } }
+
+  /* ---- skip link --------------------------------------------------------
+     Off screen until focused. The first thing a keyboard user meets should not
+     be six navigation links they have to tab past on every visit. */
+  .skip-link {
+    position:absolute; left:14px; top:-60px; z-index:200;
+    background:var(--ink); color:#fff; padding:11px 18px; border-radius:0 0 10px 10px;
+    font-weight:600; font-size:14px; transition:top .18s ease;
+  }
+  .skip-link:focus { top:0; }
+
+  /* ---- navigation -------------------------------------------------------
+     The links used to be `display:none` below 760px with no alternative, so six
+     of the seven were simply unreachable on a phone. They are a panel now. */
+  .nav-toggle {
+    display:none; width:44px; height:44px; margin-left:auto; padding:11px 10px;
+    background:none; border:1px solid var(--line); border-radius:11px; cursor:pointer;
+    flex-direction:column; justify-content:space-between; align-items:stretch;
+  }
+  .nav-toggle span {
+    display:block; height:2px; border-radius:2px; background:var(--ink);
+    transition:transform .22s ease, opacity .18s ease;
+  }
+  .nav-toggle[aria-expanded="true"] span:nth-child(1) { transform:translateY(9px) rotate(45deg); }
+  .nav-toggle[aria-expanded="true"] span:nth-child(2) { opacity:0; }
+  .nav-toggle[aria-expanded="true"] span:nth-child(3) { transform:translateY(-9px) rotate(-45deg); }
+
+  .nav-cta { padding:10px 18px; }
+
+  @media (max-width:900px) {
+    .nav-toggle { display:flex; }
+    body > nav .links {
+      position:absolute; left:0; right:0; top:100%;
+      flex-direction:column; align-items:stretch; gap:0;
+      background:#fff; border-bottom:1px solid var(--line);
+      box-shadow:0 18px 40px -22px rgba(10,15,26,.28);
+      padding:8px 22px 18px;
+      /* Collapsed with max-height rather than display:none, so the open and
+         close are animatable and the links stay in the accessibility tree
+         only when they are actually reachable (see [hidden] below). */
+      max-height:0; overflow:hidden; transition:max-height .3s ease;
+    }
+    body > nav .links[hidden] { display:none; }
+    body > nav .links.open { max-height:70vh; overflow:auto; }
+    /* 48px rows: a 20px link in a nav is a desktop habit that makes a phone
+       menu genuinely hard to hit. */
+    body > nav .links a {
+      padding:14px 4px; font-size:16px; color:var(--ink); font-weight:500;
+      border-bottom:1px solid var(--line);
+    }
+    body > nav .links a:last-child { border-bottom:0; }
+    body > nav .links .nav-cta {
+      margin-top:12px; justify-content:center; padding:13px 18px; font-weight:600;
+    }
+  }
+  @media (min-width:901px) {
+    /* The panel state must not leak into the desktop layout if the window is
+       resized while it is open. */
+    body > nav .links { max-height:none !important; overflow:visible !important; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body > nav .links, .nav-toggle span, .skip-link { transition:none !important; }
+  }
+
   /* ---- bento -----------------------------------------------------------
      Four columns, and four of the twelve cards take two of them. Twelve equal
      boxes is a spreadsheet: every item claims the same weight, so none of them
@@ -546,8 +668,14 @@
   .shot-stage { position:relative; border:1px solid var(--line); border-radius:16px;
                 overflow:hidden; background:#fff; box-shadow:var(--shadow-lift); }
   .shot-stage img { display:block; width:100%; height:auto; }
-  /* Reserve the space so switching tabs cannot make the page jump. */
-  .shot-stage { min-height:clamp(220px, 42vw, 620px); }
+  /* Reserve the exact space, not an approximation. The stage holds ONE image
+     whose src swaps, so width/height attributes cannot be used — they would be
+     wrong for every screenshot but one. All seven are within a rounding error
+     of 3:2 (2400x1612 and 2000x1344), so an aspect-ratio reserves the box
+     precisely and the page cannot shift when a tab is pressed or when the first
+     image arrives. */
+  .shot-stage { aspect-ratio:2000 / 1344; }
+  .shot-stage img { width:100%; height:100%; object-fit:cover; }
   .shot-note { text-align:center; color:var(--muted); font-size:13.5px; margin-top:16px; }
 
   /* ---- real product screenshots ---------------------------------------
@@ -781,23 +909,36 @@
 <body>
 <div id="progress"></div>
 
-<nav>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<nav aria-label="Primary">
   <div class="wrap">
     <a class="brand" href="#top" aria-label="SafeNest home">
       <img class="brand-logo" src="/storefront-img/logo.png" alt="SafeNest" width="520" height="152">
       <span class="brand-word" id="nav-word" hidden><b id="nav-name">Safe</b><i>Nest</i></span>
     </a>
-    <div class="links">
-      <a class="hide-sm" href="#privacy">Privacy</a>
-      <a class="hide-sm" href="#features">Features</a>
-      <a class="hide-sm" href="#download">How it works</a>
-      <a class="hide-sm" href="#faq">FAQ</a>
-      <a class="hide-sm" href="#download">Download</a>
-      <a class="hide-sm" href="#support">Support</a>
-      <a class="btn ghost" style="padding:10px 18px" href="/">Sign in</a>
+
+    <div class="links" id="nav-links">
+      <a href="#privacy">Privacy</a>
+      <a href="#features">Features</a>
+      <a href="#download">How it works</a>
+      <a href="#faq">FAQ</a>
+      <a href="#download">Download</a>
+      <a href="#support">Support</a>
+      <a class="btn ghost nav-cta" href="/">Sign in</a>
     </div>
+
+    <!-- Below 900px the links become a panel behind this button. aria-expanded
+         is the part that matters: without it a screen reader announces a button
+         with no state and no indication that anything opened. -->
+    <button class="nav-toggle" id="nav-toggle" type="button"
+            aria-expanded="false" aria-controls="nav-links" aria-label="Open menu">
+      <span></span><span></span><span></span>
+    </button>
   </div>
 </nav>
+
+<main id="main">
 
 <header class="hero" id="top">
   <div class="aura" aria-hidden="true"><i></i><i></i></div>
@@ -1006,10 +1147,10 @@
         <input id="re" name="email" type="email" required autocomplete="email" />
         <label for="rm">Anything you’d like to tell us (optional)</label>
         <textarea id="rm" name="message" rows="3"></textarea>
-        <div class="err" id="req-err"></div>
+        <div class="err" id="req-err" role="alert" aria-live="assertive"></div>
         <p style="margin-top:20px"><button class="btn big" type="submit" id="req-btn" style="width:100%;justify-content:center">Request a licence →</button></p>
       </form>
-      <div class="ok" id="req-ok" style="display:none">Thanks — your request is in. We’ll email your licence key as soon as we approve it.</div>
+      <div class="ok" id="req-ok" style="display:none" role="status" aria-live="polite" tabindex="-1">Thanks — your request is in. We’ll email your licence key as soon as we approve it.</div>
       <div id="req-download" style="display:none;margin-top:22px">
         <p style="font-weight:700;color:var(--ink);margin:0 0 14px">Get SafeNest now — activate it with the key once it arrives.</p>
 
@@ -1104,10 +1245,10 @@
         <input id="ss" name="subject" required />
         <label for="sb">How can we help?</label>
         <textarea id="sb" name="body" rows="4" required></textarea>
-        <div class="err" id="sup-err"></div>
+        <div class="err" id="sup-err" role="alert" aria-live="assertive"></div>
         <p style="margin-top:20px"><button class="btn big" type="submit" id="sup-btn" style="width:100%;justify-content:center">Send to support →</button></p>
       </form>
-      <div class="ok" id="sup-ok" style="display:none">Thanks — your message is in. We’ll reply to your email as soon as we can.</div>
+      <div class="ok" id="sup-ok" style="display:none" role="status" aria-live="polite" tabindex="-1">Thanks — your message is in. We’ll reply to your email as soon as we can.</div>
     </div>
       </div>
     </details>
@@ -1124,6 +1265,8 @@
     </div>
   </div>
 </section>
+
+</main>
 
 <footer>
   <div class="wrap foot-grid">
@@ -1167,7 +1310,7 @@
   </div>
 </footer>
 
-<script src="/storefront.js?v=3.42-gallery"></script>
+<script src="/storefront.js?v=3.42-cls"></script>
 <style>
 #aibit-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(3,3,5,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:22px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
 #aibit-gate.show{display:flex}
@@ -1188,7 +1331,7 @@
     <h3>Private download</h3>
     <p>Enter the password to download AI BIT.</p>
     <p id="aibit-ver" style="color:#a7a7b0;font-size:.84rem;margin:-8px 0 14px"></p>
-    <input id="aibit-pw" type="password" inputmode="numeric" autocomplete="off" placeholder="Password">
+    <input id="aibit-pw" type="password" inputmode="numeric" autocomplete="off" placeholder="Password" aria-label="Download password">
     <div id="aibit-err" class="aib-err"></div>
     <button id="aibit-ok" class="aib-ok">Unlock &amp; download</button>
   </div>

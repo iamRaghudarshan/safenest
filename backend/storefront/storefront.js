@@ -5,6 +5,62 @@
 const reduceMotion = window.matchMedia
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// ------------------------------------------------------------ mobile menu
+// The links are a panel below 900px. Three things make it behave like a menu
+// rather than a div that moves: aria-expanded so it is announced, Escape and
+// outside-click to close, and focus returning to the button afterwards so a
+// keyboard user is not dumped at the top of the document.
+const navToggle = document.getElementById('nav-toggle');
+const navLinks = document.getElementById('nav-links');
+if (navToggle && navLinks) {
+  const mq = window.matchMedia('(max-width: 900px)');
+
+  const setOpen = (open) => {
+    navLinks.classList.toggle('open', open);
+    navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    navToggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+  };
+
+  // Collapsed links must leave the tab order entirely. A max-height of 0 still
+  // leaves them focusable, so a keyboard user tabs into six invisible links.
+  const syncHidden = () => {
+    if (mq.matches && !navLinks.classList.contains('open')) navLinks.hidden = true;
+    else navLinks.hidden = false;
+  };
+
+  navToggle.addEventListener('click', () => {
+    const open = navToggle.getAttribute('aria-expanded') === 'true';
+    if (!open) { navLinks.hidden = false; requestAnimationFrame(() => setOpen(true)); }
+    else { setOpen(false); setTimeout(syncHidden, 300); }
+  });
+
+  // Following a link should close the menu — every link here is an in-page
+  // anchor, so without this the panel stays over the thing it scrolled to.
+  navLinks.addEventListener('click', (e) => {
+    if (e.target.closest('a') && mq.matches) {
+      setOpen(false); setTimeout(syncHidden, 300);
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && navToggle.getAttribute('aria-expanded') === 'true') {
+      setOpen(false); setTimeout(syncHidden, 300); navToggle.focus();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!mq.matches) return;
+    if (navToggle.getAttribute('aria-expanded') !== 'true') return;
+    if (e.target.closest('#nav-links') || e.target.closest('#nav-toggle')) return;
+    setOpen(false); setTimeout(syncHidden, 300);
+  });
+
+  // Resizing past the breakpoint with the panel open would otherwise leave the
+  // desktop bar in a half-open state.
+  mq.addEventListener('change', () => { setOpen(false); syncHidden(); });
+  syncHidden();
+}
+
 // Logo fallbacks (were inline onerror attributes, which CSP also blocks).
 document.querySelectorAll('img.logo-img').forEach((img) => {
   img.addEventListener('error', () => { img.style.display = 'none'; });
@@ -85,7 +141,11 @@ if (tabs && stage) {
   // display:none image with loading="lazy" is never fetched, and un-hiding it did
   // not reliably start the fetch either — so three of the four tabs showed
   // nothing at all, with no console error to give it away.
-  stage.innerHTML = '<img alt="" decoding="async">';
+  // Dimensions on the element as well, so the box is right even before the
+  // stylesheet's aspect-ratio applies. Lazy because the section is well below
+  // the fold on every viewport.
+  stage.innerHTML =
+    '<img alt="" decoding="async" loading="lazy" width="2000" height="1344">';
   const img = stage.querySelector('img');
   tabs.innerHTML = SCREENS.map(([label], i) =>
     `<button type="button" class="shot-tab${i ? '' : ' on'}" data-i="${i}">${label}</button>`).join('');
@@ -211,13 +271,20 @@ if (reqForm) {
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || 'Something went wrong.'); }
       reqForm.style.display = 'none';
-      document.getElementById('req-ok').style.display = 'block';
+      const okEl = document.getElementById('req-ok');
+      okEl.style.display = 'block'; okEl.focus();
       // Downloading is gated behind requesting: the buttons live hidden in
       // #req-download and are revealed only now, so every downloader is a captured
       // request. (The buttons were populated with availability on page load.)
       const dld = document.getElementById('req-download');
       if (dld) { dld.style.display = 'block'; dld.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-    } catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = 'Request a licence →'; }
+    } catch (ex) {
+      err.textContent = ex.message;
+      btn.disabled = false; btn.textContent = 'Request a licence →';
+      // role="alert" announces it, but a sighted keyboard user still has to
+      // hunt for where the message appeared. Put them on it.
+      err.setAttribute('tabindex', '-1'); err.focus();
+    }
   });
 }
 
@@ -257,7 +324,7 @@ if (supForm) {
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || 'Something went wrong.'); }
       supForm.style.display = 'none';
       document.getElementById('sup-ok').style.display = 'block';
-    } catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = 'Send to support →'; }
+    } catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = 'Send to support →';  err.setAttribute('tabindex','-1'); err.focus(); }
   });
 }
 
