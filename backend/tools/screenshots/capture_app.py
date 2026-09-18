@@ -13,24 +13,28 @@ import time
 import urllib.request
 from pathlib import Path
 
+import sys
+
 import websockets
 
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 PORT = 9240
 BASE = "http://127.0.0.1:8099"
-OUT = Path(__file__).resolve().parent / "shots"
+THEME = sys.argv[1] if len(sys.argv) > 1 else "light"
+OUT = Path(__file__).resolve().parent / ("shots" if THEME == "light" else f"shots-{THEME}")
 PROFILE = r"C:\Users\Pro-TEAM\AppData\Local\Temp\claude\cdp-app"
 
 # label -> (route hash, width, height)
 SHOTS = [
-    ("dashboard", "home", 1280, 860),
-    ("gallery", "gallery", 1280, 860),
-    ("documents", "documents", 1280, 860),
-    ("expenses", "expenses", 1280, 860),
-    ("vault", "vault", 1280, 860),
-    ("investments", "investments", 1280, 860),
-    ("insurance", "insurance", 1280, 860),
-    ("phone-home", "home", 400, 820),
+    # label, route, width, height, scroll (CSS px) before the shot
+    ("dashboard",   "home",        1440, 950, 300),
+    ("gallery",     "gallery",     1440, 950, 0),
+    ("documents",   "documents",   1440, 950, 0),
+    ("expenses",    "expenses",    1440, 950, 0),
+    ("vault",       "vault",       1440, 950, 0),
+    ("investments", "investments", 1440, 950, 0),
+    ("insurance",   "insurance",   1440, 950, 0),
+    ("phone-home",  "home",         400, 820, 380),
 ]
 
 
@@ -63,7 +67,7 @@ async def main():
         [CHROME, "--headless=new", f"--remote-debugging-port={PORT}",
          f"--user-data-dir={PROFILE}", "--no-first-run", "--disable-gpu",
          "--hide-scrollbars", "--force-device-scale-factor=2",
-         "--window-size=1280,900", "about:blank"],
+         "--window-size=1500,1010", "about:blank"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         async with websockets.connect(tgt(), max_size=200_000_000) as ws:
@@ -89,8 +93,10 @@ async def main():
             await send("Page.navigate", url=BASE + "/")
             await asyncio.sleep(4)
             await ev(f"localStorage.setItem('finmate.token', {json.dumps(tok)})")
+            # theme is a real persisted user setting, so either one is honest
+            await ev(f"localStorage.setItem('finmate.theme', {json.dumps(THEME)})")
 
-            for label, route, w, h in SHOTS:
+            for label, route, w, h, scroll in SHOTS:
                 # Device metrics per shot so the phone frames get a real phone
                 # viewport, not a desktop layout squeezed into a narrow window.
                 await send("Emulation.setDeviceMetricsOverride", width=w, height=h,
@@ -108,6 +114,20 @@ async def main():
                         "if(hit){hit.click();return 'clicked'} return 'NOT FOUND'})()")
                     print(f"     nav {route}: {clicked}")
                     await asyncio.sleep(4)
+                if scroll:
+                    moved = await ev(
+                        "(() => {const y=" + str(scroll) + ";"
+                        "const all=[...document.querySelectorAll('*')]"
+                        ".filter(e=>e.scrollHeight-e.clientHeight>200);"
+                        "all.sort((a,b)=>(b.scrollHeight-b.clientHeight)-(a.scrollHeight-a.clientHeight));"
+                        "let el=all[0];"
+                        "if(el&&el!==document.body&&el!==document.documentElement){"
+                        "el.scrollTop=y; return (el.className||el.tagName)+' -> '+el.scrollTop}"
+                        "(document.scrollingElement||document.documentElement).scrollTop=y;"
+                        "window.scrollTo(0,y);"
+                        "return 'window -> '+(document.scrollingElement||{}).scrollTop})()")
+                    print(f"     scrolled {scroll}px in {moved}")
+                    await asyncio.sleep(1.4)
                 r = await send("Page.captureScreenshot", format="png")
                 f = OUT / f"{label}.png"
                 f.write_bytes(base64.b64decode(r["data"]))

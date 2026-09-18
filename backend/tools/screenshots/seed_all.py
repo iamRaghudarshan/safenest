@@ -150,6 +150,12 @@ post_many("/api/insurance", [
      "premium": 21600, "sum_assured": 10000000, "frequency": "yearly", "renewal_date": ahead(96)},
     {"provider": "Harbour General", "policy_no": "HG-2209417", "policy_type": "Motor",
      "premium": 14200, "sum_assured": 900000, "frequency": "yearly", "renewal_date": ahead(12)},
+    {"provider": "Harbour General", "policy_no": "HG-7741208", "policy_type": "Home",
+     "premium": 9800, "sum_assured": 4500000, "frequency": "yearly", "renewal_date": ahead(57)},
+    {"provider": "Sentinel Health", "policy_no": "SH-2261044", "policy_type": "Personal accident",
+     "premium": 4200, "sum_assured": 2500000, "frequency": "yearly", "renewal_date": ahead(81)},
+    {"provider": "Harbour General", "policy_no": "HG-9930571", "policy_type": "Two-wheeler",
+     "premium": 3100, "sum_assured": 120000, "frequency": "yearly", "renewal_date": ahead(124)},
 ], "insurance")
 
 # ------------------------------------------------------------ investments
@@ -185,6 +191,22 @@ post_many("/api/vault", [
      "category": "Home", "password": "kitchen-window-42"},
     {"title": "Locker PIN — bank", "username": "Locker 214",
      "category": "Bank", "password": "7712"},
+    # A screen with seven rows on it photographs two thirds empty, and the
+    # app's decorative backdrop fills the gap. Enough rows to fill the frame.
+    {"title": "Gas connection portal", "username": "priya.sharma",
+     "category": "Utilities", "password": "Gk3!wqnZ71"},
+    {"title": "Municipal tax account", "username": "PID-4471-22",
+     "category": "Government", "password": "Mx8@trbY35"},
+    {"title": "Mutual fund portal", "username": "priya@example.com",
+     "category": "Finance", "password": "Fv6#qzlK80"},
+    {"title": "Bank net banking", "username": "priyash4417",
+     "category": "Bank", "password": "Nb1$xmwQ26"},
+    {"title": "Insurance portal", "username": "priya.sharma",
+     "category": "Insurance", "password": "Ip5%crtV93"},
+    {"title": "Passport seva", "username": "priya.sharma",
+     "category": "Government", "password": "Ps2^dfgH64"},
+    {"title": "Society gate app", "username": "A-1102",
+     "category": "Home", "password": "Sg9&hjkL17"},
 ], "vault")
 
 # -------------------------------------------------------------- reminders

@@ -28,13 +28,18 @@ SRC = Path(__file__).resolve().parent / ("shots" if THEME == "light" else f"shot
 DST = Path(__file__).resolve().parents[2] / "storefront" / "img"
 DST.mkdir(parents=True, exist_ok=True)
 
-# Fraction of the frame taken by the left navigation, measured off the captures
-# (526px of 2560 in every one of them) rather than guessed.
-NAV = 0.2055
+# The left navigation is a FIXED CSS width (263px), not a share of the frame,
+# so it is cropped as device pixels: 263 * the capture's scale factor of 2.
+# Measuring it as a percentage was wrong the moment the capture viewport
+# changed.
+NAV_PX = 526
 
-# Shots whose subject is one screen: drop the nav. The dashboard is not here,
-# because for that one the whole application IS the subject.
-CROP_NAV = {"gallery", "documents", "expenses", "vault", "investments", "insurance"}
+# EVERY shot loses the navigation, the dashboard included. Keeping it there
+# was a mistake: the dashboard is the first tab a visitor opens, so the one
+# image most people see was the one still showing "Users & Admin", "Licences",
+# "Masters" and "Email / SMTP" -- internal administration, not the product.
+CROP_NAV = {"dashboard", "gallery", "documents", "expenses",
+            "vault", "investments", "insurance"}
 
 # Dropping a fifth of the width takes the frame from 1.49 to 1.18, which beside
 # a column of text is a tall thin slab. Trimming the bottom back to a landscape
@@ -44,14 +49,14 @@ ASPECT = 1.45
 
 # name -> width it is actually rendered at, doubled for retina
 WANT = {
-    "dashboard": 1200,
-    "gallery": 1000,
-    "documents": 1000,
-    "expenses": 1000,
-    "vault": 1000,
-    "investments": 1000,
-    "insurance": 1000,
-    "phone-home": 420,
+    "dashboard": 1140,
+    "gallery": 1140,
+    "documents": 1140,
+    "expenses": 1140,
+    "vault": 1140,
+    "investments": 1140,
+    "insurance": 1140,
+    "phone-home": 430,
 }
 
 total_before = total_after = 0
@@ -62,7 +67,7 @@ for name, w in WANT.items():
         continue
     im = Image.open(src).convert("RGB")
     if name in CROP_NAV:
-        im = im.crop((round(im.width * NAV), 0, im.width, im.height))
+        im = im.crop((NAV_PX, 0, im.width, im.height))
         keep = min(im.height, round(im.width / ASPECT))
         im = im.crop((0, 0, im.width, keep))
     target = w * 2
