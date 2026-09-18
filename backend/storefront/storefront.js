@@ -153,7 +153,7 @@ if (tabs && stage) {
 
   const show = (i) => {
     const [label, file, alt] = SCREENS[i];
-    img.src = `/storefront-img/${file}.webp?v=2`;
+    img.src = `/storefront-img/${file}.webp?v=4`;
     img.alt = `${label} — ${alt}`;
     btns.forEach((x, n) => x.classList.toggle('on', n === i));
   };
@@ -166,7 +166,7 @@ if (tabs && stage) {
   // Fetch on hover so the swap feels instant when the click lands.
   tabs.addEventListener('pointerover', (e) => {
     const b = e.target.closest('.shot-tab');
-    if (b) new Image().src = `/storefront-img/${SCREENS[+b.dataset.i][1]}.webp?v=2`;
+    if (b) new Image().src = `/storefront-img/${SCREENS[+b.dataset.i][1]}.webp?v=4`;
   });
 }
 

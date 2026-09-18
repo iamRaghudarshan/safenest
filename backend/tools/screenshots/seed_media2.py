@@ -63,6 +63,10 @@ assert st == 200, r
 TOKEN = r["token"]
 print("signed in")
 
+# Prove this is the throwaway instance before writing a single row.
+from guard import assert_throwaway  # noqa: E402
+assert_throwaway(B, TOKEN)
+
 # ------------------------------------------------------------------ builders
 def r_groceries():
     return P.receipt("GREEN BASKET", "Willow Road, Bengaluru", [

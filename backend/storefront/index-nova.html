@@ -291,7 +291,7 @@ section.band-2{background:var(--band-2)}
 /* ===================================================================
    ALTERNATING FEATURE ROWS
    =================================================================== */
-.row2{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.08fr); gap:var(--s8); align-items:center}
+.row2{display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.16fr); gap:var(--s8); align-items:center}
 .row2.flip .row2-copy{order:2}
 .row2 h2{font-size:clamp(26px,3.1vw,38px)}
 .row2 > div > p{margin-top:var(--s4); font-size:16px; color:var(--body)}
@@ -304,10 +304,27 @@ section.band-2{background:var(--band-2)}
   border:1.5px solid var(--blue); color:var(--blue);
   font-size:12px; font-weight:700; display:grid; place-items:center;
 }
-.shot{
-  border-radius:20px; overflow:hidden; background:#fff; border:1px solid var(--line);
-  box-shadow:0 30px 70px -34px rgba(43,52,80,.55);
+/* A screenshot with no edge reads as a fragment. A window bar reads as a
+   desktop application, which is what this product actually is -- and it gives
+   the crop a deliberate boundary instead of an arbitrary one. Drawn in CSS so
+   it stays sharp at any size and costs nothing to download. */
+.frame{
+  border-radius:14px; overflow:hidden; background:#121a29;
+  border:1px solid rgba(20,28,45,.10);
+  box-shadow:0 34px 80px -30px rgba(20,30,55,.5);
 }
+.frame::before{
+  content:""; display:block; height:36px;
+  border-bottom:1px solid rgba(255,255,255,.07);
+  background:
+    radial-gradient(circle 5px at 20px 50%, #ec6a5e 97%, transparent 100%),
+    radial-gradient(circle 5px at 40px 50%, #f4bf4f 97%, transparent 100%),
+    radial-gradient(circle 5px at 60px 50%, #61c454 97%, transparent 100%),
+    #1b2233;
+}
+.frame img{width:100%; display:block}
+@media (max-width:620px){ .frame::before{height:26px; background-size:auto} }
+
 .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .row2-aside{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); align-items:start}
 @media (max-width:1000px){
@@ -330,12 +347,7 @@ section.band-2{background:var(--band-2)}
 }
 .shot-tab:hover{border-color:var(--blue); color:var(--blue)}
 .shot-tab.on{background:var(--blue); color:#fff; border-color:var(--blue); font-weight:500}
-#shot-stage{
-  max-width:1000px; margin-inline:auto; border-radius:20px; overflow:hidden;
-  border:1px solid var(--line); background:#fff;
-  box-shadow:0 34px 80px -40px rgba(43,52,80,.5);
-}
-#shot-stage img{width:100%}
+#shot-stage{max-width:1020px; margin-inline:auto}
 
 /* ===================================================================
    STEPS
@@ -544,8 +556,8 @@ footer .brand-word i{color:#79b0f7}
       </ul>
     </div>
     <div class="reveal">
-      <div class="shot">
-        <img src="/storefront-img/gallery.webp?v=2" alt="The SafeNest photo library" width="1200" height="760" loading="lazy" />
+      <div class="frame">
+        <img src="/storefront-img/gallery.webp?v=4" alt="The SafeNest photo library" width="1200" height="760" loading="lazy" />
       </div>
     </div>
   </div>
@@ -568,8 +580,8 @@ footer .brand-word i{color:#79b0f7}
       </ul>
     </div>
     <div class="reveal">
-      <div class="shot">
-        <img src="/storefront-img/documents.webp?v=2" alt="The SafeNest document cabinet" width="1200" height="760" loading="lazy" />
+      <div class="frame">
+        <img src="/storefront-img/documents.webp?v=4" alt="The SafeNest document cabinet" width="1200" height="760" loading="lazy" />
       </div>
     </div>
   </div>
@@ -591,8 +603,8 @@ footer .brand-word i{color:#79b0f7}
       </ul>
     </div>
     <div class="reveal">
-      <div class="shot">
-        <img src="/storefront-img/expenses.webp?v=2" alt="The SafeNest expense ledger" width="1200" height="760" loading="lazy" />
+      <div class="frame">
+        <img src="/storefront-img/expenses.webp?v=4" alt="The SafeNest expense ledger" width="1200" height="760" loading="lazy" />
       </div>
     </div>
   </div>
@@ -606,7 +618,7 @@ footer .brand-word i{color:#79b0f7}
       <p>These are screenshots of the running application, not mock-ups.</p>
     </div>
     <div id="shot-tabs" aria-label="Application screens"></div>
-    <div id="shot-stage"></div>
+    <div id="shot-stage" class="frame"></div>
   </div>
 </section>
 
@@ -857,6 +869,6 @@ footer .brand-word i{color:#79b0f7}
   </div>
 </footer>
 
-<script src="/storefront.js?v=5.1-shots"></script>
+<script src="/storefront.js?v=5.3-dark"></script>
 </body>
 </html>

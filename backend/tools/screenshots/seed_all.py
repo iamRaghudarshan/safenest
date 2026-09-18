@@ -76,6 +76,10 @@ assert st == 200, r
 TOKEN = r["token"]
 print("signed in as", EMAIL)
 
+# Prove this is the throwaway instance before writing a single row.
+from guard import assert_throwaway  # noqa: E402
+assert_throwaway(B, TOKEN)
+
 # ------------------------------------------------------------------ income
 # Without this the expenses screen shows "INCOME Rs 0" beside the spending,
 # which reads as a half-finished app rather than a household ledger.
