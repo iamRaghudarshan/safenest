@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 580" width="760" height="580" role="img" aria-label="A home with documents and a shield, drawn flat">
+  <!--
+    Original flat-vector illustration for the SafeNest hero.
+
+    The reference style is illustration-led, and the artwork on a purchased
+    template belongs to its author, so this is drawn from scratch in the same
+    flat idiom: no gradients except one very soft blob, no outlines on the
+    solids, a four-value palette, and the sparkle motif the style uses to fill
+    empty corners.
+
+    The subject is the product's actual claim rather than a generic desk scene:
+    a HOUSE, with the paperwork of a household around it and a shield over it.
+  -->
+  <defs>
+    <linearGradient id="blobG" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EEF4FE"/>
+      <stop offset="1" stop-color="#DFEAFD"/>
+    </linearGradient>
+    <clipPath id="roofClip"><path d="M228 292 L380 172 L532 292 Z"/></clipPath>
+  </defs>
+
+  <!-- soft ground blobs -->
+  <path fill="url(#blobG)" d="M400 44 C575 44 706 152 690 306 C674 456 542 534 384 532 C226 530 76 462 68 306 C60 150 225 44 400 44 Z"/>
+  <path fill="#DCE7FC" opacity=".55" d="M470 132 C586 126 660 210 650 314 C640 418 528 468 424 460 C320 452 236 398 242 306 C248 214 354 138 470 132 Z"/>
+  <ellipse cx="380" cy="474" rx="226" ry="25" fill="#CFDEFA" opacity=".8"/>
+
+  <!-- chimney (drawn before the roof so the roof laps over it) -->
+  <rect x="466" y="178" width="30" height="92" rx="5" fill="#4A59CC"/>
+  <rect x="460" y="172" width="42" height="15" rx="5" fill="#3F4EBB"/>
+
+  <!-- house body -->
+  <rect x="250" y="288" width="260" height="180" rx="10" fill="#FFFFFF"/>
+  <rect x="250" y="288" width="260" height="180" rx="10" fill="none" stroke="#DCE7FC" stroke-width="3"/>
+
+  <!-- roof -->
+  <path d="M228 292 L380 172 L532 292 Z" fill="#5C6BE0"/>
+  <g clip-path="url(#roofClip)">
+    <path d="M228 292 L380 172 L380 292 Z" fill="#6A78E8"/>
+  </g>
+  <rect x="222" y="288" width="316" height="14" rx="7" fill="#3F4EBB"/>
+
+  <!-- door -->
+  <rect x="352" y="374" width="60" height="94" rx="9" fill="#2B3560"/>
+  <circle cx="400" cy="424" r="4.5" fill="#F2F6FE"/>
+
+  <!-- windows -->
+  <g>
+    <rect x="282" y="322" width="54" height="50" rx="7" fill="#DCE7FC" stroke="#2F80ED" stroke-width="4"/>
+    <path d="M309 322 V372 M282 347 H336" stroke="#2F80ED" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <g>
+    <rect x="424" y="322" width="54" height="50" rx="7" fill="#DCE7FC" stroke="#2F80ED" stroke-width="4"/>
+    <path d="M451 322 V372 M424 347 H478" stroke="#2F80ED" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <!-- floating document cards: the paperwork a household keeps -->
+  <g transform="rotate(-11 158 196)">
+    <rect x="96" y="150" width="124" height="94" rx="12" fill="#FFFFFF" stroke="#DCE7FC" stroke-width="3"/>
+    <rect x="112" y="170" width="62" height="9" rx="4.5" fill="#2F80ED"/>
+    <rect x="112" y="189" width="92" height="7" rx="3.5" fill="#D6E2F8"/>
+    <rect x="112" y="204" width="80" height="7" rx="3.5" fill="#D6E2F8"/>
+    <rect x="112" y="219" width="50" height="7" rx="3.5" fill="#D6E2F8"/>
+  </g>
+
+  <g transform="rotate(9 168 372)">
+    <rect x="108" y="330" width="116" height="86" rx="12" fill="#FFFFFF" stroke="#DCE7FC" stroke-width="3"/>
+    <circle cx="132" cy="354" r="11" fill="#5C6BE0"/>
+    <rect x="152" y="349" width="56" height="8" rx="4" fill="#D6E2F8"/>
+    <rect x="124" y="378" width="84" height="7" rx="3.5" fill="#D6E2F8"/>
+    <rect x="124" y="393" width="60" height="7" rx="3.5" fill="#D6E2F8"/>
+  </g>
+
+  <g transform="rotate(7 622 292)">
+    <rect x="566" y="248" width="112" height="88" rx="12" fill="#FFFFFF" stroke="#DCE7FC" stroke-width="3"/>
+    <rect x="582" y="268" width="46" height="9" rx="4.5" fill="#2F80ED"/>
+    <rect x="582" y="288" width="80" height="7" rx="3.5" fill="#D6E2F8"/>
+    <rect x="582" y="303" width="64" height="7" rx="3.5" fill="#D6E2F8"/>
+  </g>
+
+  <!-- the shield: what the whole product is for -->
+  <g transform="translate(566 96)">
+    <path d="M-48 6 L0 -14 L48 6 V52 C48 88 22 110 0 118 C-22 110 -48 88 -48 52 Z" fill="#2F80ED"/>
+    <path d="M-48 6 L0 -14 V118 C-22 110 -48 88 -48 52 Z" fill="#3D8BF0"/>
+    <path d="M-20 50 l14 16 l28 -34" fill="none" stroke="#FFFFFF" stroke-width="9"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- sparkles: the style uses these to keep the corners from reading empty -->
+  <g fill="#2F80ED">
+    <path d="M128 92 C128 106 134 112 148 112 C134 112 128 118 128 132 C128 118 122 112 108 112 C122 112 128 106 128 92 Z"/>
+    <path d="M690 392 C690 403 695 408 706 408 C695 408 690 413 690 424 C690 413 685 408 674 408 C685 408 690 403 690 392 Z"/>
+  </g>
+  <g fill="#8FB6F5">
+    <path d="M472 84 C472 93 476 97 485 97 C476 97 472 101 472 110 C472 101 468 97 459 97 C468 97 472 93 472 84 Z"/>
+    <path d="M86 452 C86 461 90 465 99 465 C90 465 86 469 86 478 C86 469 82 465 73 465 C82 465 86 461 86 452 Z"/>
+    <path d="M652 168 C652 176 655 179 663 179 C655 179 652 182 652 190 C652 182 649 179 641 179 C649 179 652 176 652 168 Z"/>
+  </g>
+</svg>
