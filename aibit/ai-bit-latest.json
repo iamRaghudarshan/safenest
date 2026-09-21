@@ -1,7 +1,7 @@
 {
-  "version": "2.23.0",
-  "build": 127,
-  "url": "https://safenesthub.in/ai-bit-2.23.0.apk",
-  "notes": "Settings now tells you when one setting has switched another off — so a control that looks on but does nothing explains itself. Feed previews also pause on a low battery. The playlist name box no longer accepts an empty name.",
+  "version": "2.24.0",
+  "build": 130,
+  "url": "https://safenesthub.in/ai-bit-2.24.0.apk",
+  "notes": "A maintenance release: update checks now point at the new download host. Nothing else changes — 2.23.0 works exactly as before — but installing this is what lets future updates reach you at all, because a phone only ever asks the address built into it.",
   "min_supported_build": 0
 }

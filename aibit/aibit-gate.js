@@ -4,8 +4,8 @@
    password downloads the APK directly. Client-side only — a private personal
    build, not a security boundary. */
 (function () {
-  var APK = "/ai-bit-2.23.0.apk";
-  var FILENAME = "ai-bit-2.23.0.apk";
+  var APK = "/ai-bit-2.24.0.apk";
+  var FILENAME = "ai-bit-2.24.0.apk";
   var PW = "10001";
 
   function el(id) { return document.getElementById(id); }
