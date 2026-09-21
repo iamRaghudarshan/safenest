@@ -105,8 +105,11 @@ async def main():
                   await ev("document.querySelectorAll('.faq-item').length") == 6)
             check("4 footer columns",
                   await ev("document.querySelectorAll('.foot-col').length") == 4)
-            check("AI BIT gate trigger intact",
-                  await ev("document.querySelectorAll('.dl-trigger').length") >= 1)
+            # AI BIT hosting was removed from this server on request, so the
+            # gate must be GONE rather than present. Asserting its absence keeps
+            # a future rebuild from quietly reintroducing it.
+            check("AI BIT gate removed",
+                  await ev("document.querySelectorAll('.dl-trigger, #aibit-gate').length") == 0)
 
             print("\nSEO")
             for tag, sel in [("canonical", "link[rel=canonical]"),

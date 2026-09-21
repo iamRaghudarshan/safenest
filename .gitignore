@@ -76,5 +76,4 @@ nuitka-crash-report.xml
 
 # AI BIT downloads: the APK is a 73 MB CI artifact, republished not versioned.
 # The gate and the manifest beside it ARE tracked - they are edited by hand.
-aibit/*.apk
 mobile/*.apk
