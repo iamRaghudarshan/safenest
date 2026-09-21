@@ -5,7 +5,12 @@ continue from where it stopped, not start again. That is the whole reason a
 300 MB video on a home upstream ever finishes.
 """
 import os, sys, json, io as _io, urllib.request, urllib.error, uuid
-S = "C:/Users/Lenovo/AppData/Local/Temp/claude/d--AI-TUBE/b6c2adb3-9145-4802-8c66-a8b7fb4c29ac/scratchpad/synctest"
+# A scratch dir of its own, derived at run time. This used to be a literal
+# path under C:/Users/Lenovo -- another machine's profile -- so the script
+# only ever worked on the computer it was written on.
+import tempfile
+S = os.environ.get("SYNC_TEST_DIR") or os.path.join(tempfile.gettempdir(), "safenest-verify")
+os.makedirs(S, exist_ok=True)
 os.environ.update(DB_ENGINE="sqlite", DB_FILE=S + "/t.db", MEDIA_ROOT=S + "/media",
                   JWT_SECRET="test-only-secret-for-verification-not-real-0001",
                   MEDIA_SECRET="test-only-media-secret-for-verification-0002",
