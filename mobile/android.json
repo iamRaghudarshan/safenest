@@ -1,0 +1,5 @@
+{
+  "version": "1.62.0",
+  "notes": "Housekeeping. The publisher's new address is recorded, and the Android bundle id is deliberately pinned to the old one — changing it would make Android treat this as a different app and install a second copy beside yours. Nothing you interact with has changed.",
+  "filename": "app-release.apk"
+}
