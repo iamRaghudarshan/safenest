@@ -117,9 +117,15 @@ const EXTRAS = [
   ['\u{1F4E6}', 'Moves house in one click',
    'Take the lot \u2014 records, photos, settings \u2014 to a new computer on a USB drive.', '#f43f5e'],
 ];
+// The first element of each row used to be an emoji. It is now the id of a
+// symbol in the inlined sprite, derived from the title so the two cannot drift
+// apart: a renamed module gets a missing icon, not somebody else's.
+const iconId = (title) => 'i-' + title.toLowerCase().replace(/[^a-z]/g, '');
+
 const card = ([i, t, d, c, span], n) =>
   `<div class="feat reveal${span === 2 ? ' wide' : ''}" style="--fc:${c};transition-delay:${n * 45}ms">
-     <div class="ic">${i}</div><h3>${t}</h3><p>${d}</p></div>`;
+     <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${iconId(t)}"/></svg></div>
+     <h3>${t}</h3><p>${d}</p></div>`;
 
 
 const grid = document.getElementById('features-grid');
