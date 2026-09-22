@@ -78,21 +78,21 @@ document.documentElement.classList.add('js');
 // what gets the room. The spans must still total a multiple of four per row or
 // the grid grows a ragged edge.
 const MODULES = [
-  ['\u{1F4B0}', 'Expenses', 'Track what you spend, month by month \u2014 grouped, searchable, and totalled without you doing a thing.', '#1656C6', 2],
-  ['\u{1F5BC}\uFE0F', 'Photos', 'Your whole phone library, on your own machine.', '#6366f1', 1],
-  ['\u{1F510}', 'Vault', 'Passwords and secrets, AES-256 encrypted.', '#0891b2', 1],
+  ['i-expenses', 'Expenses', 'Track what you spend, month by month \u2014 grouped, searchable, and totalled without you doing a thing.', '#1656C6', 2],
+  ['i-photos', 'Photos', 'Your whole phone library, on your own machine.', '#6366f1', 1],
+  ['i-vault', 'Vault', 'Passwords and secrets, AES-256 encrypted.', '#0891b2', 1],
 
-  ['\u{1F3E6}', 'Loans', 'Every loan and what is left to pay.', '#7b3ff2', 1],
-  ['\u{1F4B3}', 'Cards', 'Statements, and what is due when.', '#0ea5e9', 1],
-  ['\u{1F4C4}', 'Documents', 'Scan and keep every important paper \u2014 Aadhaar, deeds, warranties \u2014 found by searching inside them.', '#f43f5e', 2],
+  ['i-loans', 'Loans', 'Every loan and what is left to pay.', '#7b3ff2', 1],
+  ['i-cards', 'Cards', 'Statements, and what is due when.', '#0ea5e9', 1],
+  ['i-documents', 'Documents', 'Scan and keep every important paper \u2014 Aadhaar, deeds, warranties \u2014 found by searching inside them.', '#f43f5e', 2],
 
-  ['\u{1F6E1}\uFE0F', 'Insurance', 'Policies, premiums, renewal dates.', '#10b981', 1],
-  ['\u{1F4C8}', 'Investments', 'What you hold, and what it is worth.', '#f59e0b', 1],
-  ['\u{1F514}', 'Reminders', 'Never miss a bill or a renewal.', '#e11d48', 1],
-  ['\u2705', 'To-dos', 'The little things, kept with the rest.', '#059669', 1],
+  ['i-insurance', 'Insurance', 'Policies, premiums, renewal dates.', '#10b981', 1],
+  ['i-investments', 'Investments', 'What you hold, and what it is worth.', '#f59e0b', 1],
+  ['i-reminders', 'Reminders', 'Never miss a bill or a renewal.', '#e11d48', 1],
+  ['i-todos', 'To-dos', 'The little things, kept with the rest.', '#059669', 1],
 
-  ['\u{1F4C5}', 'Habits', 'The things you mean to do daily, tracked as a streak you can actually see.', '#8b5cf6', 2],
-  ['\u{1F4DD}', 'Notes', 'Anything that does not fit a form, filed with everything that does.', '#14b8a6', 2],
+  ['i-habits', 'Habits', 'The things you mean to do daily, tracked as a streak you can actually see.', '#8b5cf6', 2],
+  ['i-notes', 'Notes', 'Anything that does not fit a form, filed with everything that does.', '#14b8a6', 2],
 ];
 
 // What the app does ACROSS the modules. Every line here was checked against the
@@ -100,31 +100,30 @@ const MODULES = [
 // sign-in is deliberately absent even though auth.py has six routes for it, as
 // nothing in the frontend calls any of them.
 const EXTRAS = [
-  ['\u{1F4F4}', 'Works offline',
+  ['i-offline', 'Works offline',
    'Install it on your phone or desktop and it opens without a connection.', '#0891b2'],
-  ['\u{1F642}', 'Knows who and what is in your photos',
+  ['i-faces', 'Knows who and what is in your photos',
    'Pictures group themselves by face, and you can search by what a photo shows.', '#6366f1'],
-  ['\u{1F9F9}', 'Clears out duplicates',
+  ['i-duplicates', 'Clears out duplicates',
    'Finds exact copies and near ones \u2014 resized, re-saved, edited \u2014 and gives the space back.', '#f59e0b'],
-  ['\u{1F514}', 'One summary a day',
+  ['i-summary', 'One summary a day',
    'Bills, renewals and tasks in a single notification, at a time you choose.', '#e11d48'],
-  ['\u{1F46A}', 'A sign-in for everyone at home',
+  ['i-household', 'A sign-in for everyone at home',
    'Each person keeps their own records. Nobody sees anybody else\u2019s.', '#10b981'],
-  ['\u{1F4F2}', 'Backs up an iPhone\u2019s whole library',
+  ['i-phonebackup', 'Backs up an iPhone\u2019s whole library',
    'Straight from the phone\u2019s Shortcuts app \u2014 no cable, no browser upload.', '#7b3ff2'],
-  ['\u{1F310}', 'Your own web address',
+  ['i-web', 'Your own web address',
    'Reach your records from outside the house, on a domain that is yours.', '#0ea5e9'],
-  ['\u{1F4E6}', 'Moves house in one click',
+  ['i-move', 'Moves house in one click',
    'Take the lot \u2014 records, photos, settings \u2014 to a new computer on a USB drive.', '#f43f5e'],
 ];
-// The first element of each row used to be an emoji. It is now the id of a
-// symbol in the inlined sprite, derived from the title so the two cannot drift
-// apart: a renamed module gets a missing icon, not somebody else's.
-const iconId = (title) => 'i-' + title.toLowerCase().replace(/[^a-z]/g, '');
-
+// The first element of each row is the id of a symbol in the inlined sprite.
+// It was an emoji, and briefly a slug derived from the title — which was absurd
+// for "Backs up an iPhone's whole library" and, worse, meant renaming a card
+// silently broke its icon.
 const card = ([i, t, d, c, span], n) =>
   `<div class="feat reveal${span === 2 ? ' wide' : ''}" style="--fc:${c};transition-delay:${n * 45}ms">
-     <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${iconId(t)}"/></svg></div>
+     <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${i}"/></svg></div>
      <h3>${t}</h3><p>${d}</p></div>`;
 
 

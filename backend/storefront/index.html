@@ -287,7 +287,10 @@ section.mist{background:var(--tint-mist)}
 /* ---- cards (module + capability grids) ------------------------------ */
 .grid{display:grid; gap:var(--s5)}
 #features-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
-#extras-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+/* Three, not four. At four the column is narrow enough that a title like
+   "Backs up an iPhone's whole library" takes three lines and the description
+   below it runs two words wide. */
+#extras-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 
 .feat{
   --fc:var(--blue);
@@ -302,14 +305,6 @@ section.mist{background:var(--tint-mist)}
   transform:translateY(-6px);
   box-shadow:0 4px 0 -1px var(--blue), 0 28px 50px -28px rgba(43,52,80,.55);
 }
-.feat .ic{
-  width:76px; height:56px; margin:0 auto var(--s5);
-  /* Domed badge -- round on top, squared below, as in the reference. */
-  border-radius:999px 999px 10px 10px;
-  display:grid; place-items:center; font-size:24px;
-  background:color-mix(in srgb, var(--fc) 13%, #fff);
-}
-@supports not (background:color-mix(in srgb,red 10%,#fff)){.feat .ic{background:var(--blue-pale)}}
 .feat h3{font-size:19px; margin-bottom:var(--s3)}
 .feat p{font-size:14.5px; color:var(--body); line-height:1.7}
 .feat.wide{grid-column:span 1}
@@ -324,8 +319,13 @@ section.mist{background:var(--tint-mist)}
 .feat .ic{
   grid-area:ic; width:46px; height:46px; margin:0;
   border-radius:14px; display:grid; place-items:center;
+  /* Filled with the card's own colour rather than a 15% tint of it: twelve
+     pale squares read as one grey grid from any distance. */
+  background:linear-gradient(135deg, var(--fc), color-mix(in srgb, var(--fc) 58%, #ffffff));
+  box-shadow:0 8px 18px -9px var(--fc);
 }
-.feat .ic svg{width:25px; height:25px; color:var(--fc)}
+@supports not (background:color-mix(in srgb,red 10%,#fff)){ .feat .ic{background:var(--fc)} }
+.feat .ic svg{width:25px; height:25px; color:#fff}
 .feat h3{grid-area:title; font-size:17.5px; margin:0; align-self:center}
 .feat p{grid-area:body; font-size:14.5px; margin:0}
 @media (max-width:420px){
@@ -447,10 +447,16 @@ section.mist{background:var(--tint-mist)}
   background:#fff; border:1px solid var(--line); border-radius:16px;
   padding:var(--s5); margin-bottom:var(--s4);
 }
+.info-card{--sc:var(--blue)}
+.info-card:nth-of-type(2){--sc:var(--violet)}
+.info-card:nth-of-type(3){--sc:var(--green)}
 .info-card .ic{
-  width:46px; height:46px; border-radius:50%; background:var(--blue); color:#fff;
+  width:46px; height:46px; border-radius:50%; color:#fff;
+  background:linear-gradient(135deg, var(--sc), color-mix(in srgb, var(--sc) 58%, #ffffff));
   display:grid; place-items:center; font-size:19px; flex:0 0 auto;
+  box-shadow:0 8px 18px -9px var(--sc);
 }
+@supports not (background:color-mix(in srgb,red 10%,#fff)){ .info-card .ic{background:var(--sc)} }
 .info-card h4{font-size:15px; margin-bottom:4px}
 .info-card p{font-size:14px; color:var(--body); line-height:1.6}
 
@@ -462,7 +468,13 @@ section.mist{background:var(--tint-mist)}
   display:flex; align-items:center; justify-content:space-between; gap:var(--s4);
 }
 .faq-item summary::-webkit-details-marker{display:none}
-.faq-item summary::after{content:"+"; font-size:22px; color:var(--blue); line-height:1; transition:transform .22s ease}
+.faq-item{--qc:var(--blue)}
+.faq-item:nth-of-type(2){--qc:var(--violet)}
+.faq-item:nth-of-type(3){--qc:var(--green)}
+.faq-item:nth-of-type(4){--qc:#e2951f}
+.faq-item:nth-of-type(5){--qc:var(--rose)}
+.faq-item:nth-of-type(6){--qc:var(--blue-bright)}
+.faq-item summary::after{content:"+"; font-size:22px; color:var(--qc); line-height:1; transition:transform .22s ease}
 .faq-item[open] summary::after{transform:rotate(45deg)}
 .faq-item p{margin-top:var(--s4); font-size:15px; color:var(--body)}
 
@@ -598,6 +610,60 @@ footer .brand-word i{color:#79b0f7}
           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
     <path d="M19.5 12.5v6A2.5 2.5 0 0 1 17 21H6.5A2.5 2.5 0 0 1 4 18.5V8A2.5 2.5 0 0 1 6.5 5.5h6"/>
     <path d="M16.2 3.8a1.9 1.9 0 0 1 2.7 2.7L12.6 12.8l-3.3.7.7-3.3Z"/>
+  </symbol>
+
+  <symbol id="i-offline" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 8.5a15 15 0 0 1 6-3.4"/><path d="M13.5 5.2a15 15 0 0 1 8 3.3"/>
+    <path d="M6 12.2a10 10 0 0 1 3.2-2"/><path d="M15 10.4a10 10 0 0 1 3 1.8"/>
+    <path d="M9.4 15.8a5 5 0 0 1 5.2 0"/><circle cx="12" cy="19.4" r="1.1" fill="currentColor" stroke="none"/>
+    <path d="m3.5 3.5 17 17"/>
+  </symbol>
+
+  <symbol id="i-faces" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="4.5" width="18" height="15" rx="2.5"/>
+    <circle cx="9.5" cy="10.5" r="2.4"/>
+    <path d="M5.5 17c.9-2 2.3-3 4-3s3.1 1 4 3"/>
+    <path d="M15.5 9.5h3"/><path d="M15.5 13h3"/>
+  </symbol>
+
+  <symbol id="i-duplicates" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.5" y="3.5" width="12" height="12" rx="2.5"/>
+    <path d="M8.5 20.5h10a2 2 0 0 0 2-2v-10"/>
+    <path d="m6.8 9.2 2 2 4-4.2"/>
+  </symbol>
+
+  <symbol id="i-summary" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
+    <path d="M12 2.5v1.5"/><path d="M12 20v1.5"/>
+  </symbol>
+
+  <symbol id="i-household" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="8.5" cy="8.5" r="3"/><circle cx="16.5" cy="9.5" r="2.4"/>
+    <path d="M3 19c.6-3 2.8-4.7 5.5-4.7S13.4 16 14 19"/>
+    <path d="M15.5 14.6c2.3.2 4 1.8 4.5 4.4"/>
+  </symbol>
+
+  <symbol id="i-phonebackup" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6" y="2.8" width="12" height="18.4" rx="2.6"/>
+    <path d="M10.5 18.6h3"/><path d="M12 13.4V7.6"/><path d="m9.6 10 2.4-2.4L14.4 10"/>
+  </symbol>
+
+  <symbol id="i-web" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.6"/><path d="M3.4 12h17.2"/>
+    <path d="M12 3.4c2.2 2.4 3.4 5.4 3.4 8.6S14.2 18.2 12 20.6c-2.2-2.4-3.4-5.4-3.4-8.6S9.8 5.8 12 3.4Z"/>
+  </symbol>
+
+  <symbol id="i-move" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.2 8.2 12 4l8.8 4.2v7.6L12 20l-8.8-4.2Z"/>
+    <path d="M3.2 8.2 12 12.4l8.8-4.2"/><path d="M12 12.4V20"/>
   </symbol>
 </svg>
 
@@ -983,6 +1049,6 @@ footer .brand-word i{color:#79b0f7}
   </div>
 </footer>
 
-<script src="/storefront.js?v=6.1-icons"></script>
+<script src="/storefront.js?v=6.3-icons"></script>
 </body>
 </html>
