@@ -67,14 +67,30 @@
   --white:#ffffff;
   --band:#f5f7fa;
   --band-2:#eef3fa;
-  --navy:#2b3450;
-  --navy-2:#3a456b;
+  /* Section grounds, all mixed from the logo's own blues rather than grey, so
+     the page reads as one family instead of white with blue bits on it. Each
+     band differs from its neighbours; none is strong enough to fight the
+     content sitting on it. */
+  --tint-sky:#eff6ff;
+  --tint-azure:#e3effd;
+  --tint-deep:#d8e8fc;
+  --tint-mist:#f3f8ff;
+  /* Sampled from logo.png: it runs from deep navy to a vivid azure, and the
+     site was flattening all of that into one mid blue. */
+  --navy:#001848;
+  --navy-2:#0a2a5e;
   --body:#6b7a99;
   --muted:#8a97b1;
-  --blue:#2f80ed;
-  --blue-dark:#1b6ad4;
-  --blue-pale:#e8f1fe;
+  --blue:#0078f0;
+  --blue-deep:#0054f0;
+  --blue-bright:#0090f0;
+  --blue-dark:#003cb4;
+  --blue-pale:#e8f2fe;
   --peri:#5c6be0;
+  /* The logo's own gradient, reused wherever the page should sing. */
+  --grad:linear-gradient(135deg,#0054f0 0%,#0090f0 100%);
+  /* Supporting hues, so the page is not one colour end to end. */
+  --violet:#6c4bd8; --green:#3fa96e; --amber:#ffcf4d; --rose:#e2557a;
   --line:#e8edf5;
 
   --r-card:30px;
@@ -103,7 +119,14 @@ h1,h2,h3,h4{
   font-family:var(--font); font-weight:700; color:var(--navy);
   letter-spacing:.4px; line-height:1.25; margin:0;
 }
-h1 em,h2 em{font-style:normal; color:var(--blue)}
+h1 em,h2 em{
+  font-style:normal;
+  background:var(--grad); -webkit-background-clip:text; background-clip:text;
+  color:transparent;
+}
+@supports not ((background-clip:text) or (-webkit-background-clip:text)){
+  h1 em,h2 em{color:var(--blue)}
+}
 p{margin:0}
 
 .wrap{width:min(1180px,calc(100% - var(--gut)*2)); margin-inline:auto}
@@ -134,6 +157,13 @@ body > nav .wrap{display:flex; align-items:center; gap:var(--s4); position:relat
 
 .brand{display:flex; align-items:center; gap:10px; flex:0 0 auto}
 .brand-mark{height:34px; width:34px; border-radius:8px}
+.brand-logo{
+  /* Tall enough that the tagline under the wordmark is actually readable —
+     at nav sizes it was there but too small to resolve. */
+  height:48px; width:auto; display:block;
+}
+.brand-logo-foot{height:62px}
+@media (max-width:520px){ .brand-logo{height:40px} }
 .brand-word{font-weight:700; font-size:24px; letter-spacing:.2px; line-height:1}
 .brand-word b{color:var(--navy); font-weight:700}
 .brand-word i{color:var(--blue); font-style:normal; font-weight:700}
@@ -223,8 +253,8 @@ body > nav .wrap{display:flex; align-items:center; gap:var(--s4); position:relat
   border:1px solid transparent; cursor:pointer; text-align:center;
   transition:transform .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease;
 }
-.btn-primary{background:var(--blue); color:#fff; box-shadow:0 12px 26px -12px rgba(47,128,237,.95)}
-.btn-primary:hover{background:var(--blue-dark); transform:translateY(-2px)}
+.btn-primary{background:var(--grad); color:#fff; box-shadow:0 14px 30px -12px rgba(0,84,240,.85)}
+.btn-primary:hover{background:linear-gradient(135deg,#003cb4 0%,#0078f0 100%); transform:translateY(-2px)}
 .btn-outline{background:#fff; color:var(--navy); border-color:var(--line)}
 .btn-outline:hover{border-color:var(--blue); color:var(--blue); transform:translateY(-2px)}
 .btn-navy{background:var(--navy); color:#fff}
@@ -243,6 +273,11 @@ body > nav .wrap{display:flex; align-items:center; gap:var(--s4); position:relat
 section{padding:var(--s10) 0}
 section.band{background:var(--band)}
 section.band-2{background:var(--band-2)}
+/* Named per section so the rhythm is visible here rather than guessed at. */
+section.sky{background:var(--tint-sky)}
+section.azure{background:var(--tint-azure)}
+section.deep{background:linear-gradient(180deg,var(--tint-deep) 0%,var(--tint-azure) 100%)}
+section.mist{background:var(--tint-mist)}
 
 .sec-head{max-width:780px; margin:0 auto var(--s8); text-align:center}
 .sec-head h2{font-size:clamp(28px,3.4vw,42px)}
@@ -306,7 +341,7 @@ section.band-2{background:var(--band-2)}
   /* Outlined circled tick, as the reference uses -- not a filled dot. */
   content:"\2713"; position:absolute; left:0; top:2px;
   width:24px; height:24px; border-radius:50%;
-  border:1.5px solid var(--blue); color:var(--blue);
+  border:1.5px solid var(--blue-bright); color:var(--blue-deep);
   font-size:12px; font-weight:700; display:grid; place-items:center;
 }
 
@@ -334,10 +369,17 @@ section.band-2{background:var(--band-2)}
   padding:var(--s7) var(--s5); text-align:center;
   box-shadow:0 4px 0 -1px var(--navy), 0 16px 34px -26px rgba(43,52,80,.5);
 }
+.step{--sc:var(--blue)}
+.step:nth-child(2){--sc:var(--violet)}
+.step:nth-child(3){--sc:var(--green)}
 .step .n{
-  width:52px; height:52px; border-radius:50%; background:var(--blue-pale); color:var(--blue);
+  width:52px; height:52px; border-radius:50%; color:#fff;
+  background:linear-gradient(135deg, var(--sc), color-mix(in srgb, var(--sc) 55%, #ffffff));
   display:grid; place-items:center; font-size:20px; font-weight:700; margin:0 auto var(--s5);
+  box-shadow:0 10px 22px -10px var(--sc);
 }
+@supports not (background:color-mix(in srgb,red 10%,#fff)){ .step .n{background:var(--sc)} }
+.step{box-shadow:0 4px 0 -1px var(--sc), 0 16px 34px -26px rgba(0,24,72,.5)}
 .step h3{font-size:18px; margin-bottom:var(--s3)}
 .step p{font-size:14.5px; color:var(--body); line-height:1.7}
 @media (max-width:860px){.steps{grid-template-columns:1fr}}
@@ -406,7 +448,7 @@ section.band-2{background:var(--band-2)}
 .faq-item p{margin-top:var(--s4); font-size:15px; color:var(--body)}
 
 /* ---- closing CTA ---------------------------------------------------- */
-.cta-band{background:var(--blue); color:#fff; text-align:center; position:relative; overflow:hidden}
+.cta-band{background:var(--grad); color:#fff; text-align:center; position:relative; overflow:hidden}
 .cta-band h2{color:#fff; font-size:clamp(28px,3.6vw,44px)}
 .cta-band p{margin-top:var(--s5); font-size:17px; color:rgba(255,255,255,.9); max-width:56ch; margin-inline:auto}
 .cta-band .btn-primary{background:#fff; color:var(--blue); box-shadow:0 14px 30px -14px rgba(0,0,0,.45)}
@@ -453,8 +495,9 @@ footer .brand-word i{color:#79b0f7}
 <nav aria-label="Primary">
   <div class="wrap">
     <a class="brand" href="#top" aria-label="SafeNest home">
-      <img class="brand-mark logo-img" src="/storefront-img/logo-icon.png" alt="" width="34" height="34" />
-      <span class="brand-word" id="nav-word"><b id="nav-name">Safe</b><i>Nest</i></span>
+      <img class="brand-logo logo-img" src="/storefront-img/logo.png"
+           alt="SafeNest — secure, organize, relax" width="520" height="152" />
+      <span class="brand-word" id="nav-word" hidden><b id="nav-name">Safe</b><i>Nest</i></span>
     </a>
 
     <div class="links" id="nav-links">
@@ -499,14 +542,14 @@ footer .brand-word i{color:#79b0f7}
     </div>
 
     <div class="hero-art reveal">
-      <img src="/storefront-img/hero-home.svg" alt="A home with the household's documents kept safe inside it"
+      <img src="/storefront-img/art-mosaic.svg" alt="A wall of what a household keeps: photos, receipts, bills, documents, cards and policies"
            width="760" height="580" />
     </div>
   </div>
 </header>
 
 <!-- ===================== MODULES ===================== -->
-<section id="what">
+<section class="sky" id="what">
   <div class="wrap">
     <div class="sec-head reveal">
       <h2>Everything a household <em>has to keep</em></h2>
@@ -517,7 +560,7 @@ footer .brand-word i{color:#79b0f7}
 </section>
 
 <!-- ===================== PHOTOS ===================== -->
-<section class="band" id="photos">
+<section id="photos">
   <div class="wrap row2">
     <div class="row2-copy reveal">
       <span class="eyebrow">No storage limit</span>
@@ -538,7 +581,7 @@ footer .brand-word i{color:#79b0f7}
 </section>
 
 <!-- ===================== DOCUMENTS ===================== -->
-<section id="documents">
+<section class="azure" id="documents">
   <div class="wrap row2 flip">
     <div class="row2-copy reveal">
       <span class="eyebrow">Documents &amp; vault</span>
@@ -560,7 +603,7 @@ footer .brand-word i{color:#79b0f7}
 </section>
 
 <!-- ===================== MONEY ===================== -->
-<section class="band" id="money">
+<section id="money">
   <div class="wrap row2">
     <div class="row2-copy reveal">
       <span class="eyebrow">Money</span>
@@ -581,7 +624,7 @@ footer .brand-word i{color:#79b0f7}
 </section>
 
 <!-- ===================== PRIVACY ===================== -->
-<section class="band-2" id="privacy">
+<section class="deep" id="privacy">
   <div class="wrap">
     <div class="sec-head reveal">
       <h2>It flows to your computer — <em>never to us</em></h2>
@@ -589,19 +632,19 @@ footer .brand-word i{color:#79b0f7}
         to trust the arrangement. SafeNest does not have that arrangement to trust.</p>
     </div>
     <div class="grid grid-3">
-      <div class="feat reveal" style="--fc:#2F80ED">
+      <div class="feat reveal" style="--fc:#0078f0">
         <div class="ic">&#9729;</div>
         <h3>There is no cloud copy</h3>
         <p>Not encrypted-on-our-servers, not zero-knowledge. There is simply no copy of your records
           anywhere but your own machine.</p>
       </div>
-      <div class="feat reveal" style="--fc:#5C6BE0">
+      <div class="feat reveal" style="--fc:#6c4bd8">
         <div class="ic">&#128246;</div>
         <h3>It works with the internet off</h3>
         <p>Everything opens, searches and saves offline. A connection is needed to activate the
           licence, and after that only if you want one.</p>
       </div>
-      <div class="feat reveal" style="--fc:#1d8a4e">
+      <div class="feat reveal" style="--fc:#3fa96e">
         <div class="ic">&#128230;</div>
         <h3>You can take it all with you</h3>
         <p>The data is a file you can copy, back up or move to a new computer. Nothing is locked into
@@ -612,7 +655,7 @@ footer .brand-word i{color:#79b0f7}
 </section>
 
 <!-- ===================== CAPABILITIES ===================== -->
-<section id="capabilities">
+<section class="mist" id="capabilities">
   <div class="wrap">
     <div class="sec-head reveal">
       <h2>The parts you notice <em>later</em></h2>
@@ -623,7 +666,7 @@ footer .brand-word i{color:#79b0f7}
 </section>
 
 <!-- ===================== HOW IT WORKS ===================== -->
-<section class="band" id="how">
+<section class="sky" id="how">
   <div class="wrap">
     <div class="sec-head reveal">
       <h2>Three steps, and it is <em>yours</em></h2>
@@ -705,7 +748,7 @@ footer .brand-word i{color:#79b0f7}
 </section>
 
 <!-- ===================== FAQ ===================== -->
-<section class="band" id="faq">
+<section class="azure" id="faq">
   <div class="wrap">
     <div class="sec-head reveal"><h2>The questions <em>everyone asks</em></h2></div>
     <div class="faq">
@@ -731,7 +774,7 @@ footer .brand-word i{color:#79b0f7}
 </section>
 
 <!-- ===================== SUPPORT ===================== -->
-<section id="support">
+<section class="mist" id="support">
   <div class="wrap">
     <div class="sec-head reveal">
       <h2>Get in <em>touch</em></h2>
@@ -806,8 +849,9 @@ footer .brand-word i{color:#79b0f7}
     <div class="foot-grid">
       <div class="foot-col">
         <a class="brand" href="#top" aria-label="SafeNest home">
-          <img class="brand-mark logo-img" src="/storefront-img/logo-icon.png" alt="" width="34" height="34" />
-          <span class="brand-word" id="foot-word"><b id="foot-name">Safe</b><i>Nest</i></span>
+          <img class="brand-logo brand-logo-foot logo-img" src="/storefront-img/logo-light.png"
+               alt="SafeNest — secure, organize, relax" width="520" height="152" />
+          <span class="brand-word" id="foot-word" hidden><b id="foot-name">Safe</b><i>Nest</i></span>
         </a>
         <p class="foot-about">A private record keeper for a household, running on your own computer.
           Your documents, photos and money stay in your house.</p>

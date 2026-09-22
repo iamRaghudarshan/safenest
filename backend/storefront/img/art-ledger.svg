@@ -10,13 +10,13 @@
   <!-- what went out, by month -->
   <rect x="176" y="126" width="392" height="262" rx="20" fill="#FFFFFF" stroke="#DCE7FC" stroke-width="3"/>
   <rect x="204" y="156" width="96" height="11" rx="5.5" fill="#C9D8F4"/>
-  <rect x="204" y="180" width="64" height="16" rx="8" fill="#2B3560"/>
+  <rect x="204" y="180" width="64" height="16" rx="8" fill="#001848"/>
 
-  <rect x="212" y="292" width="46" height="56" rx="10" fill="#C9DCF8"/>
-  <rect x="280" y="262" width="46" height="86" rx="10" fill="#9FC0F0"/>
-  <rect x="348" y="232" width="46" height="116" rx="10" fill="#5C6BE0"/>
-  <rect x="416" y="274" width="46" height="74" rx="10" fill="#9FC0F0"/>
-  <rect x="484" y="210" width="46" height="138" rx="10" fill="#2F80ED"/>
+  <rect x="212" y="292" width="46" height="56" rx="10" fill="#8fd0f7"/>
+  <rect x="280" y="262" width="46" height="86" rx="10" fill="#3fa96e"/>
+  <rect x="348" y="232" width="46" height="116" rx="10" fill="#6c4bd8"/>
+  <rect x="416" y="274" width="46" height="74" rx="10" fill="#ffcf4d"/>
+  <rect x="484" y="210" width="46" height="138" rx="10" fill="#0078f0"/>
   <path d="M204 358 H540" stroke="#E4EBF8" stroke-width="4" stroke-linecap="round"/>
 
   <!-- and what it is worth now -->

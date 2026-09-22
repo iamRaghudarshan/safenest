@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 580" width="760" height="580" role="img" aria-label="A mosaic of the things a household keeps: photos, receipts, bills, documents, cards and policies">
+  <!--
+    A photo-wall, in the manner of a photo library's own marketing: a masonry of
+    rounded tiles at slight angles, each a different hue. Colours are taken from
+    the logo (deep navy #001848 through #0054F0 to #0090F0) with warm accents
+    so the wall reads as a real mixed camera roll rather than one blue swatch.
+
+    Every tile is a thing this product actually holds — a photo, a receipt, a
+    bill, a document, a card, a policy, a warranty, coins, a plant on a window
+    sill — so the graphic says what the section says.
+  -->
+  <defs>
+    <linearGradient id="mBlob" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EAF2FE"/><stop offset="1" stop-color="#DCE9FD"/>
+    </linearGradient>
+    <linearGradient id="mCard" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0054F0"/><stop offset="1" stop-color="#0090F0"/>
+    </linearGradient>
+    <linearGradient id="mSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8FD0F7"/><stop offset="1" stop-color="#D8F0FB"/>
+    </linearGradient>
+    <linearGradient id="mShield" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0060F0"/><stop offset="1" stop-color="#0090F0"/>
+    </linearGradient>
+    <filter id="mSh" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="7" stdDeviation="9" flood-color="#0A2A5E" flood-opacity=".17"/>
+    </filter>
+  </defs>
+
+  <path fill="url(#mBlob)" d="M392 26 C572 26 716 130 704 296 C692 456 556 556 388 554 C220 552 60 466 52 300 C44 138 212 26 392 26 Z"/>
+
+  <!-- a photograph: hills and a sun -->
+  <g transform="rotate(-2.5 155 135)" filter="url(#mSh)">
+    <rect x="55" y="60" width="200" height="150" rx="18" fill="#FFFFFF"/>
+    <clipPath id="cPhoto"><rect x="63" y="68" width="184" height="134" rx="12"/></clipPath>
+    <g clip-path="url(#cPhoto)">
+      <rect x="63" y="68" width="184" height="134" fill="url(#mSky)"/>
+      <circle cx="205" cy="104" r="20" fill="#FFCF4D"/>
+      <path d="M63 168 C104 132 132 170 166 148 C196 128 224 158 247 144 V202 H63 Z" fill="#5FC08A"/>
+      <path d="M63 186 C100 166 136 192 176 176 C208 163 232 180 247 172 V202 H63 Z" fill="#3FA96E"/>
+    </g>
+  </g>
+
+  <!-- a till receipt -->
+  <g transform="rotate(2 370 150)" filter="url(#mSh)">
+    <rect x="270" y="45" width="200" height="212" rx="18" fill="#FFFFFF"/>
+    <rect x="292" y="72" width="84" height="12" rx="6" fill="#001848"/>
+    <rect x="292" y="100" width="156" height="8" rx="4" fill="#DDE6F5"/>
+    <rect x="292" y="120" width="132" height="8" rx="4" fill="#DDE6F5"/>
+    <rect x="292" y="140" width="150" height="8" rx="4" fill="#DDE6F5"/>
+    <rect x="292" y="160" width="110" height="8" rx="4" fill="#DDE6F5"/>
+    <path d="M292 186 H448" stroke="#DDE6F5" stroke-width="3"/>
+    <rect x="292" y="202" width="62" height="13" rx="6.5" fill="#0078F0"/>
+    <rect x="386" y="202" width="62" height="13" rx="6.5" fill="#001848"/>
+  </g>
+
+  <!-- a bank card -->
+  <g transform="rotate(-3 580 145)" filter="url(#mSh)">
+    <rect x="485" y="70" width="190" height="150" rx="18" fill="url(#mCard)"/>
+    <rect x="485" y="104" width="190" height="20" fill="#0B3FA8" opacity=".55"/>
+    <rect x="506" y="150" width="38" height="27" rx="6" fill="#FFCF4D"/>
+    <rect x="558" y="160" width="58" height="9" rx="4.5" fill="#FFFFFF" opacity=".9"/>
+    <rect x="628" y="160" width="30" height="9" rx="4.5" fill="#FFFFFF" opacity=".55"/>
+  </g>
+
+  <!-- home -->
+  <g transform="rotate(2.5 155 325)" filter="url(#mSh)">
+    <rect x="55" y="225" width="200" height="200" rx="18" fill="#FFFFFF"/>
+    <path d="M85 322 L155 262 L225 322 Z" fill="#0054F0"/>
+    <path d="M85 322 L155 262 V322 Z" fill="#0078F0"/>
+    <rect x="104" y="322" width="102" height="72" rx="7" fill="#EAF2FE"/>
+    <rect x="142" y="348" width="26" height="46" rx="5" fill="#001848"/>
+    <rect x="114" y="336" width="20" height="18" rx="4" fill="#0090F0"/>
+    <rect x="176" y="336" width="20" height="18" rx="4" fill="#0090F0"/>
+  </g>
+
+  <!-- a document -->
+  <g transform="rotate(-1.5 370 350)" filter="url(#mSh)">
+    <rect x="270" y="270" width="200" height="160" rx="18" fill="#FFFFFF"/>
+    <rect x="292" y="296" width="72" height="12" rx="6" fill="#6C4BD8"/>
+    <rect x="292" y="324" width="156" height="8" rx="4" fill="#E4E0F7"/>
+    <rect x="292" y="344" width="128" height="8" rx="4" fill="#E4E0F7"/>
+    <rect x="292" y="364" width="146" height="8" rx="4" fill="#E4E0F7"/>
+    <circle cx="428" cy="398" r="17" fill="#6C4BD8" opacity=".16"/>
+    <path d="M420 398 l6 7 l11 -13" fill="none" stroke="#6C4BD8" stroke-width="4"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- the vault -->
+  <g transform="rotate(3 580 330)" filter="url(#mSh)">
+    <rect x="485" y="235" width="190" height="190" rx="18" fill="#001848"/>
+    <path d="M580 276 L618 292 V330 C618 356 601 372 580 380 C559 372 542 356 542 330 V292 Z"
+          fill="url(#mShield)"/>
+    <circle cx="580" cy="322" r="11" fill="#FFFFFF"/>
+    <path d="M580 329 v19" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
+  </g>
+
+  <!-- coins -->
+  <g transform="rotate(-2 155 490)" filter="url(#mSh)">
+    <rect x="55" y="440" width="200" height="100" rx="18" fill="#FFF7E6"/>
+    <ellipse cx="118" cy="505" rx="38" ry="12" fill="#E0A83C"/>
+    <rect x="80" y="487" width="76" height="18" fill="#FFCF4D"/>
+    <ellipse cx="118" cy="487" rx="38" ry="12" fill="#FFDC7A"/>
+    <rect x="176" y="474" width="58" height="9" rx="4.5" fill="#E0A83C"/>
+    <rect x="176" y="492" width="42" height="9" rx="4.5" fill="#F2D9A0"/>
+  </g>
+
+  <!-- a plant on the sill -->
+  <g transform="rotate(2 370 492)" filter="url(#mSh)">
+    <rect x="270" y="445" width="200" height="95" rx="18" fill="#EDFBF3"/>
+    <path d="M370 512 C370 486 352 474 336 470 C340 492 352 506 370 512 Z" fill="#3FA96E"/>
+    <path d="M370 512 C370 484 390 472 407 468 C402 492 389 506 370 512 Z" fill="#5FC08A"/>
+    <path d="M356 512 h28 l-4 22 h-20 Z" fill="#C8783C"/>
+  </g>
+
+  <!-- a policy -->
+  <g transform="rotate(-3 580 490)" filter="url(#mSh)">
+    <rect x="485" y="440" width="190" height="100" rx="18" fill="#FFFFFF"/>
+    <rect x="506" y="464" width="60" height="11" rx="5.5" fill="#E2557A"/>
+    <rect x="506" y="488" width="140" height="8" rx="4" fill="#FAE0E7"/>
+    <rect x="506" y="506" width="112" height="8" rx="4" fill="#FAE0E7"/>
+  </g>
+
+  <!-- sparkles, for the corners the mosaic leaves bare -->
+  <g fill="#0078F0">
+    <path d="M36 246 C36 259 42 265 55 265 C42 265 36 271 36 284 C36 271 30 265 17 265 C30 265 36 259 36 246 Z"/>
+  </g>
+  <g fill="#8FB6F5">
+    <path d="M714 210 C714 220 718 224 728 224 C718 224 714 228 714 238 C714 228 710 224 700 224 C710 224 714 220 714 210 Z"/>
+    <path d="M700 402 C700 411 704 415 713 415 C704 415 700 419 700 428 C700 419 696 415 687 415 C696 415 700 411 700 402 Z"/>
+  </g>
+</svg>
