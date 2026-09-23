@@ -3,6 +3,7 @@
 Files are stored in a PRIVATE directory that is NOT mounted at /uploads, and are
 served only through authenticated, ownership-checked streaming endpoints. Accepts
 images and PDFs, with size/type validation and image thumbnails."""
+import hashlib
 import io
 import os
 import uuid
@@ -25,7 +26,7 @@ from .. import storage
 from ..config import settings
 from ..database import get_db
 from ..helpers import audit
-from ..models import Document, DocumentFolder, User
+from ..models import Document, DocumentFolder, DocumentVersion, User
 from ..security import guard
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -698,6 +699,213 @@ def set_kind(id: int, body: dict = Body(...),
 def kinds(user: User = Depends(guard("documents", "view"))):
     """The types the classifier knows about, for a correction menu."""
     return {"items": list(doctype.KINDS)}
+
+
+def _copy_file(d: Document, new_name: str) -> None:
+    """Duplicate a document's bytes on disk under a new opaque name."""
+    src = storage.media_path(storage.DOCUMENTS, d.user_id, storage.ORIGINAL, d.filename)
+    with open(src, "rb") as f:
+        storage.save(storage.DOCUMENTS, d.user_id, storage.ORIGINAL, new_name, f.read())
+    if d.has_thumb:
+        tsrc = storage.media_path(storage.DOCUMENTS, d.user_id, storage.THUMB,
+                                  f"{d.filename}.jpg")
+        if os.path.exists(tsrc):
+            with open(tsrc, "rb") as f:
+                storage.save(storage.DOCUMENTS, d.user_id, storage.THUMB,
+                             f"{new_name}.jpg", f.read())
+
+
+@router.post("/{id}/copy")
+def copy(id: int, body: dict = Body(...),
+         user: User = Depends(guard("documents", "create")),
+         db: Session = Depends(get_db)):
+    """Duplicate a document, optionally into another folder.
+
+    A real copy of the bytes, not a second row pointing at one file. Sharing
+    the file would mean deleting either copy destroys both, which is not what
+    anybody means by "copy" — and the alternative, reference counting, is a
+    lot of machinery to save a few megabytes of paperwork.
+
+    The OCR text and classification come along, because they describe the
+    contents and the contents are identical. Re-running them would cost a
+    minute and reach the same answer.
+    """
+    src = _owned(db, user.id, id)
+    folder = body.get("folder_id", "keep")
+    folder_id = src.folder_id if folder == "keep" else (int(folder) if folder else None)
+    if folder_id:
+        _own_folder(db, user.id, folder_id)
+
+    new_name = f"{uuid.uuid4().hex}.{(src.ext or 'bin')}"
+    try:
+        _copy_file(src, new_name)
+    except FileNotFoundError:
+        raise HTTPException(409, "The original file is missing, so it cannot be copied")
+
+    now = ist.now()
+    title = (body.get("title") or "").strip()[:160] or f"{src.title} (copy)"
+    dup = Document(
+        user_id=user.id, title=title, category=src.category,
+        doc_number=src.doc_number, issue_date=src.issue_date,
+        expiry_date=src.expiry_date, notes=src.notes,
+        filename=new_name, orig_name=src.orig_name, mime=src.mime, ext=src.ext,
+        size_bytes=src.size_bytes, ocr_text=src.ocr_text, ocr_at=src.ocr_at,
+        has_thumb=src.has_thumb, is_favorite=0, pages=src.pages,
+        folder_id=folder_id, content_hash=None,
+        kind=src.kind, kind_confidence=src.kind_confidence,
+        kind_source=src.kind_source,
+        is_trashed=0, created_at=now, updated_at=now)
+    # content_hash is left null on purpose: it is the exact-duplicate key, and
+    # a copy the owner deliberately asked for must not be reported back to them
+    # as an accidental duplicate.
+    db.add(dup); db.commit(); db.refresh(dup)
+    audit(db, user.id, "copy", "document", dup.id, {"from": id, "label": title})
+    return {"item": _present(dup)}
+
+
+@router.get("/recent")
+def recent(limit: int = 30, user: User = Depends(guard("documents", "view")),
+           db: Session = Depends(get_db)):
+    """Recently added and recently changed, as two lists.
+
+    Kept apart rather than merged into one "recent" feed. They answer
+    different questions — "what did I just put in here" and "what did I just
+    work on" — and a single list sorted by whichever timestamp is larger
+    answers neither reliably.
+    """
+    base = db.query(Document).filter(Document.user_id == user.id,
+                                     Document.is_trashed == 0)
+    limit = min(max(1, limit), 100)
+    added = base.order_by(Document.created_at.desc(), Document.id.desc()).limit(limit).all()
+    changed = (base.filter(Document.updated_at.isnot(None))
+               .order_by(Document.updated_at.desc(), Document.id.desc())
+               .limit(limit).all())
+    starred = (base.filter(Document.is_favorite == 1)
+               .order_by(Document.updated_at.desc(), Document.id.desc())
+               .limit(limit).all())
+    return {"added": [_present(d) for d in added],
+            "changed": [_present(d) for d in changed],
+            "starred": [_present(d) for d in starred]}
+
+
+@router.get("/{id}/versions")
+def versions(id: int, user: User = Depends(guard("documents", "view")),
+             db: Session = Depends(get_db)):
+    """Previous copies of this document, newest first."""
+    _owned(db, user.id, id)
+    rows = (db.query(DocumentVersion)
+            .filter(DocumentVersion.user_id == user.id,
+                    DocumentVersion.document_id == id)
+            .order_by(DocumentVersion.version.desc()).all())
+    return {"items": [{"id": v.id, "version": v.version,
+                       "orig_name": v.orig_name, "ext": v.ext,
+                       "size_bytes": int(v.size_bytes or 0),
+                       "note": v.note,
+                       "created_at": v.created_at.isoformat() if v.created_at else None}
+                      for v in rows],
+            "total": len(rows)}
+
+
+@router.post("/{id}/replace")
+def replace(id: int, file: UploadFile = File(...),
+            note: str = Form(""),
+            user: User = Depends(guard("documents", "edit")),
+            db: Session = Depends(get_db)):
+    """Put a new file in this document's place, keeping the old one.
+
+    Replacing used to overwrite, so a wrong scan uploaded over a right one
+    destroyed the right one. That is the most expensive mistake a document
+    store can allow, because what it was holding is usually irreplaceable.
+
+    The outgoing file becomes a version. It is not copied to make the version
+    — the row simply takes ownership of the filename that is already on disk,
+    and the incoming file gets a new one. Nothing is rewritten and nothing can
+    be half-written.
+    """
+    d = _owned(db, user.id, id)
+    raw = file.file.read()
+    if not raw:
+        raise HTTPException(400, "Empty file")
+    # MAX_BYTES > 0 first: document_max_mb is 0 on an installation with no
+    # limit, and without this guard "unlimited" means "reject everything".
+    # Every other size check in this file has the guard; this one did not, and
+    # a 45-byte test PDF came back 413.
+    if MAX_BYTES > 0 and len(raw) > MAX_BYTES:
+        raise HTTPException(413, "That file is too large")
+
+    ext = (os.path.splitext(file.filename or "")[1] or "").lstrip(".").lower()[:10]
+    new_name = f"{uuid.uuid4().hex}.{ext or 'bin'}"
+    storage.save(storage.DOCUMENTS, user.id, storage.ORIGINAL, new_name, raw)
+
+    now = ist.now()
+    nxt = (db.query(func.coalesce(func.max(DocumentVersion.version), 0))
+           .filter(DocumentVersion.document_id == id).scalar() or 0) + 1
+    db.add(DocumentVersion(
+        user_id=user.id, document_id=id, version=int(nxt),
+        filename=d.filename, orig_name=d.orig_name, mime=d.mime, ext=d.ext,
+        size_bytes=d.size_bytes, content_hash=d.content_hash,
+        note=(note or "").strip()[:200] or None, created_at=now))
+
+    d.filename = new_name
+    d.orig_name = (file.filename or "")[-255:] or d.orig_name
+    d.ext = ext or d.ext
+    d.mime = file.content_type or d.mime
+    d.size_bytes = len(raw)
+    d.content_hash = hashlib.sha256(raw).hexdigest()
+    # The text and the type describe the OLD file. Clearing them puts this
+    # document back in the indexing queue rather than leaving it searchable by
+    # contents it no longer has.
+    d.ocr_text = None
+    d.ocr_at = None
+    if (d.kind_source or "auto") != "user":
+        d.kind = None
+        d.kind_confidence = None
+        d.kind_source = None
+    d.updated_at = now
+    db.commit()
+    audit(db, user.id, "replace", "document", id,
+          {"label": d.title, "version": int(nxt)})
+    return {"item": _present(d), "kept_as_version": int(nxt)}
+
+
+@router.post("/{id}/versions/{version}/restore")
+def restore_version(id: int, version: int,
+                    user: User = Depends(guard("documents", "edit")),
+                    db: Session = Depends(get_db)):
+    """Make an old version the current file again.
+
+    A swap, not an overwrite: the file being replaced becomes a version of its
+    own, so restoring is itself undoable. A restore that discarded the current
+    file would be the same trap as the overwrite this feature exists to close.
+    """
+    d = _owned(db, user.id, id)
+    v = (db.query(DocumentVersion)
+         .filter(DocumentVersion.user_id == user.id,
+                 DocumentVersion.document_id == id,
+                 DocumentVersion.version == version).first())
+    if not v:
+        raise HTTPException(404, "No such version")
+
+    now = ist.now()
+    nxt = (db.query(func.coalesce(func.max(DocumentVersion.version), 0))
+           .filter(DocumentVersion.document_id == id).scalar() or 0) + 1
+    db.add(DocumentVersion(
+        user_id=user.id, document_id=id, version=int(nxt),
+        filename=d.filename, orig_name=d.orig_name, mime=d.mime, ext=d.ext,
+        size_bytes=d.size_bytes, content_hash=d.content_hash,
+        note=f"replaced by restoring v{version}", created_at=now))
+
+    d.filename, d.orig_name = v.filename, v.orig_name
+    d.mime, d.ext = v.mime, v.ext
+    d.size_bytes, d.content_hash = v.size_bytes, v.content_hash
+    d.ocr_text = None
+    d.ocr_at = None
+    d.updated_at = now
+    db.delete(v)
+    db.commit()
+    audit(db, user.id, "restore_version", "document", id,
+          {"label": d.title, "version": version})
+    return {"item": _present(d), "restored": version, "previous_kept_as": int(nxt)}
 
 
 @router.post("/{id}/favourite")

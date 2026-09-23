@@ -458,6 +458,40 @@ class Master(Base):
     updated_at = Column(FlexDateTime)
 
 
+class DocumentVersion(Base):
+    """A previous copy of a document, kept when a new one replaces it.
+
+    Section 35. Replacing a file used to overwrite the old one, so a wrong
+    scan uploaded over a right one destroyed the right one — the single most
+    expensive mistake a document store can allow, because the thing it was
+    protecting is usually irreplaceable.
+
+    The row carries its own filename: versions are separate files on disk, not
+    deltas. Documents are small next to photographs and a delta chain is a way
+    to lose all of them at once.
+    """
+    __tablename__ = "document_versions"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    document_id = Column(Integer, index=True)
+    #: 1 is the oldest kept copy. The CURRENT file is not a version row — it
+    #: lives on the document itself, so reading a document never needs a join.
+    version = Column(Integer)
+    filename = Column(String(255))
+    orig_name = Column(String(255))
+    mime = Column(String(90))
+    ext = Column(String(10))
+    size_bytes = Column(Integer, default=0)
+    content_hash = Column(String(64), index=True)
+    note = Column(String(200))
+    created_at = Column(FlexDateTime)
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "version", name="uq_docver_doc_version"),
+        Index("ix_docver_user_doc", "user_id", "document_id"),
+    )
+
+
 class DocumentFolder(Base):
     """A folder in the documents tree.
 
