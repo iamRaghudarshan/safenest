@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from sqlalchemy import text
 
-from .. import bundler, hosts, ist, push, storage, weburl
+from .. import bundler, hosts, ist, push, reconcile, storage, weburl
 from . import hosting
 from ..config import settings
 from ..database import get_db
@@ -626,3 +626,32 @@ def move_records(request: Request, body: dict = Body(...),
                    "new folder. Your old records are untouched — delete that "
                    "folder yourself once you have checked everything is there.",
     }
+
+
+@router.get("/reconcile")
+def reconcile_report(user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Does the database still agree with the disk?
+
+    Read-only, and the application has never asked before. A photo could
+    vanish from disk while its row, its thumbnail entry, its face embeddings
+    and its search text all carried on as though it were fine — the gallery
+    showed a broken tile and nobody was told. See app/reconcile.py for why
+    every component that could have noticed is written to look away.
+    """
+    return reconcile.check_user(db, user.id)
+
+
+@router.post("/reconcile/repair")
+def reconcile_repair(user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Clear embeddings and faces belonging to photos that no longer exist.
+
+    The only repair offered, because it is the only one that cannot lose
+    anything: those rows are unreachable by every query in the application and
+    can be recomputed from the photo. Missing files and stray files are
+    reported and never touched — a missing file may be an unplugged drive
+    rather than lost data, and a stray file may be the last copy of something
+    whose row was lost.
+    """
+    return reconcile.repair_derived(db, user.id)
