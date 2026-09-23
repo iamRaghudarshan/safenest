@@ -179,6 +179,52 @@ def index_ocr_doc(db, doc: Document) -> int:
     return 1 if text else 0
 
 
+#: Known faces per user: [(person_id, embedding)], built once and kept.
+#:
+#: WHY THIS EXISTS
+#: index_faces ran this query for EVERY PHOTO:
+#:
+#:     SELECT person_id, embedding FROM photo_faces
+#:      WHERE user_id = ? AND person_id IS NOT NULL
+#:
+#: so indexing a library of N photos holding F assigned faces read and
+#: unpacked F embeddings N times. At a few hundred photos that is invisible.
+#: At fifty thousand photos and a hundred thousand faces it is five billion
+#: vector unpacks, and the indexer appears to hang rather than to be slow.
+#:
+#: Held per user, appended to as faces are assigned, and thrown away whenever
+#: the People tables change underneath it — see invalidate_people(). A stale
+#: entry here would assign a face to a person who has just been merged away,
+#: so the invalidation is not an optimisation detail, it is what makes the
+#: cache safe.
+_known: dict[int, list] = {}
+
+
+def invalidate_people(user_id: int | None = None) -> None:
+    """Forget the cached faces for a user, or for everybody.
+
+    Called by every endpoint that moves a face between people or deletes a
+    person. Cheap: the next photo to be indexed rebuilds it once.
+    """
+    if user_id is None:
+        _known.clear()
+    else:
+        _known.pop(int(user_id), None)
+
+
+def _known_faces(db, user_id: int) -> list:
+    cached = _known.get(user_id)
+    if cached is not None:
+        return cached
+    cached = [(f.person_id, vision.unpack(f.embedding, vision.FACE_DIM))
+              for f in db.query(PhotoFace)
+              .filter(PhotoFace.user_id == user_id,
+                      PhotoFace.person_id.isnot(None),
+                      PhotoFace.embedding.isnot(None)).all()]
+    _known[user_id] = cached
+    return cached
+
+
 # ------------------------------------------------------------------- face pass
 def index_faces(db, photo: GalleryPhoto) -> int:
     """Detect faces in one photo and attach each to a person. Returns the count."""
@@ -219,10 +265,7 @@ def index_faces(db, photo: GalleryPhoto) -> int:
 
     # Everyone already known for this user, so a new face joins them rather than
     # starting a duplicate person.
-    known = [(f.person_id, vision.unpack(f.embedding, vision.FACE_DIM))
-             for f in db.query(PhotoFace)
-             .filter(PhotoFace.user_id == photo.user_id, PhotoFace.person_id.isnot(None),
-                     PhotoFace.embedding.isnot(None)).all()]
+    known = _known_faces(db, photo.user_id)
 
     # Links added during THIS photo. A group shot can contain two faces that both
     # match the same person, and a "does the row exist?" query cannot see the row

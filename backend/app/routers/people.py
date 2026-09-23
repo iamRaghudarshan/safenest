@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import ist
+from .. import indexer, ist
 from ..database import get_db
 from ..models import GalleryPhoto, Person, PhotoFace, PhotoPerson, User
 from ..security import guard
@@ -178,6 +178,10 @@ def merge(id: int, body: dict = Body(...),
     _relink(db, id)
     target.updated_at = ist.now()
     db.commit()
+    # The indexer caches which embeddings belong to which person. Leaving
+    # it stale here would assign the next matching face to a person this
+    # merge has just deleted.
+    indexer.invalidate_people(user.id)
     return {"id": id, "merged": len(other_ids), "faces_moved": int(moved)}
 
 
@@ -215,6 +219,7 @@ def split(id: int, body: dict = Body(...),
     _relink(db, id)
     _relink(db, fresh.id)
     db.commit()
+    indexer.invalidate_people(user.id)
     return {"id": fresh.id, "name": fresh.name, "faces_moved": len(faces)}
 
 
@@ -245,6 +250,7 @@ def assign_face(face_id: int, body: dict = Body(...),
     for pid in {x for x in (was, target) if x}:
         _relink(db, pid)
     db.commit()
+    indexer.invalidate_people(user.id)
     return {"face_id": face_id, "from": was, "to": target}
 
 
@@ -348,4 +354,5 @@ def delete(id: int, user: User = Depends(guard("gallery", "delete")), db: Sessio
     db.query(PhotoPerson).filter(PhotoPerson.person_id == id).delete()
     db.query(PhotoFace).filter(PhotoFace.person_id == id).update({PhotoFace.person_id: None})
     db.delete(person); db.commit()
+    indexer.invalidate_people(user.id)
     return {"deleted": id}
