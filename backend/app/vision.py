@@ -268,6 +268,95 @@ def looks_like_document(image_vec: "np.ndarray | None") -> bool:
     return margin < DOCUMENT_MARGIN
 
 
+#: The things worth being able to BROWSE, as opposed to search for.
+#:
+#: Zero-shot against CLIP: each label is turned into a text embedding once and
+#: compared with the photo vector the indexer already computed, so labelling a
+#: photo costs one small matrix multiply and no second model. That is real
+#: classification — the same mechanism looks_like_document() already uses —
+#: and not a keyword rule pretending to be vision.
+#:
+#: Deliberately a short, concrete list. CLIP scores anything you ask it, so a
+#: vocabulary of five hundred abstractions would produce five hundred confident
+#: wrong answers; these are categories a household actually sorts by.
+LABELS: tuple[str, ...] = (
+    "dog", "cat", "bird", "flowers", "tree", "mountain", "beach", "sunset",
+    "sky", "snow", "water", "boat", "car", "bicycle", "motorbike", "train",
+    "aeroplane", "road", "building", "temple", "church", "bridge", "city",
+    "food", "drink", "cake", "restaurant", "kitchen", "market",
+    "baby", "child", "group of people", "wedding", "birthday party",
+    "concert", "sports", "swimming pool", "garden", "forest", "desert",
+    "night", "fireworks", "book", "computer", "phone", "handwriting",
+    "whiteboard", "receipt", "screenshot", "map", "chart", "jewellery",
+    "clothing", "shoes", "furniture", "painting", "statue",
+)
+
+#: A label is kept only well clear of the field. CLIP's raw scores are not
+#: probabilities and their absolute value drifts with the prompt, so the test
+#: is relative: how far above the MEDIAN label this one scored. An absolute
+#: threshold would be tuned to one machine's photos and would ship a
+#: classifier that labels everything "sky".
+#:
+#: MEASURED, not chosen. The first value here was 0.045, picked by eye, and it
+#: rejected every correct label on two of three test images — the model was
+#: discriminating perfectly and the cut was simply above the signal. Observed
+#: margins on the test images in verify_labels.py:
+#:
+#:     forest image   forest +0.038  tree +0.028  garden +0.028
+#:                    ...then noise: mountain +0.018, bridge +0.018
+#:     night image    night  +0.032  city +0.031  building +0.026
+#:                    ...then noise: screenshot +0.022, fireworks +0.015
+#:
+#: so the true labels sit around +0.026 to +0.038 and the noise below +0.022.
+#: 0.025 separates them with a little room either side.
+#:
+#: THE LIMIT OF THAT MEASUREMENT: those are drawn images, not photographs,
+#: because there is no photo library on the machine this was tuned on. A real
+#: camera roll may well sit differently and this number should be re-measured
+#: against one. It is a starting point with a stated basis, not a final value.
+LABEL_MARGIN = 0.025
+
+#: And never more than this many per photo. A picture is about two or three
+#: things; a list of twelve is noise that makes the category browser useless.
+LABEL_MAX = 5
+
+
+def _label_matrix():
+    if "labels" not in _state:
+        with _lock:
+            if "labels" not in _state:
+                vecs = [embed_text("a photo of " + t) for t in LABELS]
+                keep = [(t, v) for t, v in zip(LABELS, vecs) if v is not None]
+                _state["labels"] = (
+                    [t for t, _ in keep],
+                    np.array([v for _, v in keep]) if keep else None,
+                )
+    return _state["labels"]
+
+
+def label_image(image_vec: "np.ndarray | None") -> list[tuple[str, float]]:
+    """What is in this picture, as (label, score), strongest first.
+
+    Takes the CLIP vector the indexer already computed. Returns [] rather than
+    guessing when nothing stands out, which is the common and correct answer
+    for a photo of a wall.
+    """
+    if image_vec is None or not clip_available():
+        return []
+    try:
+        names, mat = _label_matrix()
+        if mat is None or not len(names):
+            return []
+        scores = mat @ image_vec
+        median = float(np.median(scores))
+        out = [(names[i], float(scores[i])) for i in range(len(names))
+               if float(scores[i]) - median >= LABEL_MARGIN]
+        out.sort(key=lambda x: -x[1])
+        return out[:LABEL_MAX]
+    except Exception:
+        return []
+
+
 def _unit(vec: "np.ndarray") -> "np.ndarray":
     norm = np.linalg.norm(vec)
     return vec / norm if norm else vec

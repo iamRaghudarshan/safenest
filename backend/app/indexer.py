@@ -21,7 +21,8 @@ import numpy as np
 
 from . import doctype, ist, ocr, storage, vision
 from .database import SessionLocal
-from .models import Document, GalleryPhoto, Person, PhotoFace, PhotoPerson, PhotoVector
+from .models import (Document, GalleryPhoto, Person, PhotoFace, PhotoLabel,
+                     PhotoPerson, PhotoVector)
 
 # Cosine threshold for "same person". SFace's own guidance is 0.363; 0.40 leaves a
 # margin, because merging two people is far more annoying than splitting one.
@@ -332,6 +333,17 @@ def index_clip(db, photo: GalleryPhoto) -> bool:
         return False
     db.merge(PhotoVector(photo_id=photo.id, user_id=photo.user_id, model=CLIP_MODEL,
                          vec=vision.pack(vec), created_at=ist.now()))
+
+    # Labels come from the SAME vector, so this is one matrix multiply against
+    # 57 pre-computed text embeddings — not a second model run. Replaced
+    # wholesale rather than merged: the vocabulary can change between releases
+    # and a stale label nobody can explain is worse than none.
+    db.query(PhotoLabel).filter(PhotoLabel.photo_id == photo.id).delete(
+        synchronize_session=False)
+    now = ist.now()
+    for name, score in vision.label_image(vec):
+        db.add(PhotoLabel(user_id=photo.user_id, photo_id=photo.id,
+                          label=name, score=float(score), created_at=now))
     db.commit()
     return True
 

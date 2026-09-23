@@ -15,7 +15,7 @@ from .config import BACKEND_DIR, settings
 from .crypto import reencrypt_legacy_items
 from .database import Base, engine
 from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Habit, HabitLog, Hosting, License, LicenceRequest, MailLog, MailSettings, Release,
-                     DocumentFolder, Master, MasterList, Note, NoteItem, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, SyncOp, Ticket, TicketMessage,
+                     DocumentFolder, Master, MasterList, Note, NoteItem, PhotoLabel, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, SyncOp, Ticket, TicketMessage,
                      UserModule, User)
 from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, habits, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, mail, notes, notifications, people, reminders,
@@ -371,6 +371,7 @@ def _migrate() -> None:
     Notification.__table__.create(bind=engine, checkfirst=True)
     # CLIP photo embeddings for search-by-content (added July 2026).
     PhotoVector.__table__.create(bind=engine, checkfirst=True)
+    PhotoLabel.__table__.create(bind=engine, checkfirst=True)
     # Photo albums (added July 2026).
     Album.__table__.create(bind=engine, checkfirst=True)
     AlbumPhoto.__table__.create(bind=engine, checkfirst=True)

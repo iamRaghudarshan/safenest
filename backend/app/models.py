@@ -671,6 +671,30 @@ class PhotoFace(Base):
     created_at = Column(FlexDateTime)
 
 
+class PhotoLabel(Base):
+    """What CLIP thinks is in a photo — "dog", "beach", "food".
+
+    A row per (photo, label) rather than a list on the photo, so the category
+    browser is an indexed lookup instead of a LIKE over a joined string, and so
+    a label can carry its own score.
+
+    Rebuilt from the photo's CLIP vector whenever the vocabulary changes, which
+    is why nothing here is precious: it is a cache of a derivable thing.
+    """
+    __tablename__ = "photo_labels"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    photo_id = Column(Integer, index=True)
+    label = Column(String(40), index=True)
+    score = Column(Float)
+    created_at = Column(FlexDateTime)
+
+    __table_args__ = (
+        UniqueConstraint("photo_id", "label", name="uq_label_photo_label"),
+        Index("ix_label_user_label", "user_id", "label"),
+    )
+
+
 class PhotoVector(Base):
     """CLIP embedding for one photo, enabling search by what is IN the picture.
 

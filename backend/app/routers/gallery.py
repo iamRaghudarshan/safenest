@@ -30,7 +30,7 @@ from .. import dialect, indexer, places, storage, vision
 from ..database import get_db
 from ..helpers import audit
 from ..models import (Album, AlbumPhoto, GalleryPhoto, Person, PhotoFace,
-                      PhotoPerson, PhotoVector, User)
+                      PhotoLabel, PhotoPerson, PhotoVector, User)
 from ..security import guard
 from ..signing import sign, verify
 
@@ -363,6 +363,7 @@ def _search_filter(db: Session, uid: int, term: str):
 def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: int = 0,
           smart: int = 0, kind: str = "", sort: str = "", near: str = "", person: int = 0,
           archived: int = 0,
+          label: str = "",
           user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
     """Paginated gallery. Returns the requested page plus the true total count so
     the whole library (well beyond one page) is reachable via infinite scroll.
@@ -469,6 +470,15 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
     if term:
         sel = sel.filter(_search_filter(db, user.id, term))
 
+    # Browse by category. Kept separate from `q` on purpose: a label is an
+    # exact bucket the indexer assigned, while q is a text search, and mixing
+    # them would make "beach" mean two different things.
+    if label:
+        sel = sel.filter(GalleryPhoto.id.in_(
+            db.query(PhotoLabel.photo_id).filter(
+                PhotoLabel.user_id == user.id,
+                PhotoLabel.label == label.strip().lower()[:40])))
+
     if person:
         # Scoped to this user's own people, or an id guessed from another
         # account would name whose photos came back.
@@ -524,6 +534,27 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
         rows = sel.order_by(*order).offset(offset).limit(limit).all()
     return {"items": [_present(p) for p in rows], "total": total, "offset": offset,
             "limit": limit, "mode": "smart" if smart else "text"}
+
+
+@router.get("/labels")
+def labels(min_count: int = 1, user: User = Depends(guard("gallery", "view")),
+           db: Session = Depends(get_db)):
+    """The categories this library actually contains, commonest first.
+
+    Only labels that were found in real photos — the vocabulary has 57 entries
+    and a given household will have none of most of them. Offering "desert" to
+    somebody with no desert photographs is how a category browser becomes a
+    list of dead ends.
+    """
+    rows = (db.query(PhotoLabel.label, func.count(PhotoLabel.photo_id))
+            .join(GalleryPhoto, GalleryPhoto.id == PhotoLabel.photo_id)
+            .filter(PhotoLabel.user_id == user.id,
+                    GalleryPhoto.is_trashed == 0)
+            .group_by(PhotoLabel.label).all())
+    items = [{"label": l, "count": int(n)} for l, n in rows
+             if int(n) >= max(1, min_count)]
+    items.sort(key=lambda x: (-x["count"], x["label"]))
+    return {"items": items, "total": len(items)}
 
 
 @router.post("/have")
