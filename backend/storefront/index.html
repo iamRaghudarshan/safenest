@@ -91,6 +91,10 @@
   --grad:linear-gradient(135deg,#0054f0 0%,#0090f0 100%);
   /* Supporting hues, so the page is not one colour end to end. */
   --violet:#6c4bd8; --green:#3fa96e; --amber:#ffcf4d; --rose:#e2557a;
+  /* The edge under each card. It was --navy, which on a pale blue ground read
+     as a hard black rule rather than a shelf. A light tint of the logo blue
+     keeps the card's footing without drawing a line under everything. */
+  --shelf:#bcd9f8;
   --line:#e8edf5;
 
   --r-card:30px;
@@ -298,12 +302,12 @@ section.mist{background:var(--tint-mist)}
   padding:var(--s7) var(--s5) var(--s6); text-align:center;
   /* The reference's card signature: a navy edge sitting just under the
      bottom of the card, inset a little so it reads as a shelf. */
-  box-shadow:0 4px 0 -1px var(--navy), 0 16px 34px -26px rgba(43,52,80,.5);
+  box-shadow:0 3px 0 -1px var(--shelf), 0 16px 34px -26px rgba(0,24,72,.34);
   transition:transform .26s ease, box-shadow .26s ease;
 }
 .feat:hover{
   transform:translateY(-6px);
-  box-shadow:0 4px 0 -1px var(--blue), 0 28px 50px -28px rgba(43,52,80,.55);
+  box-shadow:0 3px 0 -1px var(--fc), 0 28px 50px -28px rgba(0,24,72,.4);
 }
 .feat h3{font-size:19px; margin-bottom:var(--s3)}
 .feat p{font-size:14.5px; color:var(--body); line-height:1.7}
@@ -336,7 +340,12 @@ section.mist{background:var(--tint-mist)}
   background:var(--grad);
   box-shadow:0 22px 50px -22px rgba(0,84,240,.75);
 }
-.hub-mark{width:62px; height:62px; border-radius:16px; background:rgba(255,255,255,.14); padding:8px}
+.hub-mark{
+  /* White silhouette, no tinted panel behind it: the blue mark on a blue
+     gradient was sitting on its own colour and disappearing. */
+  width:72px; height:72px;
+  filter:drop-shadow(0 6px 14px rgba(0,24,72,.28));
+}
 .hub strong{font-size:21px; letter-spacing:.2px; line-height:1.25}
 .hub span{font-size:14px; color:rgba(255,255,255,.88); max-width:24ch; line-height:1.6}
 
@@ -435,7 +444,7 @@ section.mist{background:var(--tint-mist)}
 .step{
   background:#fff; border:1px solid var(--line); border-radius:var(--r-card);
   padding:var(--s7) var(--s5); text-align:center;
-  box-shadow:0 4px 0 -1px var(--navy), 0 16px 34px -26px rgba(43,52,80,.5);
+  box-shadow:0 3px 0 -1px var(--shelf), 0 16px 34px -26px rgba(0,24,72,.34);
 }
 .step{--sc:var(--blue)}
 .step:nth-child(2){--sc:var(--violet)}
@@ -447,7 +456,7 @@ section.mist{background:var(--tint-mist)}
   box-shadow:0 10px 22px -10px var(--sc);
 }
 @supports not (background:color-mix(in srgb,red 10%,#fff)){ .step .n{background:var(--sc)} }
-.step{box-shadow:0 4px 0 -1px var(--sc), 0 16px 34px -26px rgba(0,24,72,.5)}
+.step{box-shadow:0 3px 0 -1px color-mix(in srgb, var(--sc) 42%, #ffffff), 0 16px 34px -26px rgba(0,24,72,.34)}
 .step h3{font-size:18px; margin-bottom:var(--s3)}
 .step p{font-size:14.5px; color:var(--body); line-height:1.7}
 @media (max-width:860px){.steps{grid-template-columns:1fr}}
@@ -1105,6 +1114,6 @@ footer .brand-word i{color:#79b0f7}
   </div>
 </footer>
 
-<script src="/storefront.js?v=7.1-ring"></script>
+<script src="/storefront.js?v=7.2-hub"></script>
 </body>
 </html>

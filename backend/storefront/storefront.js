@@ -131,7 +131,7 @@ const card = ([i, t, d, c, span], n) =>
 // because this line replaces everything inside the grid.
 const HUB = `
   <div class="hub reveal" style="transition-delay:260ms">
-    <img class="hub-mark" src="/storefront-img/logo-icon.png" alt="" width="256" height="256">
+    <img class="hub-mark" src="/storefront-img/logo-icon-white.png" alt="" width="256" height="256">
     <strong>One place for all of it</strong>
     <span>Twelve kinds of record, one app, on your own computer.</span>
   </div>`;
