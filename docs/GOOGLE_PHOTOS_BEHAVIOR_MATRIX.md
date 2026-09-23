@@ -26,11 +26,11 @@ change what "parity" can mean here.
 
 | Google Photos behaviour | SafeNest | Evidence |
 |---|---|---|
-| Backs up without being asked | ⚠ **No** — manual button only | Only callers of `runFullBackup()` are `backup_screen.dart:365` and `:350`. No `PhotoManager.addChangeCallback`, no launch-time run, no scheduler |
-| Runs in the background | ⚠ **No** | No `workmanager`/`BGTaskScheduler`/foreground service in `pubspec.yaml`; `AndroidManifest.xml` declares no `<service>`; `ios/Runner/Info.plist:126-133` has only `remote-notification`. A wakelock (`backup.dart:434-441`) keeps the screen on — that is the whole of it |
+| Backs up without being asked | **FIXED, opt-in** | `lib/background.dart` schedules a periodic task through WorkManager (Android) and BGTaskScheduler + background fetch (iOS). Ships **off**: the product's own argument is that it does not copy a camera roll uninvited, so the behaviour is available rather than imposed. Wi-Fi-only defaults on |
+| Runs in the background | **FIXED on Android; best-effort on iOS** | Android WorkManager is a real scheduler — it survives reboots (hence `RECEIVE_BOOT_COMPLETED`) and enforces the network and charging constraints itself. iOS BGTaskScheduler promises **nothing** about when it runs, or that it runs at all if the app is never opened; no API or entitlement changes that, so the settings row says "iOS decides when this runs" and shows what actually happened last time rather than implying a schedule |
 | Survives leaving the screen | ⚠ **No** | `photos_home.dart:66-71` `dispose()` calls `_backup?.stop()`, and the screen is a **pushed route** (`home_screen.dart:226-228`) — pressing Back kills the run |
 | Backs up videos | **FIXED** | `READ_MEDIA_VIDEO` now declared in `AndroidManifest.xml`. Previously the scan asked `RequestType.common` (photos + videos, `backup.dart:641-644`) against a permission that was never declared, so on Android 13+ videos were never enumerated — never counted, never failed, never reported. **Needs a new build to reach any phone.** |
-| Wi-Fi-only / charging / metered gates | **No** | No `connectivity_plus`, no battery or roaming check anywhere. One tap on cellular sends the library |
+| Wi-Fi-only / charging / metered gates | **FIXED** | A named choice — "Wi-Fi only" vs "Wi-Fi or mobile data" — plus charging-only and battery-not-low. Enforced by the OS scheduler as a constraint, not by us checking after an upload has already started. Two named options rather than one switch, because "Only on Wi-Fi — off" makes you infer the other state and the wrong inference costs somebody's data allowance |
 | Retries a failed upload later | ⚠ **Partial, RAM-only** | `_failedAssets` / `_failReason` (`backup.dart:922,927`) cleared each run (`:568-570`), never persisted. Retry policy in full: LAN once → tunnel → fixed 1s → tunnel, **and only for status 0** (`backup.dart:409-420`). A timeout, 5xx or 429 is never retried |
 | Resumable upload of large files | **Yes** | `_uploadResumable()` (`backup.dart:1079-1134`), 4 MB chunks, 409 re-sync, server `/upload/status` + `/upload/chunk` + `/upload/abandon` |
 | Doesn't re-upload what is already there | **Yes, three layers** | Local ledger skip with no file opened (`store.dart:639-668`); streamed sha256 + `POST /api/gallery/have` (`backup.dart:322,345`); server replies `duplicate: true` counted as `already` not `stored` (`:992`) |
@@ -162,9 +162,11 @@ everything else is server-side and takes effect on restart.
 10. Persist the failed-upload list so a retry survives the app closing.
 
 **Tier 3 — the real parity work (larger; worth agreeing scope first)**
-11. Automatic backup: a new-media observer plus background execution
-    (WorkManager on Android, BGProcessingTask on iOS), with Wi-Fi/charging gates.
-    This is the single largest behavioural gap versus Google Photos.
+11. ~~Automatic backup: background execution with Wi-Fi/charging gates.~~
+    **Done** — see the rows above. What remains unbuilt is a *new-media
+    observer*: the periodic task re-enumerates the library rather than being
+    told a photo was taken, so a new photo waits for the next run instead of
+    going immediately.
 12. Stream uploads instead of `readAsBytes` (`backup.dart:961` loads whole files
     into RAM, 4 concurrent — the classic OOM on exactly the large libraries this
     product exists for). Same on the server: `upload_chunk` is `async def` but
