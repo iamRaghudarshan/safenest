@@ -30,6 +30,12 @@ interface Item {
 interface UploadState {
   total: number; done: number; failed: number; dupes: number; pending: number; active: number
   uploading: boolean; paused: boolean; offline: boolean
+  /** The file being sent right now, so the bar can show WHICH one rather than
+   *  a number. Handed over as a Blob rather than an object URL: whoever
+   *  renders it also has to revoke it, and that is far easier to get right in
+   *  one component's effect than spread across this provider's lifetime. */
+  currentBlob?: Blob
+  currentName?: string
   enqueue: (files: FileList | File[], opts?: { persist?: boolean; albumId?: number }) => Promise<number>
   /** Distinct reasons the failed uploads gave, for showing the user. */
   reasons: string[]
@@ -280,12 +286,18 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     return () => { alive = false; window.removeEventListener('online', on); window.removeEventListener('offline', off) }
   }, [])
 
+  // The first item in flight. With four uploading at once any of them is a
+  // fair answer; the first is the one that has been going longest, so it is
+  // the least likely to flicker away the instant it is drawn.
+  const current = items.current.find((i) => i.status === 'uploading')
+    ?? items.current.find((i) => i.status === 'pending')
   const pending = items.current.filter((i) => i.status === 'pending').length
   const activeN = items.current.filter((i) => i.status === 'uploading').length
   const c = counts.current
   const value: UploadState = {
     total: c.total, done: c.done, failed: c.failed, dupes: c.dupes, pending, active: activeN,
     uploading: pending > 0 || activeN > 0, paused: paused.current, offline,
+    currentBlob: current?.blob, currentName: current?.name,
     enqueue,
     reasons: [...new Set(items.current.filter((i) => i.status === 'error' && i.reason)
       .map((i) => i.reason as string))],

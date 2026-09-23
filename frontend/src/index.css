@@ -2784,3 +2784,90 @@ html.on-auth .auth-bg { opacity: 0.3; }
 @media (hover: none) {
   .folder-x, .doc-move { opacity: 1; }
 }
+
+/* ---- Upload card ---------------------------------------------------------
+   Fixed in the corner, sized to its content. The old .upbar was a full-width
+   sticky slab that pushed the page down when an upload started; see the note
+   at the top of UploadBar.tsx. */
+.upcard {
+  position: fixed; z-index: 60;
+  right: 20px; bottom: 20px; width: 340px; max-width: calc(100vw - 32px);
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow-lg);
+  padding: 12px 12px 12px 12px;
+  animation: upcard-in .22s cubic-bezier(.2,.8,.3,1);
+}
+@keyframes upcard-in {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+.upcard.ok  { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.upcard.err { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+
+.upcard-row { display: flex; align-items: center; gap: 11px; }
+
+/* The photo currently going up. A thumbnail is the app saying it has the
+   thing you just picked, which a number cannot do. */
+.upcard-thumb {
+  position: relative; flex: 0 0 auto;
+  width: 40px; height: 40px; border-radius: 9px; overflow: hidden;
+  background: var(--bg); display: grid; place-items: center;
+}
+.upcard-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.upcard-glyph { font-size: 16px; font-weight: 700; color: var(--brand); }
+.upcard.ok  .upcard-glyph { color: var(--ok); }
+.upcard.err .upcard-glyph { color: var(--danger); }
+
+/* A ring around the thumbnail rather than a separate spinner: it says "this
+   one, right now" instead of just "something is happening". */
+.upcard-ring {
+  position: absolute; inset: 0; border-radius: 9px;
+  border: 2px solid transparent; border-top-color: var(--brand);
+  animation: spin .8s linear infinite;
+}
+
+.upcard-text { flex: 1; min-width: 0; }
+.upcard-title {
+  font-size: 13.5px; font-weight: 650; color: var(--text); line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.upcard-sub {
+  font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.upcard-acts { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.upcard-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 30px; height: 30px; padding: 0 6px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--ink-soft); font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.upcard-btn:hover { background: var(--bg); color: var(--text); }
+.upcard-btn.wide { padding: 0 10px; color: var(--brand); }
+
+.upcard-track {
+  height: 4px; border-radius: 99px; background: var(--bg);
+  overflow: hidden; margin-top: 11px;
+}
+.upcard-track > i {
+  display: block; height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, var(--brand), var(--brand-2));
+  transition: width .3s ease;
+}
+
+.upcard-why {
+  font-size: 11.5px; line-height: 1.5; margin-top: 9px;
+  padding-top: 9px; border-top: 1px solid var(--line);
+  color: color-mix(in srgb, var(--danger) 88%, var(--ink));
+  overflow-wrap: anywhere;
+}
+
+/* On a phone a corner card is a cramped island, and it would sit on top of
+   the tab bar. Full width along the bottom instead, clear of the nav. */
+@media (max-width: 640px) {
+  .upcard {
+    left: 12px; right: 12px; width: auto;
+    bottom: calc(var(--tabbar-h, 64px) + 12px);
+  }
+}
