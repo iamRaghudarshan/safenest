@@ -20,7 +20,7 @@ try:
 except Exception:
     pass
 
-from .. import ist, ocr
+from .. import doctype, ist, ocr
 from .. import storage
 from ..config import settings
 from ..database import get_db
@@ -666,6 +666,38 @@ def update(id: int, body: dict = Body(...),
     db.commit()
     audit(db, user.id, "update", "document", id, {"label": d.title})
     return {"item": _present(d)}
+
+
+@router.post("/{id}/kind")
+def set_kind(id: int, body: dict = Body(...),
+             user: User = Depends(guard("documents", "edit")),
+             db: Session = Depends(get_db)):
+    """Correct what kind of document this is.
+
+    The classifier suggests; this is how a person disagrees. Recording the
+    source as 'user' is what stops the next indexing pass putting the guess
+    back — see indexer.index_ocr_doc. Passing null clears the type entirely,
+    for the documents that are not any of the kinds on the list.
+    """
+    d = _owned(db, user.id, id)
+    raw = body.get("kind")
+    kind = (raw or "").strip().lower() or None
+    if kind is not None and kind not in doctype.KINDS:
+        raise HTTPException(422, f"Unknown kind: {kind}")
+    d.kind = kind
+    # A human is certain by definition, and their choice is not a score.
+    d.kind_confidence = None
+    d.kind_source = "user" if kind else None
+    d.updated_at = ist.now()
+    db.commit()
+    audit(db, user.id, "classify", "document", id, {"kind": kind})
+    return {"id": id, "kind": kind, "kind_source": d.kind_source}
+
+
+@router.get("/kinds")
+def kinds(user: User = Depends(guard("documents", "view"))):
+    """The types the classifier knows about, for a correction menu."""
+    return {"items": list(doctype.KINDS)}
 
 
 @router.post("/{id}/favourite")

@@ -19,7 +19,7 @@ import time
 
 import numpy as np
 
-from . import ist, ocr, storage, vision
+from . import doctype, ist, ocr, storage, vision
 from .database import SessionLocal
 from .models import Document, GalleryPhoto, Person, PhotoFace, PhotoPerson, PhotoVector
 
@@ -173,6 +173,17 @@ def index_ocr_doc(db, doc: Document) -> int:
                 text = ocr.read_image(ImageOps.exif_transpose(im) or im)
         except Exception:
             text = ""
+    # Suggest what kind of document this is, from the text just read.
+    #
+    # NEVER over a correction. kind_source == 'user' means somebody has already
+    # said what this is, and a later indexing pass silently changing it back is
+    # the behaviour that makes people stop trusting automatic filing.
+    if (doc.kind_source or "auto") != "user":
+        guess = doctype.classify(text)
+        doc.kind = guess["kind"]
+        doc.kind_confidence = guess["confidence"] or None
+        doc.kind_source = "auto" if guess["kind"] else None
+
     doc.ocr_text = text
     doc.ocr_at = ist.now()
     db.commit()

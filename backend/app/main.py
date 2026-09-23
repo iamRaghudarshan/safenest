@@ -279,6 +279,12 @@ def _migrate() -> None:
         # photo is un-archived, which is what DEFAULT 0 already says.
         ("gallery_photos", "is_archived",
          "ALTER TABLE gallery_photos ADD COLUMN is_archived TINYINT NOT NULL DEFAULT 0"),
+        # What kind of document this is, and who decided (see app/doctype.py).
+        ("documents", "kind", "ALTER TABLE documents ADD COLUMN kind VARCHAR(24) NULL"),
+        ("documents", "kind_confidence",
+         "ALTER TABLE documents ADD COLUMN kind_confidence DOUBLE NULL"),
+        ("documents", "kind_source",
+         "ALTER TABLE documents ADD COLUMN kind_source VARCHAR(8) NULL"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).

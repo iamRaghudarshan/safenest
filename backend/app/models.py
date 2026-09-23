@@ -2,7 +2,7 @@ from datetime import date as _date, datetime as _datetime
 
 from sqlalchemy import (
     DECIMAL, TIMESTAMP, Column, Date, DateTime, Float, ForeignKey, Integer, LargeBinary,
-    Index, String, Text, UniqueConstraint, text,
+    Float, Index, String, Text, UniqueConstraint, text,
 )
 from sqlalchemy.types import TypeDecorator
 
@@ -521,6 +521,14 @@ class Document(Base):
     # every document created before folders existed has — so the feature
     # arrives with every existing document already correctly placed,
     # rather than needing a migration that guesses.
+    # What the classifier thinks this is (see doctype.py), and who decided.
+    # kind_source distinguishes a SUGGESTION from a CORRECTION: once somebody
+    # has said what a document is, no later indexing pass may overwrite it.
+    # Without that column a re-index quietly undoes every correction and the
+    # user has no idea why their filing keeps changing.
+    kind = Column(String(24))
+    kind_confidence = Column(Float)
+    kind_source = Column(String(8))          # 'auto' | 'user'
     folder_id = Column(Integer, index=True)
     # sha256 of the stored bytes. Documents had no dedup at all: the same
     # PDF uploaded twice produced two files and two rows, every time.
