@@ -45,3 +45,6 @@ numpy==2.5.1
 opencv-python-headless==5.0.0.93
 onnxruntime==1.28.0
 transformers==5.14.1
+# Reading the text layer out of a PDF. Pure Python, ~400 KB, no native
+# dependency -- which is why this and not a rasterising engine: see ocr.read_pdf.
+pypdf==6.19.0

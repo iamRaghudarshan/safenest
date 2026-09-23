@@ -147,6 +147,81 @@ def read_bytes(raw: bytes) -> str:
 # assuming day-first for four-digit years as well. Only the century was ever in
 # doubt. Refusing them meant real receipts, which almost all print "12-07-26",
 # produced no date at all.
+#: Stop reading a PDF after this many pages. A contract can run to hundreds,
+#: and the text that makes a document findable — who, what, how much, which
+#: reference number — is on the first few. Reading all of them costs seconds
+#: per document on the indexer thread and adds nothing to a search.
+PDF_MAX_PAGES = 30
+
+#: And a ceiling on the text kept, for the same reason the history importer
+#: has one: a row nobody will ever read in full still has to be stored,
+#: indexed and shipped over the wire on every search.
+PDF_MAX_CHARS = 200_000
+
+
+def pdf_available() -> bool:
+    """Can we read a PDF's text layer?
+
+    Separate from available(), which asks about the OCR engine. Reading text
+    out of a PDF needs neither the engine nor its models — that is the whole
+    point of doing it this way — so an installation with no OCR at all can
+    still make its invoices findable.
+    """
+    try:
+        import pypdf           # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def read_pdf(path: str) -> str:
+    """Pull the embedded text layer out of a PDF.
+
+    NOT rendering, and not OCR. Most documents a household keeps — invoices,
+    statements, contracts, tickets, policies — are generated digitally and
+    carry a real text layer, which pypdf reads in pure Python with no native
+    dependency. That covers the common case at a cost of about 400 KB.
+
+    A SCANNED pdf has no text layer, only pictures of pages, and getting text
+    out of one means rasterising every page and running OCR over it. That
+    needs a PDF engine (and the licence that comes with it) which this app
+    deliberately does not carry. Such a file returns "" here, exactly as
+    before — no worse, and now the digital majority works.
+
+    Never raises: a malformed or encrypted PDF returns "" and the caller
+    stamps it as read, the same as any other document it cannot make sense of.
+    """
+    try:
+        from pypdf import PdfReader
+    except Exception:
+        return ""
+    try:
+        reader = PdfReader(path)
+        if getattr(reader, "is_encrypted", False):
+            # Try the empty password, which is what "encrypted" usually means
+            # in practice — a permissions flag rather than a secret.
+            try:
+                reader.decrypt("")
+            except Exception:
+                return ""
+        out = []
+        total = 0
+        for page in reader.pages[:PDF_MAX_PAGES]:
+            try:
+                t = page.extract_text() or ""
+            except Exception:
+                continue        # one bad page must not lose the rest
+            if not t:
+                continue
+            out.append(t)
+            total += len(t)
+            if total >= PDF_MAX_CHARS:
+                break
+        return "\n".join(out)[:PDF_MAX_CHARS].strip()
+    except Exception:
+        return ""
+
+
 _DATE_PATTERNS = [
     (re.compile(r"\b(\d{1,2})[-/.\s](\d{1,2})[-/.\s](\d{4})\b"), "dmy"),
     (re.compile(r"\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b"), "ymd"),

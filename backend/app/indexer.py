@@ -77,7 +77,7 @@ def status() -> dict:
         pending_faces = _pending_faces(db).count() if vision.faces_available() else 0
         pending_clip = _pending_clip(db).count() if vision.clip_available() else 0
         pending_ocr = ((_pending_ocr_photos(db).count() + _pending_ocr_docs(db).count())
-                       if ocr.available() else 0)
+                       if (ocr.available() or ocr.pdf_available()) else 0)
         total = db.query(GalleryPhoto).filter(GalleryPhoto.is_trashed == 0).count()
     finally:
         db.close()
@@ -144,11 +144,27 @@ def index_ocr_photo(db, photo: GalleryPhoto) -> int:
 
 
 def index_ocr_doc(db, doc: Document) -> int:
-    """Read the text of one document. PDFs are skipped: rendering a page needs a
-    PDF engine this app deliberately does not carry, and scans — the case that
-    matters — arrive as images anyway."""
+    """Read the text of one document.
+
+    Two routes, because documents arrive two ways. An image is OCR'd. A PDF
+    has its embedded text layer read directly — no rendering and no OCR, which
+    is what makes it affordable: most documents a household keeps are
+    generated digitally and carry real text.
+
+    This used to skip PDFs entirely, on the grounds that rendering a page
+    needs an engine the app does not carry and "scans arrive as images
+    anyway". The first half is still true and the second is not: an invoice
+    emailed as a PDF is the commonest document there is, and searching for its
+    number found nothing at all. A SCANNED pdf still returns nothing, because
+    that genuinely does need rasterising — see ocr.read_pdf.
+    """
+    ext = (doc.ext or "").lower()
     text = ""
-    if (doc.ext or "").lower() in {"jpg", "jpeg", "png", "webp", "bmp", "heic", "heif"}:
+    if ext == "pdf":
+        path = storage.media_path(storage.DOCUMENTS, doc.user_id, storage.ORIGINAL,
+                                  doc.filename)
+        text = ocr.read_pdf(path)
+    elif ext in {"jpg", "jpeg", "png", "webp", "bmp", "heic", "heif"}:
         path = storage.media_path(storage.DOCUMENTS, doc.user_id, storage.ORIGINAL,
                                   doc.filename)
         try:
@@ -282,7 +298,11 @@ def _jobs_spec():
         "ocr": [(ocr.available, _pending_ocr_photos,
                  lambda db, row: _state.__setitem__(
                      "text_found", _state["text_found"] + index_ocr_photo(db, row))),
-                (ocr.available, _pending_ocr_docs,
+                # Documents run when EITHER the OCR engine or the PDF reader
+                # is available. Gating both on ocr.available() meant an install
+                # without RapidOCR never read a PDF, although reading a text
+                # layer needs no OCR at all.
+                (lambda: ocr.available() or ocr.pdf_available(), _pending_ocr_docs,
                  lambda db, row: _state.__setitem__(
                      "text_found", _state["text_found"] + index_ocr_doc(db, row)))],
     }
@@ -401,7 +421,8 @@ def _wait_for_quiet() -> None:
 def start_if_idle_work() -> None:
     """Called at boot. Only starts when there is genuinely something to do, so a
     fully-indexed library costs one query at startup and nothing more."""
-    if not (vision.faces_available() or vision.clip_available() or ocr.available()):
+    if not (vision.faces_available() or vision.clip_available()
+            or ocr.available() or ocr.pdf_available()):
         return
     db = SessionLocal()
     try:
