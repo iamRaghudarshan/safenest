@@ -125,9 +125,14 @@ def index_ocr_photo(db, photo: GalleryPhoto) -> int:
                               photo.filename)
     text = ""
     try:
-        from PIL import Image
+        from PIL import Image, ImageOps
         with Image.open(path) as im:
-            text = ocr.read_image(im)
+            # Upright before reading. PIL hands back the sensor frame and
+            # leaves the orientation tag for the caller to apply, so a receipt
+            # photographed with the phone held upright arrived here on its side
+            # and OCR returned nothing from it. (cv2.imread, used by the face
+            # pass, applies the tag itself — PIL does not.)
+            text = ocr.read_image(ImageOps.exif_transpose(im) or im)
     except Exception:
         text = ""
     # Stamped even when nothing was found — that is what stops this photo coming
@@ -147,9 +152,9 @@ def index_ocr_doc(db, doc: Document) -> int:
         path = storage.media_path(storage.DOCUMENTS, doc.user_id, storage.ORIGINAL,
                                   doc.filename)
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
             with Image.open(path) as im:
-                text = ocr.read_image(im)
+                text = ocr.read_image(ImageOps.exif_transpose(im) or im)
         except Exception:
             text = ""
     doc.ocr_text = text

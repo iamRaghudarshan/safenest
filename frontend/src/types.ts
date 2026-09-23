@@ -53,8 +53,25 @@ export interface DocumentItem {
   created_at: string | null
 }
 
+/** A folder in the documents tree. parent_id null means the top level; there
+ *  is no root row, because a root that exists as a record can be renamed,
+ *  moved into itself or deleted. */
+export interface DocFolder {
+  id: number
+  name: string
+  parent_id: number | null
+  documents: number
+  folders: number
+  updated_at: string | null
+}
+
 export interface DocumentsData {
   items: DocumentItem[]
+  /** Folders sitting alongside these documents. Empty while searching, which
+   *  deliberately looks through the whole tree rather than one folder. */
+  folders?: DocFolder[]
+  /** Top-level-downwards path to the folder being browsed. */
+  path?: { id: number; name: string }[]
   total: number
   counts: Record<string, number>
   trashed: number
@@ -242,6 +259,15 @@ export interface Photo {
   taken_at: string | null
   taken_fmt?: string | null
   caption: string | null
+  /** 'photo' or 'video'. The server has always sent this; the UI ignored it,
+   *  which is why a video opened in an <img> and showed nothing. */
+  kind?: 'photo' | 'video'
+  /** Videos only. Drives the duration badge on the tile. */
+  duration_ms?: number | null
+  /** Shape, for the justified timeline. Null on rows uploaded before EXIF was
+   *  read; those fall back to a 4:3 guess rather than collapsing the row. */
+  width?: number | null
+  height?: number | null
 }
 
 /** Photo + everything read from its EXIF. Any field may be null: shared photos,
@@ -413,7 +439,11 @@ export interface HostReport {
 export interface StorageSlice { files: number; bytes: number }
 
 export interface StorageUsage {
-  modules: { gallery: StorageSlice; documents: StorageSlice; avatars: StorageSlice }
+  /** `partial` is chunked uploads still in flight. Optional because a
+   *  server older than this build does not report it, and the settings
+   *  screen must render against both. */
+  modules: { gallery: StorageSlice; documents: StorageSlice; avatars: StorageSlice;
+             partial?: StorageSlice }
   files: number
   bytes: number
 }

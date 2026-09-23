@@ -35,6 +35,11 @@ PRIVATE_ROOT = (
 GALLERY = "gallery"
 DOCUMENTS = "documents"
 AVATARS = "avatars"
+#: Chunked uploads still in flight. Not a module anyone browses, but it is
+#: real bytes on the same disk, and leaving it out of MODULES meant an
+#: interrupted 300 MB video was invisible to every storage screen — the
+#: owner could see the drive filling and nothing that explained it.
+PARTIAL = "partial"
 
 ORIGINAL = "original"
 THUMB = "thumb"
@@ -100,7 +105,7 @@ def usage(module: str, user_id: int) -> dict:
     return out
 
 
-MODULES = (GALLERY, DOCUMENTS, AVATARS)
+MODULES = (GALLERY, DOCUMENTS, AVATARS, PARTIAL)
 
 
 def usage_for(user_id: int) -> dict:

@@ -19,6 +19,7 @@ from sqlalchemy import or_
 
 from . import ist
 from . import backup, digest, mailer, push
+from .routers import documents, gallery
 from .config import settings
 from .database import SessionLocal
 from .models import NotificationPref, PushSubscription, Reminder, User
@@ -177,6 +178,43 @@ def run_reminders(now: datetime | None = None) -> dict:
     return summary
 
 
+#: Date of the last completed sweep, so the tick below costs one comparison
+#: for the other 1439 minutes of the day.
+_swept_on: date | None = None
+
+
+def run_sweeps() -> None:
+    """Once-a-day disk reclaim: expired bin, then abandoned upload parts.
+
+    Date-based rather than interval-based, for the same reason the digest is
+    (see the note at the top of this module): a PC that was asleep at the
+    moment a timer would have fired still sweeps once when it wakes, late,
+    instead of skipping the day entirely.
+    """
+    global _swept_on
+    today = ist.today()
+    if _swept_on == today:
+        return
+    db = SessionLocal()
+    try:
+        gallery.sweep_trash(db)
+    finally:
+        db.close()
+    # Its own session, because the gallery sweep above deletes rows and a
+    # failure there must not take the documents bin down with it — the two bins
+    # are independent and a user with a problem in one still deserves the other
+    # to be emptied.
+    db = SessionLocal()
+    try:
+        documents.sweep_trash(db)
+    finally:
+        db.close()
+    # Outside the session on purpose — it only touches the filesystem, and a
+    # database fault above should not stop the disk being reclaimed.
+    gallery.sweep_partials()
+    _swept_on = today
+
+
 def _loop() -> None:
     while True:
         # Two independent passes, each in its own try. A digest that throws must
@@ -200,6 +238,17 @@ def _loop() -> None:
             backup.maybe_backup("daily")
         except Exception as e:
             print(f"[backup] pass failed: {e}")
+        # Reclaim disk: empty the gallery bin past its retention, and delete
+        # chunked uploads nobody came back for. Both were previously unbounded
+        # — a binned photo and an abandoned .part file each sat on the drive
+        # for ever, and the .part files did not even show up in the storage
+        # screen. Paced to once a day like the backup above; this is the only
+        # pass that DELETES a user's data, so it gets its own try and says out
+        # loud what it removed.
+        try:
+            run_sweeps()
+        except Exception as e:
+            print(f"[sweep] pass failed: {e}")
         time.sleep(CHECK_SECONDS)
 
 

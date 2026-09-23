@@ -2,7 +2,7 @@ from datetime import date as _date, datetime as _datetime
 
 from sqlalchemy import (
     DECIMAL, TIMESTAMP, Column, Date, DateTime, Float, ForeignKey, Integer, LargeBinary,
-    String, Text, UniqueConstraint, text,
+    Index, String, Text, UniqueConstraint, text,
 )
 from sqlalchemy.types import TypeDecorator
 
@@ -371,8 +371,36 @@ class GalleryPhoto(Base):
     # filters on kind have to say "or null" for ever.
     kind = Column(String(8), default="photo")
     duration_ms = Column(Integer)     # videos only; NULL for a photo
+    # When this went into the bin — the retention clock the purge reads.
+    # is_trashed alone could say a photo was deleted but never for how long,
+    # so the bin grew for ever and the disk with it. Documents have had this
+    # column since July 2026; the gallery, which holds the big files, did not.
+    trashed_at = Column(FlexDateTime)
     created_at = Column(FlexDateTime)
     updated_at = Column(FlexDateTime)
+
+    __table_args__ = (
+        # The dedup in store_photo is a SELECT then an INSERT, and the upload
+        # endpoint is deliberately threadpool-parallel, so two devices backing
+        # up the same photo interleave between the two and both insert. This is
+        # what makes that impossible rather than merely unlikely — the same
+        # move uq_sync_user_uuid already makes for replayed records.
+        #
+        # content_hash is NULL until a row is hashed, and both MySQL and SQLite
+        # allow repeated NULLs in a unique index, so unhashed and backfilling
+        # rows are unaffected. source_hash is deliberately NOT part of the key:
+        # store_photo rewrites it to self-heal the phone's pre-flight, and a
+        # unique index on a column the code corrects in place would turn that
+        # repair into a crash.
+        UniqueConstraint("user_id", "content_hash", name="uq_gallery_user_content"),
+        # The shape of every gallery query: this user's photos, not in the bin,
+        # newest taken first. All three columns were unindexed, so each of those
+        # was a full table scan — invisible at a few hundred photos and fatal at
+        # the scale this product is for. Composite and in this order because the
+        # filters come first and the sort last, which is the order the planner
+        # can use in one pass.
+        Index("ix_gallery_user_trash_taken", "user_id", "is_trashed", "taken_at"),
+    )
 
 
 class MasterList(Base):
@@ -423,6 +451,39 @@ class Master(Base):
     updated_at = Column(FlexDateTime)
 
 
+class DocumentFolder(Base):
+    """A folder in the documents tree.
+
+    Adjacency list (each row names its parent) rather than a materialised path.
+    A path column has to be rewritten for every descendant when a folder is
+    renamed or moved, and the one thing people do constantly in a file tree is
+    rename and move folders. Depth here is a handful, so walking parents to
+    build a breadcrumb is a few cheap queries and never the slow part.
+
+    parent_id NULL means the top level. There is no root row: a root that
+    exists as a record is a root that can be renamed, moved into itself, or
+    deleted.
+    """
+    __tablename__ = "document_folders"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    parent_id = Column(Integer, index=True)
+    name = Column(String(160))
+    is_trashed = Column(Integer, default=0)
+    trashed_at = Column(FlexDateTime)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+
+    __table_args__ = (
+        # Two folders of the same name in the same place is the thing every
+        # file manager refuses, because afterwards neither the user nor a move
+        # can tell them apart. Scoped per user and per parent, so two people —
+        # and two different folders — may both hold a "Bank".
+        UniqueConstraint("user_id", "parent_id", "name", name="uq_folder_user_parent_name"),
+        Index("ix_folder_user_parent", "user_id", "parent_id", "is_trashed"),
+    )
+
+
 class Document(Base):
     """Secure document locker (ID cards, policies, certificates…). Files live in a
     PRIVATE dir (not the public /uploads mount) and are streamed only via an
@@ -449,6 +510,14 @@ class Document(Base):
     has_thumb = Column(Integer, default=0)
     is_favorite = Column(Integer, default=0)
     pages = Column(Integer, default=1)       # >1 for multi-page scans
+    # Which folder it sits in. NULL means the top level, which is also what
+    # every document created before folders existed has — so the feature
+    # arrives with every existing document already correctly placed,
+    # rather than needing a migration that guesses.
+    folder_id = Column(Integer, index=True)
+    # sha256 of the stored bytes. Documents had no dedup at all: the same
+    # PDF uploaded twice produced two files and two rows, every time.
+    content_hash = Column(String(64), index=True)
     is_trashed = Column(Integer, default=0)  # recycle bin — restorable until purged
     trashed_at = Column(FlexDateTime)
     created_at = Column(FlexDateTime)

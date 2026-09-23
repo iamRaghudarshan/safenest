@@ -7,14 +7,16 @@ import json
 import math
 import mimetypes
 import os
+import time
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import (APIRouter, Body, Depends, File, Form, HTTPException,
                      Request, UploadFile)
 from fastapi.responses import FileResponse, Response
-from PIL import Image
+from PIL import Image, ImageOps
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 try:
@@ -27,7 +29,8 @@ from .. import ist
 from .. import dialect, indexer, places, storage, vision
 from ..database import get_db
 from ..helpers import audit
-from ..models import Album, AlbumPhoto, GalleryPhoto, Person, PhotoFace, PhotoPerson, User
+from ..models import (Album, AlbumPhoto, GalleryPhoto, Person, PhotoFace,
+                      PhotoPerson, PhotoVector, User)
 from ..security import guard
 from ..signing import sign, verify
 
@@ -104,6 +107,12 @@ def _present(p: GalleryPhoto) -> dict:
         "caption": p.caption,
         "kind": kind,
         "duration_ms": p.duration_ms,
+        # Dimensions ride along with the grid payload, unlike the rest of the
+        # EXIF in _detail(). A justified timeline has to know each tile's shape
+        # BEFORE it can lay a row out, and asking per photo would be a request
+        # per tile. Two integers already on the row cost nothing to send.
+        "width": p.width or None,
+        "height": p.height or None,
     }
 
 
@@ -474,9 +483,20 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
     elif _sort == "oldest":
         # Oldest TAKEN first — the reverse of the default, for someone reading a
         # library forwards in time. Ascending id breaks ties the same direction.
-        order = [GalleryPhoto.taken_at.asc(), GalleryPhoto.id.asc()]
+        order = [GalleryPhoto.taken_at.asc(), GalleryPhoto.shot_at.asc(),
+                 GalleryPhoto.id.asc()]
     else:
-        order = [GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc()]
+        order = [GalleryPhoto.taken_at.desc(), GalleryPhoto.shot_at.desc(),
+                 GalleryPhoto.id.desc()]
+
+    # shot_at sits between the two deliberately. `taken_at` is a FlexDate — a
+    # DAY, with no time in it — so ordering on it alone left every photo from
+    # one day tied, and the tie fell through to `id`, which is upload order.
+    # An afternoon imported before the morning read back in that order for
+    # ever, and re-importing could not fix it. `shot_at` is the full capture
+    # timestamp (models.py) and is what actually puts a day in sequence.
+    # Photos with no EXIF time have shot_at NULL and keep falling through to
+    # id, which is the only honest answer for them.
 
     if near_centre:
         # The box over-selects at its corners, so page after the real distance
@@ -754,7 +774,8 @@ def places_list(user: User = Depends(guard("gallery", "view")),
         # for the newest rather than taking whichever was seen first.
         cover = (db.query(GalleryPhoto)
                  .filter(GalleryPhoto.id.in_(g["ids"][:500]))
-                 .order_by(GalleryPhoto.taken_at.desc(), GalleryPhoto.id.desc())
+                 .order_by(GalleryPhoto.taken_at.desc(), GalleryPhoto.shot_at.desc(),
+                           GalleryPhoto.id.desc())
                  .first())
         item = {k: v for k, v in g.items() if k != "ids"}
         item["cover_url"] = _cover_url(db, cover.id) if cover else None
@@ -772,7 +793,8 @@ def memories(user: User = Depends(guard("gallery", "view")), db: Session = Depen
             .filter(GalleryPhoto.user_id == user.id, GalleryPhoto.is_trashed == 0,
                     dialect.md(GalleryPhoto.taken_at) == md,
                     dialect.year_of(GalleryPhoto.taken_at) < today.year)
-            .order_by(GalleryPhoto.taken_at.desc()).all())
+            .order_by(GalleryPhoto.taken_at.desc(),
+                        GalleryPhoto.shot_at.desc()).all())
     groups: dict[int, dict] = {}
     for r in rows:
         ya = today.year - r.taken_at.year
@@ -1569,6 +1591,7 @@ def store_video(db: Session, user: User, raw: bytes, filename: str,
     if dup:
         if dup.is_trashed:
             dup.is_trashed = 0
+            dup.trashed_at = None
             dup.updated_at = ist.now()
             db.commit()
         return {"item": _present(dup), "faces_found": 0, "duplicate": True}
@@ -1676,6 +1699,7 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str,
         changed = False
         if dup.is_trashed:
             dup.is_trashed = 0
+            dup.trashed_at = None
             dup.updated_at = ist.now()
             changed = True
         # Self-heal the phone's backup pre-flight. Rows backfilled before this
@@ -1716,7 +1740,24 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str,
     else:
         stored = jpg
     storage.save(storage.GALLERY, user.id, storage.ORIGINAL, fname, stored)
-    thumb = pil.copy(); thumb.thumbnail((THUMB_MAX, THUMB_MAX))
+
+    # Orientation is applied HERE and nowhere above, and the placement is the
+    # whole point.
+    #
+    # A phone writes the sensor frame and an EXIF tag saying which way up it is.
+    # Nothing in this app ever read that tag, so every portrait photo taken on a
+    # phone was thumbnailed on its side.
+    #
+    # It cannot be fixed earlier. `jpg` a few lines up is what content_hash is
+    # taken from, and that hash is how the phone's /have pre-flight decides what
+    # it has already sent and how the duplicate finder pairs photos up.
+    # Transposing before that point would change the hash of every rotated photo
+    # already in the library: the phone would stop recognising its own uploads
+    # and re-send the entire camera roll, and the duplicate finder would stop
+    # matching the pairs it currently finds. The stored ORIGINAL is untouched
+    # too, so a download is still exactly the file the device sent, tag and all.
+    upright = ImageOps.exif_transpose(pil) or pil
+    thumb = upright.copy(); thumb.thumbnail((THUMB_MAX, THUMB_MAX))
     tbuf = io.BytesIO(); thumb.save(tbuf, format="JPEG", quality=80)
     storage.save(storage.GALLERY, user.id, storage.THUMB, fname, tbuf.getvalue())
 
@@ -1731,11 +1772,46 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str,
                          is_favorite=0, is_trashed=0, size_bytes=len(raw),
                          content_hash=content_hash, source_hash=source_hash,
                          phash=_dhash(pil),
-                         orig_name=orig_name, width=meta.get("width"), height=meta.get("height"),
+                         # The size as DISPLAYED, not as the sensor wrote it.
+                         # The gallery lays photos out in justified rows from
+                         # these two numbers, so a portrait photo reporting its
+                         # landscape sensor dimensions would be given a wide
+                         # slot and then fill it with a tall, upright thumbnail.
+                         orig_name=orig_name,
+                         width=upright.width or meta.get("width"),
+                         height=upright.height or meta.get("height"),
                          camera=meta.get("camera"), lens=meta.get("lens"),
                          lat=meta.get("lat"), lon=meta.get("lon"), shot_at=shot_at,
                          created_at=now, updated_at=now)
-    db.add(photo); db.commit(); db.refresh(photo)
+    db.add(photo)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Lost the race. The SELECT above and this INSERT are not one atomic
+        # act, and /api/gallery/upload is declared `def` ON PURPOSE so FastAPI
+        # runs it in the threadpool — so two devices backing up the same photo
+        # genuinely do interleave here. Before uq_gallery_user_content existed,
+        # both SELECTs missed, both INSERTs succeeded, and the household ended
+        # up with two rows and two files for one photo.
+        #
+        # The unique index turns that silent duplication into this exception.
+        # The other request has already committed the winning row and written
+        # its own copy, so ours is the orphan: drop the files we just wrote,
+        # and answer exactly as the sequential dup path above does. The caller
+        # cannot tell which request won, and does not need to.
+        db.rollback()
+        winner = (db.query(GalleryPhoto)
+                  .filter(GalleryPhoto.user_id == user.id,
+                          GalleryPhoto.content_hash == content_hash)
+                  .first())
+        if winner is None:
+            # Some OTHER constraint failed. Do not swallow it as a duplicate —
+            # that would report a real write failure as a successful no-op.
+            raise
+        storage.remove(storage.GALLERY, user.id, storage.ORIGINAL, fname)
+        storage.remove(storage.GALLERY, user.id, storage.THUMB, fname)
+        return {"item": _present(winner), "faces_found": 0, "duplicate": True}
+    db.refresh(photo)
 
     # Face detection is NOT done here. It used to call an external service that was
     # never actually deployed, so every upload silently found nothing — which is why
@@ -1930,10 +2006,60 @@ def resolve_duplicates(body: dict = Body(...),
     now = ist.now()
     for p in rows:
         p.is_trashed = 1
+        p.trashed_at = now
         p.updated_at = now
     db.commit()
     audit(db, user.id, "dedupe", "gallery", None, {"trashed": [p.id for p in rows]})
     return {"trashed": len(rows)}
+
+
+@router.post("/bulk")
+def bulk(body: dict = Body(...), user: User = Depends(guard("gallery", "edit")),
+         db: Session = Depends(get_db)):
+    """Apply one action to a selection of photos in a single round trip.
+
+    Selecting a day in the timeline can easily be two hundred photos. Doing
+    that as two hundred POSTs means two hundred sessions, two hundred commits
+    and a progress bar the user watches crawl; worse, a tab closed halfway
+    leaves the selection half-applied with nothing saying which half.
+
+    One statement per action, so the whole selection lands or none of it does.
+    Scoped to the caller's own rows by user_id in the filter rather than by
+    checking afterwards, so an id belonging to somebody else simply does not
+    match — it is not an error to report, it is a row that was never theirs.
+
+    `trash` is deliberately here and `permanent` deliberately is not. A bulk
+    soft-delete is undoable from the bin; a bulk hard-delete is the one action
+    where a mis-click cannot be taken back, and it keeps its per-photo route.
+    """
+    action = str(body.get("action") or "").strip().lower()
+    raw = body.get("ids") or []
+    ids = [int(x) for x in raw if str(x).lstrip("-").isdigit()][:5000]
+    if not ids:
+        return {"changed": 0}
+
+    sel = db.query(GalleryPhoto).filter(GalleryPhoto.user_id == user.id,
+                                        GalleryPhoto.id.in_(ids))
+    now = ist.now()
+    if action == "favourite":
+        vals = {GalleryPhoto.is_favorite: 1, GalleryPhoto.updated_at: now}
+    elif action == "unfavourite":
+        vals = {GalleryPhoto.is_favorite: 0, GalleryPhoto.updated_at: now}
+    elif action == "trash":
+        vals = {GalleryPhoto.is_trashed: 1, GalleryPhoto.trashed_at: now,
+                GalleryPhoto.updated_at: now}
+    elif action == "restore":
+        # Clearing trashed_at matters: a restored photo that kept its stamp
+        # would be swept away days later by a job that never saw the restore.
+        vals = {GalleryPhoto.is_trashed: 0, GalleryPhoto.trashed_at: None,
+                GalleryPhoto.updated_at: now}
+    else:
+        raise HTTPException(400, "Unknown action")
+
+    n = sel.update(vals, synchronize_session=False)
+    db.commit()
+    audit(db, user.id, f"bulk_{action}", "gallery", None, {"count": n})
+    return {"changed": n, "action": action}
 
 
 @router.post("/{id}/favourite")
@@ -1951,7 +2077,7 @@ def trash(id: int, user: User = Depends(guard("gallery", "delete")), db: Session
     p = db.query(GalleryPhoto).filter(GalleryPhoto.id == id, GalleryPhoto.user_id == user.id).first()
     if not p:
         raise HTTPException(404, "Photo not found")
-    p.is_trashed = 1; db.commit()
+    p.is_trashed = 1; p.trashed_at = ist.now(); db.commit()
     audit(db, user.id, "trash", "photo", id, {"label": p.caption or p.orig_name or f"Photo {p.id}"})
     return {"deleted": id}
 
@@ -1961,9 +2087,129 @@ def restore(id: int, user: User = Depends(guard("gallery", "edit")), db: Session
     p = db.query(GalleryPhoto).filter(GalleryPhoto.id == id, GalleryPhoto.user_id == user.id).first()
     if not p:
         raise HTTPException(404, "Photo not found")
-    p.is_trashed = 0; db.commit()
+    # Clearing the stamp is what stops a restored photo carrying its old
+    # countdown and being purged days later by a job that never saw the restore.
+    p.is_trashed = 0; p.trashed_at = None; db.commit()
     audit(db, user.id, "restore", "photo", id, {"label": p.caption or p.orig_name or f"Photo {p.id}"})
     return {"id": id, "restored": True}
+
+
+def purge_photos(db: Session, rows: list) -> int:
+    """Permanently remove photos and everything that hangs off them.
+
+    The cascade lived twice — once in empty_trash, once in destroy — and both
+    copies forgot PhotoVector, so every permanently deleted photo left its CLIP
+    embedding behind for ever. One copy, so the next table added to the gallery
+    has one place to be remembered.
+
+    Files go FIRST and rows second, which is the wrong order and is kept on
+    purpose for now: reversing it is a separate change with its own failure
+    mode, and a file removed without its row is the recoverable direction.
+    """
+    if not rows:
+        return 0
+    ids = [p.id for p in rows]
+    for p in rows:
+        for variant in storage.VARIANTS:
+            # thumb_name, so a video's poster goes with it. Removing by the raw
+            # filename left a `.jpg` behind for every video ever deleted.
+            name = thumb_name(p) if variant == storage.THUMB else p.filename
+            storage.remove(storage.GALLERY, p.user_id, variant, name)
+    db.query(PhotoFace).filter(PhotoFace.photo_id.in_(ids)).delete(synchronize_session=False)
+    db.query(PhotoPerson).filter(PhotoPerson.photo_id.in_(ids)).delete(synchronize_session=False)
+    db.query(PhotoVector).filter(PhotoVector.photo_id.in_(ids)).delete(synchronize_session=False)
+    db.query(AlbumPhoto).filter(AlbumPhoto.photo_id.in_(ids)).delete(synchronize_session=False)
+    db.query(Person).filter(Person.cover_id.in_(ids)).update(
+        {Person.cover_id: None}, synchronize_session=False)
+    db.query(Album).filter(Album.cover_id.in_(ids)).update(
+        {Album.cover_id: None}, synchronize_session=False)
+    db.query(GalleryPhoto).filter(GalleryPhoto.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    return len(ids)
+
+
+#: How long a binned photo is kept before it is really deleted. Google Photos
+#: uses 30 days and people have learned to expect roughly that, so a photo
+#: deleted by mistake is recoverable for a month and the disk is not held
+#: hostage for ever. Nothing deletes a photo that is NOT in the bin.
+TRASH_RETENTION_DAYS = 30
+
+#: How long an interrupted chunked upload may sit in private/partial/ before it
+#: is reclaimed. Generous on purpose — a phone that lost Wi-Fi mid-video should
+#: still be able to resume tomorrow — but finite, which it previously was not.
+PARTIAL_MAX_AGE_HOURS = 48
+
+
+def sweep_trash(db: Session, days: int = TRASH_RETENTION_DAYS) -> int:
+    """Permanently delete photos that have been in the bin longer than `days`.
+
+    Rows binned before trashed_at existed have no stamp. They are STAMPED here
+    and deliberately not purged on the same pass, so the countdown starts the
+    first time this runs rather than retroactively — otherwise shipping this
+    would delete the entire existing bin on the next restart, which is the one
+    outcome nobody asked for.
+    """
+    now = ist.now()
+    unstamped = (db.query(GalleryPhoto)
+                 .filter(GalleryPhoto.is_trashed == 1,
+                         GalleryPhoto.trashed_at.is_(None)).all())
+    if unstamped:
+        for p in unstamped:
+            p.trashed_at = now
+        db.commit()
+        print("[sweep] started the retention clock on %d photo(s) already in the bin"
+              % len(unstamped))
+
+    cutoff = now - timedelta(days=days)
+    due = (db.query(GalleryPhoto)
+           .filter(GalleryPhoto.is_trashed == 1,
+                   GalleryPhoto.trashed_at.isnot(None),
+                   GalleryPhoto.trashed_at < cutoff).all())
+    if not due:
+        return 0
+    n = purge_photos(db, due)
+    print("[sweep] permanently deleted %d photo(s) binned before %s"
+          % (n, cutoff.date()))
+    return n
+
+
+def sweep_partials(max_age_hours: int = PARTIAL_MAX_AGE_HOURS) -> int:
+    """Delete abandoned chunked-upload parts.
+
+    /upload/abandon was the only thing that ever removed one of these, and it
+    needs a client well enough to ask. A phone that is force-quit, crashes or
+    simply loses the network mid-video left a file of up to MAX_VIDEO_BYTES
+    under private/partial/<uid>/ for ever — in a directory that is not in
+    storage.MODULES, so it did not even appear in the storage screen. The disk
+    filled with something the owner could not see or explain.
+    """
+    root = os.path.join(storage.PRIVATE_ROOT, "partial")
+    if not os.path.isdir(root):
+        return 0
+    cutoff = time.time() - max_age_hours * 3600
+    freed = n = 0
+    for uid in os.listdir(root):
+        d = os.path.join(root, uid)
+        if not os.path.isdir(d):
+            continue
+        for name in os.listdir(d):
+            if not name.endswith(".part"):
+                continue
+            f = os.path.join(d, name)
+            try:
+                if os.path.getmtime(f) >= cutoff:
+                    continue
+                freed += os.path.getsize(f)
+                os.remove(f)
+                n += 1
+            except OSError:
+                # Being deleted under us, or a permission fault. Either way the
+                # next pass will see it again — this must never kill the tick.
+                continue
+    if n:
+        print("[sweep] reclaimed %d abandoned upload part(s), %.1f MB"
+              % (n, freed / 1048576))
+    return n
 
 
 @router.post("/trash/empty")
@@ -1972,25 +2218,11 @@ def empty_trash(user: User = Depends(guard("gallery", "delete")), db: Session = 
     file and its face/person links, and nulls any person cover that pointed at them."""
     rows = (db.query(GalleryPhoto)
             .filter(GalleryPhoto.user_id == user.id, GalleryPhoto.is_trashed == 1).all())
-    ids = [p.id for p in rows]
-    if not ids:
+    n = purge_photos(db, rows)
+    if not n:
         return {"deleted": 0}
-    for p in rows:
-        for variant in storage.VARIANTS:
-            # thumb_name, so a video's poster goes with it. Removing by the raw
-            # filename left a `.jpg` behind for every video ever deleted —
-            # invisible, and it would grow for ever.
-            name = thumb_name(p) if variant == storage.THUMB else p.filename
-            storage.remove(storage.GALLERY, p.user_id, variant, name)
-    db.query(PhotoFace).filter(PhotoFace.photo_id.in_(ids)).delete(synchronize_session=False)
-    db.query(PhotoPerson).filter(PhotoPerson.photo_id.in_(ids)).delete(synchronize_session=False)
-    db.query(AlbumPhoto).filter(AlbumPhoto.photo_id.in_(ids)).delete(synchronize_session=False)
-    db.query(Person).filter(Person.cover_id.in_(ids)).update({Person.cover_id: None}, synchronize_session=False)
-    db.query(Album).filter(Album.cover_id.in_(ids)).update({Album.cover_id: None}, synchronize_session=False)
-    db.query(GalleryPhoto).filter(GalleryPhoto.id.in_(ids)).delete(synchronize_session=False)
-    db.commit()
-    audit(db, user.id, "empty_trash", "gallery", None, {"deleted": len(ids)})
-    return {"deleted": len(ids)}
+    audit(db, user.id, "empty_trash", "gallery", None, {"deleted": n})
+    return {"deleted": n}
 
 
 @router.delete("/{id}/permanent")
@@ -1999,15 +2231,8 @@ def destroy(id: int, user: User = Depends(guard("gallery", "delete")), db: Sessi
     p = db.query(GalleryPhoto).filter(GalleryPhoto.id == id, GalleryPhoto.user_id == user.id).first()
     if not p:
         raise HTTPException(404, "Photo not found")
-    for variant in storage.VARIANTS:
-        name = thumb_name(p) if variant == storage.THUMB else p.filename
-        storage.remove(storage.GALLERY, p.user_id, variant, name)
-    db.query(PhotoFace).filter(PhotoFace.photo_id == id).delete()
-    db.query(PhotoPerson).filter(PhotoPerson.photo_id == id).delete()
-    db.query(AlbumPhoto).filter(AlbumPhoto.photo_id == id).delete()
-    db.query(Person).filter(Person.cover_id == id).update({Person.cover_id: None})
-    db.query(Album).filter(Album.cover_id == id).update({Album.cover_id: None})
+    # Read the label BEFORE the purge — afterwards the row is gone.
     label = p.caption or p.orig_name or f"Photo {p.id}"
-    db.delete(p); db.commit()
+    purge_photos(db, [p])
     audit(db, user.id, "delete", "photo", id, {"label": label})
     return {"deleted": id}

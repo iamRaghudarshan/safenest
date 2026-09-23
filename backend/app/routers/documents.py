@@ -6,7 +6,7 @@ images and PDFs, with size/type validation and image thumbnails."""
 import io
 import os
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -25,7 +25,7 @@ from .. import storage
 from ..config import settings
 from ..database import get_db
 from ..helpers import audit
-from ..models import Document, User
+from ..models import Document, DocumentFolder, User
 from ..security import guard
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -162,11 +162,30 @@ def _present(d: Document) -> dict:
 
 
 @router.get("")
-def index(category: str = "", q: str = "", fav: int = 0,
+def index(category: str = "", q: str = "", fav: int = 0, folder: str = "",
+          sort: str = "",
           user: User = Depends(guard("documents", "view")), db: Session = Depends(get_db)):
     # Trashed documents are hidden everywhere except the recycle bin below.
     base = db.query(Document).filter(Document.user_id == user.id, Document.is_trashed == 0)
     query = base
+
+    # Folder scoping. `folder=` (absent) means "everything, wherever it is",
+    # which is what search and the category chips want. `folder=0` means the
+    # top level specifically. A number means inside that folder.
+    #
+    # The distinction matters: browsing a tree must NOT show you the whole
+    # library flattened, and searching must NOT be limited to the folder you
+    # happen to be standing in. They are different questions and the old single
+    # endpoint could only ask one of them.
+    in_folder = None
+    if folder != "":
+        try:
+            in_folder = int(folder)
+        except ValueError:
+            in_folder = 0
+        query = query.filter(Document.folder_id.is_(None) if in_folder == 0
+                             else Document.folder_id == in_folder)
+
     if category and category in CATEGORIES:
         query = query.filter(Document.category == category)
     if fav:
@@ -177,19 +196,228 @@ def index(category: str = "", q: str = "", fav: int = 0,
         # number printed on a bill nobody ever typed into the form.
         query = query.filter((Document.title.like(like)) | (Document.doc_number.like(like))
                              | (Document.notes.like(like)) | (Document.ocr_text.like(like)))
-    rows = query.order_by(Document.is_favorite.desc(), Document.created_at.desc(),
-                          Document.id.desc()).all()
+    # Sort like a file manager. Favourites still float on the default, because
+    # that is what the star is for; choosing an explicit order turns that off,
+    # since someone who asked for "by name" means by name.
+    key = (sort or "").strip().lower()
+    if key == "name":
+        order = [Document.title.asc(), Document.id.asc()]
+    elif key == "oldest":
+        order = [Document.created_at.asc(), Document.id.asc()]
+    elif key == "largest":
+        order = [Document.size_bytes.desc(), Document.id.desc()]
+    elif key == "smallest":
+        order = [Document.size_bytes.asc(), Document.id.asc()]
+    else:
+        order = [Document.is_favorite.desc(), Document.created_at.desc(),
+                 Document.id.desc()]
+    rows = query.order_by(*order).all()
+
+    # The folders sitting alongside these files, when browsing a tree.
+    folders = []
+    if in_folder is not None:
+        fq = (db.query(DocumentFolder)
+              .filter(DocumentFolder.user_id == user.id,
+                      DocumentFolder.is_trashed == 0)
+              .filter(DocumentFolder.parent_id.is_(None) if in_folder == 0
+                      else DocumentFolder.parent_id == in_folder)
+              .order_by(DocumentFolder.name.asc()))
+        folders = [_folder(db, f) for f in fq.all()]
     # per-category counts (ignores current filter, for the chip badges)
     counts = dict(db.query(Document.category, func.count(Document.id))
                   .filter(Document.user_id == user.id, Document.is_trashed == 0)
                   .group_by(Document.category).all())
     return {
         "items": [_present(d) for d in rows],
+        "folders": folders,
+        "path": _breadcrumb(db, user.id, in_folder) if in_folder else [],
         "total": base.count(),
         "counts": {c: int(counts.get(c, 0)) for c in CATEGORIES},
         "trashed": db.query(Document).filter(Document.user_id == user.id,
                                              Document.is_trashed == 1).count(),
     }
+
+
+# -------------------------------------------------------------------- folders
+
+def _folder(db: Session, f: DocumentFolder) -> dict:
+    """One folder, with the counts a file manager shows on the tile."""
+    docs = (db.query(func.count(Document.id))
+            .filter(Document.user_id == f.user_id, Document.folder_id == f.id,
+                    Document.is_trashed == 0).scalar() or 0)
+    subs = (db.query(func.count(DocumentFolder.id))
+            .filter(DocumentFolder.user_id == f.user_id,
+                    DocumentFolder.parent_id == f.id,
+                    DocumentFolder.is_trashed == 0).scalar() or 0)
+    return {"id": f.id, "name": f.name, "parent_id": f.parent_id,
+            "documents": int(docs), "folders": int(subs),
+            "updated_at": f.updated_at.isoformat() if f.updated_at else None}
+
+
+def _breadcrumb(db: Session, uid: int, fid: int | None) -> list:
+    """Top-level-downwards path to `fid`.
+
+    Walks parents rather than reading a stored path, and stops after 64 hops.
+    The move endpoint refuses to build a cycle, but a cycle that somehow
+    existed would otherwise hang this loop forever and take the request thread
+    with it — a bound costs nothing and turns a hang into a short path.
+    """
+    out = []
+    seen = set()
+    cur = fid
+    for _ in range(64):
+        if not cur or cur in seen:
+            break
+        seen.add(cur)
+        f = (db.query(DocumentFolder)
+             .filter(DocumentFolder.id == cur, DocumentFolder.user_id == uid).first())
+        if not f:
+            break
+        out.append({"id": f.id, "name": f.name})
+        cur = f.parent_id
+    return list(reversed(out))
+
+
+def _descendants(db: Session, uid: int, fid: int) -> set:
+    """Every folder at or below `fid`. Used to refuse a move into itself."""
+    out = {fid}
+    edge = [fid]
+    while edge:
+        rows = (db.query(DocumentFolder.id)
+                .filter(DocumentFolder.user_id == uid,
+                        DocumentFolder.parent_id.in_(edge)).all())
+        edge = [r[0] for r in rows if r[0] not in out]
+        out.update(edge)
+    return out
+
+
+def _own_folder(db: Session, uid: int, fid: int) -> DocumentFolder:
+    f = (db.query(DocumentFolder)
+         .filter(DocumentFolder.id == fid, DocumentFolder.user_id == uid).first())
+    if not f:
+        raise HTTPException(404, "Folder not found")
+    return f
+
+
+@router.get("/folders")
+def folder_tree(user: User = Depends(guard("documents", "view")),
+                db: Session = Depends(get_db)):
+    """The whole tree in one call, for a move dialog's folder picker.
+
+    Small by nature — folders are made by hand, so there are tens of them, not
+    the thousands the documents themselves run to.
+    """
+    rows = (db.query(DocumentFolder)
+            .filter(DocumentFolder.user_id == user.id, DocumentFolder.is_trashed == 0)
+            .order_by(DocumentFolder.name.asc()).all())
+    return {"items": [_folder(db, f) for f in rows]}
+
+
+@router.post("/folders")
+def create_folder(body: dict = Body(...),
+                  user: User = Depends(guard("documents", "create")),
+                  db: Session = Depends(get_db)):
+    name = (body.get("name") or "").strip()[:160]
+    if not name:
+        raise HTTPException(400, "Folder needs a name")
+    parent = body.get("parent_id")
+    parent_id = int(parent) if parent else None
+    if parent_id:
+        _own_folder(db, user.id, parent_id)     # 404s rather than silently re-homing
+    clash = (db.query(DocumentFolder)
+             .filter(DocumentFolder.user_id == user.id,
+                     DocumentFolder.parent_id.is_(None) if parent_id is None
+                     else DocumentFolder.parent_id == parent_id,
+                     DocumentFolder.name == name,
+                     DocumentFolder.is_trashed == 0).first())
+    if clash:
+        raise HTTPException(409, f"There is already a folder called {name} here")
+    now = ist.now()
+    f = DocumentFolder(user_id=user.id, parent_id=parent_id, name=name,
+                       is_trashed=0, created_at=now, updated_at=now)
+    db.add(f); db.commit(); db.refresh(f)
+    audit(db, user.id, "create", "folder", f.id, {"label": name})
+    return {"item": _folder(db, f)}
+
+
+@router.put("/folders/{fid}")
+def update_folder(fid: int, body: dict = Body(...),
+                  user: User = Depends(guard("documents", "edit")),
+                  db: Session = Depends(get_db)):
+    """Rename and/or move a folder."""
+    f = _own_folder(db, user.id, fid)
+    if "name" in body:
+        name = (body.get("name") or "").strip()[:160]
+        if not name:
+            raise HTTPException(400, "Folder needs a name")
+        f.name = name
+    if "parent_id" in body:
+        raw = body.get("parent_id")
+        new_parent = int(raw) if raw else None
+        # The move that destroys a tree: putting a folder inside itself, or
+        # inside one of its own children. Both detach the whole subtree from
+        # the top level — it still exists, it is simply unreachable, and the
+        # breadcrumb walk loops. Refused rather than repaired afterwards.
+        if new_parent is not None:
+            if new_parent in _descendants(db, user.id, fid):
+                raise HTTPException(400, "A folder cannot be moved inside itself")
+            _own_folder(db, user.id, new_parent)
+        f.parent_id = new_parent
+    f.updated_at = ist.now()
+    db.commit()
+    audit(db, user.id, "update", "folder", f.id, {"label": f.name})
+    return {"item": _folder(db, f)}
+
+
+@router.delete("/folders/{fid}")
+def trash_folder(fid: int, user: User = Depends(guard("documents", "delete")),
+                 db: Session = Depends(get_db)):
+    """Bin a folder and everything under it.
+
+    The whole subtree goes, because a folder whose contents stayed visible at
+    the top level would look like the delete silently failed — and a folder
+    that vanished while its documents became unreachable would be worse.
+    Soft only: restoring is a separate act and nothing is removed from disk.
+    """
+    f = _own_folder(db, user.id, fid)
+    ids = _descendants(db, user.id, fid)
+    now = ist.now()
+    (db.query(DocumentFolder)
+     .filter(DocumentFolder.user_id == user.id, DocumentFolder.id.in_(ids))
+     .update({DocumentFolder.is_trashed: 1, DocumentFolder.trashed_at: now},
+             synchronize_session=False))
+    n = (db.query(Document)
+         .filter(Document.user_id == user.id, Document.folder_id.in_(ids),
+                 Document.is_trashed == 0)
+         .update({Document.is_trashed: 1, Document.trashed_at: now},
+                 synchronize_session=False))
+    db.commit()
+    audit(db, user.id, "trash", "folder", fid,
+          {"label": f.name, "documents": int(n), "folders": len(ids)})
+    return {"deleted": fid, "documents": int(n), "folders": len(ids)}
+
+
+@router.post("/move")
+def move_documents(body: dict = Body(...),
+                   user: User = Depends(guard("documents", "edit")),
+                   db: Session = Depends(get_db)):
+    """Move documents into a folder (or to the top level with folder_id null)."""
+    raw = body.get("ids") or []
+    ids = [int(x) for x in raw if str(x).lstrip("-").isdigit()][:2000]
+    if not ids:
+        return {"moved": 0}
+    target = body.get("folder_id")
+    folder_id = int(target) if target else None
+    if folder_id:
+        _own_folder(db, user.id, folder_id)
+    n = (db.query(Document)
+         .filter(Document.user_id == user.id, Document.id.in_(ids))
+         .update({Document.folder_id: folder_id, Document.updated_at: ist.now()},
+                 synchronize_session=False))
+    db.commit()
+    audit(db, user.id, "move", "document", None,
+          {"count": int(n), "folder_id": folder_id})
+    return {"moved": int(n), "folder_id": folder_id}
 
 
 # ---------------------------------------------------------------- recycle bin
@@ -451,6 +679,62 @@ def favourite(id: int, user: User = Depends(guard("documents", "edit")), db: Ses
 def _delete_files(d: Document) -> None:
     storage.remove(storage.DOCUMENTS, d.user_id, storage.ORIGINAL, d.filename)
     storage.remove(storage.DOCUMENTS, d.user_id, storage.THUMB, f"{d.filename}.jpg")
+
+
+#: How long a binned document is kept. The same 30 days the gallery uses, on
+#: purpose: two bins in one product that empty on different schedules is a
+#: thing nobody can hold in their head, and the one they guess wrong about is
+#: the one holding something irreplaceable.
+TRASH_RETENTION_DAYS = 30
+
+
+def sweep_trash(db: Session, days: int = TRASH_RETENTION_DAYS) -> int:
+    """Permanently delete documents binned longer than `days`, and their files.
+
+    Documents have had a trashed_at column since July 2026 and nothing has ever
+    read it, so the bin grew forever. Rows binned before this ran get STAMPED
+    and not deleted on the same pass, so shipping it does not empty an existing
+    bin on the next restart.
+
+    Folders whose whole subtree is gone are removed too, otherwise the tree
+    fills with empty binned folders nobody can see or clear.
+    """
+    now = ist.now()
+    unstamped = (db.query(Document)
+                 .filter(Document.is_trashed == 1, Document.trashed_at.is_(None)).all())
+    if unstamped:
+        for d in unstamped:
+            d.trashed_at = now
+        db.commit()
+        print("[sweep] started the retention clock on %d document(s) already in the bin"
+              % len(unstamped))
+
+    cutoff = now - timedelta(days=days)
+    due = (db.query(Document)
+           .filter(Document.is_trashed == 1, Document.trashed_at.isnot(None),
+                   Document.trashed_at < cutoff).all())
+    n = 0
+    for d in due:
+        # Files first, then the row, one document at a time. A failure part way
+        # through leaves the remainder still in the bin rather than a half
+        # committed batch, and each one is independent of the others.
+        try:
+            _delete_files(d)
+        except Exception:
+            pass
+        db.delete(d)
+        n += 1
+    folders = (db.query(DocumentFolder)
+               .filter(DocumentFolder.is_trashed == 1,
+                       DocumentFolder.trashed_at.isnot(None),
+                       DocumentFolder.trashed_at < cutoff).all())
+    for f in folders:
+        db.delete(f)
+    if n or folders:
+        db.commit()
+        print("[sweep] permanently deleted %d document(s) and %d folder(s) binned before %s"
+              % (n, len(folders), cutoff.date()))
+    return n
 
 
 @router.delete("/{id}")

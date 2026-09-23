@@ -15,7 +15,7 @@ from .config import BACKEND_DIR, settings
 from .crypto import reencrypt_legacy_items
 from .database import Base, engine
 from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport, BroadcastReceipt, DeviceToken, Document, Habit, HabitLog, Hosting, License, LicenceRequest, MailLog, MailSettings, Release,
-                     Master, MasterList, Note, NoteItem, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, SyncOp, Ticket, TicketMessage,
+                     DocumentFolder, Master, MasterList, Note, NoteItem, Notification, NotificationPref, PhotoVector, PushSubscription, SiteStat, SyncOp, Ticket, TicketMessage,
                      UserModule, User)
 from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, habits, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, mail, notes, notifications, people, reminders,
@@ -142,6 +142,30 @@ def _migrate() -> None:
         Base.metadata.create_all(bind=engine)
         if needed:
             _sqlite_topup()
+        # create_all() above only adds constraints to tables it CREATES, and on
+        # every existing copy gallery_photos is already there — so the unique
+        # index has to be asked for by name. This is the customer path: the
+        # MySQL branch below reaches one machine, this one reaches all of them.
+        # Same rule as there — a failure here is reported, never swallowed.
+        with engine.begin() as conn:
+            try:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_gallery_user_content "
+                    "ON gallery_photos (user_id, content_hash)"))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_gallery_user_trash_taken "
+                    "ON gallery_photos (user_id, is_trashed, taken_at)"))
+            except Exception as exc:
+                dupes = conn.execute(text(
+                    "SELECT COUNT(*) FROM (SELECT user_id, content_hash "
+                    "FROM gallery_photos WHERE content_hash IS NOT NULL "
+                    "GROUP BY user_id, content_hash HAVING COUNT(*) > 1)")).scalar()
+                print("[migrate] uq_gallery_user_content NOT created: %s" % exc)
+                if dupes:
+                    print("[migrate] %d duplicated photo(s) already in this database. "
+                          "Resolve them in Gallery -> Duplicates, then restart to "
+                          "finish applying the fix. Nothing has been deleted."
+                          % dupes)
         _seed_module_grants()
         return
 
@@ -234,6 +258,17 @@ def _migrate() -> None:
         # Lets a phone ask what the server already has before uploading it.
         ("gallery_photos", "source_hash",
          "ALTER TABLE gallery_photos ADD COLUMN source_hash VARCHAR(64) NULL"),
+        # Retention clock for the gallery bin. Existing trashed rows are stamped
+        # at upgrade (below) rather than left NULL, so the countdown starts the
+        # day this ships and nobody loses a photo they binned last week.
+        ("gallery_photos", "trashed_at",
+         "ALTER TABLE gallery_photos ADD COLUMN trashed_at DATETIME NULL"),
+        # Documents become a folder tree (Drive-shaped). NULL = the top level,
+        # which is exactly where every pre-existing document belongs, so no
+        # backfill is needed and nothing has to be guessed.
+        ("documents", "folder_id", "ALTER TABLE documents ADD COLUMN folder_id INT NULL"),
+        ("documents", "content_hash",
+         "ALTER TABLE documents ADD COLUMN content_hash VARCHAR(64) NULL"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).
@@ -256,15 +291,58 @@ def _migrate() -> None:
                 conn.execute(text(ddl))
         # Indexes for fast dedup lookups (ignore if they already exist).
         for idx, col in (("ix_gallery_photos_content_hash", "content_hash"),
-                         ("ix_gallery_photos_phash", "phash")):
+                         ("ix_gallery_photos_phash", "phash"),
+                         # The composite the gallery listing actually uses:
+                         # this user's photos, not binned, newest taken first.
+                         ("ix_gallery_user_trash_taken", "user_id, is_trashed, taken_at"),
+                         ("ix_documents_folder", "user_id, folder_id, is_trashed"),
+                         ("ix_documents_content_hash", "content_hash")):
             try:
                 conn.execute(text(f"CREATE INDEX {idx} ON gallery_photos ({col})"))
             except Exception:
                 pass
 
+    # The one index that is NOT allowed to fail quietly.
+    #
+    # uq_gallery_user_content is what stops two devices uploading the same
+    # photo from creating two rows (see GalleryPhoto.__table_args__). Wrapping
+    # it in `except: pass` like the lookup indexes above would be worse than
+    # not adding it: the code downstream now treats an IntegrityError as "the
+    # other request won", so an install where this index is silently absent
+    # keeps duplicating photos while every log line says the fix shipped.
+    #
+    # It can legitimately fail on ONE database: an install that already holds
+    # duplicate rows from before the fix. Those are the user's photos and this
+    # function does not get to delete them — the Duplicates screen already
+    # exists for exactly that, and a human decides. So: say so, loudly, once
+    # per boot, and leave the app working.
+    with engine.begin() as conn:
+        exists = conn.execute(text(
+            "SELECT COUNT(*) FROM information_schema.statistics "
+            "WHERE table_schema = DATABASE() AND table_name = 'gallery_photos' "
+            "AND index_name = 'uq_gallery_user_content'")).scalar()
+        if not exists:
+            try:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX uq_gallery_user_content "
+                    "ON gallery_photos (user_id, content_hash)"))
+                print("[migrate] uq_gallery_user_content created")
+            except Exception as exc:
+                dupes = conn.execute(text(
+                    "SELECT COUNT(*) FROM (SELECT user_id, content_hash "
+                    "FROM gallery_photos WHERE content_hash IS NOT NULL "
+                    "GROUP BY user_id, content_hash HAVING COUNT(*) > 1) d")).scalar()
+                print("[migrate] uq_gallery_user_content NOT created: %s" % exc)
+                if dupes:
+                    print("[migrate] %d duplicated photo(s) already in this database. "
+                          "Resolve them in Gallery -> Duplicates, then restart to "
+                          "finish applying the fix. Nothing has been deleted."
+                          % dupes)
+
     # New Documents module (added July 2026): create its table and grant it to every
     # existing non-admin user who doesn't have it yet (admins bypass RBAC).
     Document.__table__.create(bind=engine, checkfirst=True)
+    DocumentFolder.__table__.create(bind=engine, checkfirst=True)
     Master.__table__.create(bind=engine, checkfirst=True)  # user-managed lookup lists
     # Lists people define themselves, beyond the four the product ships with
     # (added August 2026). Seeded from masters.py's dict on first read, so an

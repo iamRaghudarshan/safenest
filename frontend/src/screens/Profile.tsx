@@ -1128,6 +1128,9 @@ const SLICES = [
   { key: 'gallery', label: 'Photos', icon: '🖼️', tint: 'var(--c-gallery)' },
   { key: 'documents', label: 'Documents', icon: '📄', tint: 'var(--c-documents)' },
   { key: 'avatars', label: 'Profile photo', icon: '👤', tint: 'var(--c-loans)' },
+  // Uploads that were interrupted and have not been resumed yet. Shown because
+  // it is real space on the drive; it clears itself after 48 hours.
+  { key: 'partial', label: 'Uploads in progress', icon: '⏳', tint: 'var(--c-reminders)' },
 ] as const
 
 /** How much room the app is taking on the computer that runs it.
@@ -1165,7 +1168,9 @@ function StorageUse() {
   // Proportional bar. Segments under a pixel still get one, so a small category
   // reads as "present but tiny" rather than vanishing.
   const parts = [
-    ...SLICES.map(s => ({ ...s, bytes: files.modules[s.key].bytes })),
+    // Optional-chained: a slice the running server does not report yet must
+    // render as zero, not crash the whole settings screen.
+    ...SLICES.map(s => ({ ...s, bytes: files.modules[s.key]?.bytes ?? 0 })),
     ...(admin ? [{ key: 'db', label: 'Records', icon: '🗄️', tint: 'var(--c-investments)', bytes: dbBytes }] : []),
   ].filter(p => p.bytes > 0)
 
@@ -1207,11 +1212,17 @@ function StorageUse() {
           hunting for what filled a disk, and then they matter a great deal. */}
       <SettingsDisclosure icon="📊" tint="var(--ink-faint)" label="What is using it"
         sub={`${SLICES.length} sections`}>
-        {SLICES.map(s => (
-          <SettingsRow key={s.key} icon={s.icon} tint={s.tint} label={s.label}
-            sub={`${files.modules[s.key].files.toLocaleString()} file${files.modules[s.key].files === 1 ? '' : 's'}`}
-            value={formatBytes(files.modules[s.key].bytes)} />
-        ))}
+        {SLICES.map(s => {
+          // A server older than this build reports no `partial` slice at all.
+          // Rendering it as zero is right: the row then reads "0 files", which
+          // is true of a server that cannot have interrupted uploads pending.
+          const m = files.modules[s.key] ?? { files: 0, bytes: 0 }
+          return (
+            <SettingsRow key={s.key} icon={s.icon} tint={s.tint} label={s.label}
+              sub={`${m.files.toLocaleString()} file${m.files === 1 ? '' : 's'}`}
+              value={formatBytes(m.bytes)} />
+          )
+        })}
         {admin && (
           <SettingsRow icon="🗄️" tint="var(--c-investments)" label="Records"
             sub="Expenses, reminders, activity log and the rest"

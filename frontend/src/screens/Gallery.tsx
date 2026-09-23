@@ -9,6 +9,7 @@ import { TopBar, Spinner, Empty, Sheet, Field } from '../ui'
 import { PullToRefresh } from '../PullToRefresh'
 import { Zoomable } from '../Zoomable'
 import { PhotoIndexCard } from '../PhotoIndex'
+import { PhotoTimeline } from './PhotoTimeline'
 import { IcTrash } from '../icons'
 import { fmtDate, fmtDateTime } from '../format'
 import { formatBytes } from '../maintenance'
@@ -76,6 +77,10 @@ export default function Gallery() {
   // callback down through it.
   const [albumsRev, setAlbumsRev] = useState(0)
   const [view, setView] = useState<Photo | null>(null)
+  // Multi-select. A Set because membership is tested once per rendered
+  // tile on every scroll frame, and an array would make that O(n) each.
+  const [sel, setSel] = useState<Set<number>>(() => new Set())
+  const [albumPick, setAlbumPick] = useState<number[] | null>(null)
   const [person, setPerson] = useState<PersonSummary | null>(null) // drill-into a person
   const [album, setAlbum] = useState<AlbumSummary | null>(null)    // drill-into an album
   const [trashOpen, setTrashOpen] = useState(false)
@@ -212,6 +217,55 @@ export default function Gallery() {
     setView(null); toast('Moved to trash')
   }
 
+  const clearSel = () => setSel(new Set())
+
+  function toggleSel(p: Photo) {
+    setSel((cur) => {
+      const next = new Set(cur)
+      if (next.has(p.id)) next.delete(p.id)
+      else next.add(p.id)
+      return next
+    })
+  }
+
+  function selectDay(ids: number[], on: boolean) {
+    setSel((cur) => {
+      const next = new Set(cur)
+      for (const id of ids) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
+
+  // One request for the whole selection rather than one per photo — see the
+  // note on POST /api/gallery/bulk. The local state is then patched to match
+  // instead of refetching, so a selection of two hundred does not throw the
+  // scroll position back to the top of the library.
+  async function bulk(action: 'favourite' | 'unfavourite' | 'trash') {
+    const ids = [...sel]
+    if (!ids.length) return
+    try {
+      await api('/api/gallery/bulk', { method: 'POST', body: { ids, action } })
+    } catch (e) {
+      toast(errorMessage(e)); return
+    }
+    if (action === 'trash') {
+      const gone = new Set(ids)
+      setPhotos((ps) => ps.filter((x) => !gone.has(x.id)))
+      setTotal((t) => Math.max(0, t - ids.length))
+      offsetRef.current = Math.max(0, offsetRef.current - ids.length)
+      toast(ids.length === 1 ? 'Moved to trash' : `${ids.length} moved to trash`)
+    } else {
+      const on = action === 'favourite' ? 1 : 0
+      const hit = new Set(ids)
+      setPhotos((ps) => ps.map((x) => hit.has(x.id) ? { ...x, is_favourite: on } : x))
+      toast(on ? `${ids.length} favourited` : `${ids.length} unfavourited`)
+    }
+    clearSel()
+  }
+
   // person drill-down is its own screen
   if (person) return <PersonView person={person} onBack={() => setPerson(null)} onOpen={setView} view={view} setView={setView}
     toggleFav={toggleFav} trash={trash} canEdit={canEdit} />
@@ -258,6 +312,23 @@ export default function Gallery() {
   return (
     <div className="screen">
       <TopBar title="Gallery" sub={countLabel} onBack={canBack ? back : undefined} right={headerRight} />
+
+      {/* Selection bar. Replaces nothing and hides nothing — it sits over the
+          header only while something is selected, which is the one time the
+          normal header controls are not what anybody is reaching for. */}
+      {sel.size > 0 && (
+        <div className="selbar">
+          <button className="selbar-x" onClick={clearSel} aria-label="Clear selection">✕</button>
+          <span className="selbar-n">{sel.size} selected</span>
+          <button className="selbar-act" onClick={() => bulk('favourite')} title="Favourite">★</button>
+          <button className="selbar-act" onClick={() => setAlbumPick([...sel])} title="Add to album">＋</button>
+          {canEdit && (
+            <button className="selbar-act danger" onClick={() => bulk('trash')} title="Move to trash">
+              <IcTrash />
+            </button>
+          )}
+        </div>
+      )}
       {/* ONE primary action. There were three here — add, back up, import a
           folder — all sharing the width equally, so on a phone each got a third
           of the screen and none of them read as the thing you came to do.
@@ -453,7 +524,8 @@ export default function Gallery() {
                     )
               )
               : <>
-                  <PhotoGrid photos={shown} onOpen={setView} />
+                  <PhotoGrid photos={shown} onOpen={setView}
+                    selected={sel} onToggle={toggleSel} onSelectDay={selectDay} />
                   <InfiniteSentinel onHit={() => load(false)} done={doneRef.current} loading={more}
                     shown={shown.length} total={total} />
                 </>}
@@ -463,6 +535,12 @@ export default function Gallery() {
 
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)}
         onTrash={() => trash(view)} canEdit={canEdit} />}
+
+      {albumPick && (
+        <AlbumPickSheet photoIds={albumPick} inAlbums={[]}
+          onClose={() => setAlbumPick(null)}
+          onDone={() => { setAlbumPick(null); clearSel() }} />
+      )}
     </div>
   )
 }
@@ -594,7 +672,14 @@ export function ViewSwitcher() {
   )
 }
 
-function PhotoGrid({ photos, onOpen }: { photos: Photo[]; onOpen: (p: Photo) => void }) {
+function PhotoGrid({ photos, onOpen, selected, onToggle, onSelectDay }: {
+  photos: Photo[]; onOpen: (p: Photo) => void
+  /** Selection is optional so the album, person and memories walls stay a
+   *  plain read-only grid. Only the main library offers it. */
+  selected?: Set<number>
+  onToggle?: (p: Photo) => void
+  onSelectDay?: (ids: number[], on: boolean) => void
+}) {
   const [mode] = useGView()
   if (mode === 'list') {
     return (
@@ -612,15 +697,12 @@ function PhotoGrid({ photos, onOpen }: { photos: Photo[]; onOpen: (p: Photo) => 
       </div>
     )
   }
+  // Everything that is not the list view is now the timeline: date-grouped,
+  // justified and virtualised. The old grid centre-cropped every photo to an
+  // identical square and mounted an <img> for all of them at once.
   return (
-    <div className={`photo-grid ${mode}`}>
-      {photos.map((p) => (
-        <button key={p.id} onClick={() => onOpen(p)} className="thumb">
-          <img src={p.thumb_url || p.url} loading="lazy" />
-          {!!p.is_favourite && <span className="starred">★</span>}
-        </button>
-      ))}
-    </div>
+    <PhotoTimeline photos={photos} onOpen={onOpen} density={mode}
+      selected={selected} onToggle={onToggle} onSelectDay={onSelectDay} />
   )
 }
 
@@ -675,21 +757,39 @@ function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFr
     loadInfo()
   }
 
+  const isVideo = photo.kind === 'video'
+
   // Chrome hides on a tap (and whenever you zoom in) so the photo owns the screen —
-  // the behaviour people expect from a phone photo viewer.
+  // the behaviour people expect from a phone photo viewer. A video hides it on
+  // play instead, since its own controls are the thing you are reaching for.
   const showChrome = chrome && !zoomed
 
   return (
     <div className="viewer">
       <div className="viewer-stage">
-        <Zoomable fill src={photo.url} alt={photo.caption || ''}
-          onZoomChange={setZoomed} onSingleTap={() => setChrome((c) => !c)} />
+        {isVideo ? (
+          // A video cannot go through Zoomable: that renders an <img>, so every
+          // video in this library opened as a broken image. They uploaded, got
+          // a poster frame, were counted and were completely unwatchable.
+          //
+          // Not autoplayed. The viewer is also reached by paging through a day,
+          // and a video that starts shouting because it scrolled past is the
+          // behaviour people turn autoplay off to escape. The poster is the
+          // frame the indexer already pulled, so the first paint matches the
+          // tile that was tapped rather than going black and then filling in.
+          <video className="viewer-video" src={photo.url} poster={photo.thumb_url}
+            controls playsInline preload="metadata"
+            onPlay={() => setChrome(false)} onPause={() => setChrome(true)} />
+        ) : (
+          <Zoomable fill src={photo.url} alt={photo.caption || ''}
+            onZoomChange={setZoomed} onSingleTap={() => setChrome((c) => !c)} />
+        )}
       </div>
 
       <div className={`viewer-top${showChrome ? '' : ' hidden'}`}>
         <button className="viewer-btn" onClick={onClose} aria-label="Close">✕</button>
         <div className="viewer-title">
-          <div className="vt-main">{photo.caption || 'Photo'}</div>
+          <div className="vt-main">{photo.caption || (isVideo ? 'Video' : 'Photo')}</div>
           <div className="vt-sub">{fmtDate(photo.taken_at)}</div>
         </div>
         <button className="viewer-btn" onClick={onFav} aria-label="Favourite">

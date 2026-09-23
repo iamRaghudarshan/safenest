@@ -2591,3 +2591,196 @@ html.on-auth .auth-bg { opacity: 0.3; }
 /* The view switcher sits in a light toolbar above the grid (not in the header,
    which is cramped on a phone). Right-aligned so it reads as a control, not content. */
 .gallery-toolbar { display: flex; justify-content: flex-end; padding: 10px 14px 2px; }
+
+/* ---- Gallery timeline -----------------------------------------------------
+   Date-grouped justified rows, absolutely positioned inside a host of known
+   height so only the visible slice is mounted. See PhotoTimeline.tsx for why
+   the layout is justified rather than a square grid. */
+/* A neutral ground. The app paints a decorative landscape behind its screens;
+   the old square grid covered it, a justified one does not. Photos have to be
+   read against a plain surface, not against scenery. */
+.ptl-surface {
+  background: var(--bg-elev);
+  border-radius: 14px;
+  padding: 2px 10px 14px;
+  margin-top: 4px;
+}
+.ptl { position: relative; width: 100%; }
+
+.ptl-head {
+  position: absolute; left: 0; right: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 2px 6px;
+  font-size: 15px; font-weight: 650; color: var(--text);
+}
+/* Label then count, side by side. With the label on flex:1 the count was
+   thrown to the far right edge of a 1440px window, a foot away from the date
+   it belongs to and reading as an unrelated number. */
+.ptl-head-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptl-head-count { flex: 0 0 auto; font-size: 12px; font-weight: 500; color: var(--muted); }
+.ptl-head-rule { flex: 1 1 auto; }
+
+.ptl-row { position: absolute; left: 0; right: 0; display: flex; gap: 4px; }
+
+.ptl-tile {
+  position: relative; flex: 0 0 auto; border-radius: 8px; overflow: hidden;
+  background: var(--bg-elev);
+  transition: transform .13s ease, border-radius .13s ease;
+}
+.ptl-hit { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
+.ptl-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Selected tiles shrink into their own frame, the standard way of showing a
+   photo has been picked without covering it. */
+.ptl-tile.sel { transform: scale(.86); border-radius: 12px; }
+
+.ptl-fav {
+  position: absolute; top: 5px; right: 7px; color: #fff; pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .65);
+}
+
+/* The select circle only appears on hover or once something is selected, so a
+   library at rest is photos and nothing else. */
+.ptl-check {
+  position: absolute; top: 5px; left: 5px;
+  width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .92); background: rgba(0, 0, 0, .28);
+  color: transparent; cursor: pointer; opacity: 0;
+  transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.ptl-check svg { width: 100%; height: 100%; display: block; }
+.ptl-tile:hover .ptl-check, .ptl-check:focus-visible { opacity: 1; }
+.ptl-check.on { opacity: 1; background: var(--brand); border-color: var(--brand); color: #fff; }
+.ptl-check.head {
+  position: static; opacity: 1; width: 20px; height: 20px;
+  border-color: var(--muted); background: transparent; color: transparent;
+}
+.ptl-check.head.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+/* Video: a play glyph, plus its length where we know it. Both sit on a soft
+   scrim so they stay readable over a bright frame. */
+.ptl-vid {
+  position: absolute; right: 6px; bottom: 5px;
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 6px 2px 3px; border-radius: 999px;
+  background: rgba(0, 0, 0, .55); color: #fff; pointer-events: none;
+}
+.ptl-vid svg { width: 14px; height: 14px; display: block; }
+.ptl-vid em { font-style: normal; font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+
+@media (hover: none) {
+  /* No hover on touch, so the circle would never appear. Long-press opens the
+     browser's own menu, so the circle is simply always shown instead. */
+  .ptl-check { opacity: 1; }
+}
+
+/* The video stage. object-fit:contain so a portrait clip is letterboxed rather
+   than cropped — the viewer is the one place the whole frame must be visible. */
+.viewer-video {
+  width: 100%; height: 100%; display: block;
+  object-fit: contain; background: #000;
+}
+
+/* Selection bar. Sits over the header only while something is selected. */
+.selbar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px; margin: 0 0 4px;
+  background: var(--bg-elev); border-bottom: 1px solid var(--line);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .10);
+}
+.selbar-x, .selbar-act {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent;
+  color: var(--text); font-size: 17px; cursor: pointer;
+}
+.selbar-x:hover, .selbar-act:hover { background: var(--bg); }
+.selbar-act.danger { color: var(--danger, #e2557a); }
+.selbar-act svg { width: 18px; height: 18px; }
+.selbar-n { flex: 1; min-width: 0; font-weight: 650; font-size: 15px; }
+
+/* ---- Documents: folders (Drive-shaped) ----------------------------------- */
+.doc-crumbs {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
+  padding: 6px 2px 10px; font-size: 14px;
+}
+.crumb {
+  border: 0; background: none; padding: 4px 6px; border-radius: 6px;
+  color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.crumb:hover { background: var(--bg-elev); }
+.crumb-sep { color: var(--muted); padding: 0 1px; }
+.crumb-new {
+  margin-left: auto; border: 0; background: none; cursor: pointer;
+  color: var(--brand); font-size: 13px; font-weight: 650; padding: 4px 8px;
+  border-radius: 6px;
+}
+.crumb-new:hover { background: var(--bg-elev); }
+
+.folder-grid {
+  display: grid; gap: 8px; margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+}
+.folder-tile {
+  position: relative; border-radius: 10px; background: var(--bg-elev);
+  border: 1px solid var(--line);
+}
+/* Grid, not absolute positioning. The name is the whole point of a folder
+   tile, so it gets two lines before it truncates — the first version clipped
+   "Bank statements" to "Bank statem..." and "Insurance policies" to
+   "Insurance p...", which is precisely the information somebody is scanning
+   for. The icon sits in its own column so the second line still lines up. */
+.folder-hit {
+  display: grid; width: 100%;
+  grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px;
+  align-items: start;
+  padding: 12px 32px 12px 12px; border: 0; background: none;
+  text-align: left; cursor: pointer; border-radius: 10px;
+}
+.folder-tile:hover { background: var(--bg); }
+.folder-ic { font-size: 20px; line-height: 1.2; grid-row: 1 / span 2; }
+.folder-name {
+  min-width: 0; font-weight: 600; font-size: 14px; color: var(--text);
+  line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+.folder-sub { font-size: 11px; color: var(--muted); }
+.folder-x {
+  position: absolute; top: 6px; right: 6px;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--muted); cursor: pointer; opacity: 0;
+  transition: opacity .12s ease;
+}
+.folder-tile:hover .folder-x, .folder-x:focus-visible { opacity: 1; }
+.folder-x:hover { background: var(--bg); color: var(--danger, #e2557a); }
+
+/* The move affordance on a document card. Hidden until hover for the same
+   reason the gallery's select circle is: a wall of files at rest should be
+   files, not a wall of buttons. */
+.doc-card { position: relative; }
+.doc-hit {
+  display: block; width: 100%; padding: 0; border: 0;
+  background: none; text-align: left; cursor: pointer;
+}
+.doc-move {
+  position: absolute; top: 6px; left: 6px;
+  width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(0, 0, 0, .45); color: #fff; cursor: pointer; opacity: 0;
+  font-size: 14px; line-height: 26px; transition: opacity .12s ease;
+}
+.doc-card:hover .doc-move, .doc-move:focus-visible { opacity: 1; }
+
+.move-list { display: flex; flex-direction: column; gap: 2px; }
+.move-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 12px; border: 0; border-radius: 8px;
+  background: none; color: var(--text); font-size: 14px;
+  text-align: left; cursor: pointer;
+}
+.move-row:hover { background: var(--bg-elev); }
+
+@media (hover: none) {
+  .folder-x, .doc-move { opacity: 1; }
+}

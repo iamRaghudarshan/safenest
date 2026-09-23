@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { DocText } from '../DocText'
-import { api, tokenStore } from '../api'
+import { api, errorMessage, tokenStore } from '../api'
 import { useNav, useOverlayBack } from '../nav'
 import { useAuth } from '../auth'
 import { useToast } from '../toast'
@@ -8,7 +8,7 @@ import { TopBar, Spinner, Empty, Sheet, Field } from '../ui'
 import { PullToRefresh } from '../PullToRefresh'
 import { Zoomable } from '../Zoomable'
 import { ScanFlow } from './Scan'
-import type { DocumentItem, DocumentsData, MasterItem } from '../types'
+import type { DocFolder, DocumentItem, DocumentsData, MasterItem } from '../types'
 
 type Cat = { key: string; label: string; emoji: string }
 
@@ -86,6 +86,11 @@ export default function Documents() {
   const [edit, setEdit] = useState<DocumentItem | null>(null)
   const [scanning, setScanning] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
+  // Which folder is open. 0 is the top level, which is a real place — not
+  // "no filter". Searching leaves the tree entirely (see `load`).
+  const [folderId, setFolderId] = useState(0)
+  const [newFolder, setNewFolder] = useState(false)
+  const [moving, setMoving] = useState<DocumentItem | null>(null)
 
   // Pull the (user-editable) category list from masters; keep built-ins as fallback.
   useEffect(() => {
@@ -100,14 +105,54 @@ export default function Documents() {
       const params = new URLSearchParams()
       if (cat) params.set('category', cat)
       if (q.trim()) params.set('q', q.trim())
+      // Searching or filtering by category looks through the WHOLE tree, and
+      // browsing shows one folder. They are different questions: a search
+      // limited to the folder you happen to be standing in is the complaint
+      // every file manager that did it has had, and a browse that flattened
+      // the tree would make folders pointless.
+      const searching = !!q.trim() || !!cat
+      if (!searching) params.set('folder', String(folderId))
       const d = await api<DocumentsData>(`/api/documents?${params}`)
       setData(d)
     } catch { setData({ items: [], total: 0, counts: {}, trashed: 0 }) }
-  }, [cat, q])
+  }, [cat, q, folderId])
   useEffect(() => { load() }, [load])
 
   function pickFile(f: FileList | null) {
     if (f && f[0]) setAddFile(f[0])
+  }
+
+  async function createFolder(name: string) {
+    try {
+      await api('/api/documents/folders', {
+        method: 'POST',
+        body: { name, parent_id: folderId || null },
+      })
+      setNewFolder(false); load(true)
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  async function moveTo(d: DocumentItem, target: number | null) {
+    try {
+      await api('/api/documents/move', { method: 'POST', body: { ids: [d.id], folder_id: target } })
+      setMoving(null); setView(null); toast('Moved'); load(true)
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  async function trashFolder(f: DocFolder) {
+    // Says what it will take with it. A folder delete that quietly binned
+    // forty documents would be a nasty surprise, and the count is the only
+    // thing that makes the confirmation worth reading.
+    const extra = f.documents || f.folders
+      ? ` and ${[f.documents && `${f.documents} document${f.documents === 1 ? '' : 's'}`,
+                 f.folders && `${f.folders} folder${f.folders === 1 ? '' : 's'}`]
+                 .filter(Boolean).join(' and ')} inside it`
+      : ''
+    if (!window.confirm(`Move “${f.name}”${extra} to the recycle bin?`)) return
+    try {
+      await api(`/api/documents/folders/${f.id}`, { method: 'DELETE' })
+      toast('Moved to recycle bin'); load(true)
+    } catch (e) { toast(errorMessage(e)) }
   }
 
   async function remove(d: DocumentItem) {
@@ -170,15 +215,72 @@ export default function Documents() {
         })}
       </div>
 
+      {/* The path back up. Hidden while searching, because search results come
+          from the whole tree and a breadcrumb over them would name a folder
+          most of the results are not in. */}
+      {!q && !cat && (
+        <div className="doc-crumbs">
+          <button className="crumb" onClick={() => setFolderId(0)}>Documents</button>
+          {(data?.path || []).map((c) => (
+            <span key={c.id}>
+              <span className="crumb-sep">›</span>
+              <button className="crumb" onClick={() => setFolderId(c.id)}>{c.name}</button>
+            </span>
+          ))}
+          {canEdit && (
+            <button className="crumb-new" onClick={() => setNewFolder(true)}>
+              + New folder
+            </button>
+          )}
+        </div>
+      )}
+
       <PullToRefresh onRefresh={() => load(true)}>
         {!data ? <Spinner />
-          : items.length === 0
-            ? <Empty icon="🗂️" title={q || cat ? 'No matches' : 'No documents yet'}
-                hint={canEdit && !q && !cat ? 'Tap Add to save an ID card, policy or certificate' : undefined} />
-            : <div className="doc-grid">
-                {items.map((d) => <DocCard key={d.id} d={d} onOpen={() => setView(d)} />)}
-              </div>}
+          : items.length === 0 && !(data.folders || []).length
+            ? <Empty icon="🗂️" title={q || cat ? 'No matches' : 'Nothing here yet'}
+                hint={canEdit && !q && !cat
+                  ? 'Add a document, or make a folder to put things in'
+                  : undefined} />
+            : <>
+                {!!(data.folders || []).length && (
+                  <div className="folder-grid">
+                    {(data.folders || []).map((f) => (
+                      <div key={f.id} className="folder-tile">
+                        <button className="folder-hit" onClick={() => setFolderId(f.id)}>
+                          <span className="folder-ic">📁</span>
+                          <span className="folder-name">{f.name}</span>
+                          <span className="folder-sub">
+                            {f.folders ? `${f.folders} folder${f.folders === 1 ? '' : 's'}` : ''}
+                            {f.folders && f.documents ? ' · ' : ''}
+                            {f.documents ? `${f.documents} item${f.documents === 1 ? '' : 's'}` : ''}
+                            {!f.folders && !f.documents ? 'Empty' : ''}
+                          </span>
+                        </button>
+                        {canEdit && (
+                          <button className="folder-x" title="Move to recycle bin"
+                            onClick={() => trashFolder(f)}>✕</button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="doc-grid">
+                  {items.map((d) => (
+                    <DocCard key={d.id} d={d} onOpen={() => setView(d)}
+                      onMove={canEdit ? () => setMoving(d) : undefined} />
+                  ))}
+                </div>
+              </>}
       </PullToRefresh>
+
+      {newFolder && (
+        <NameFolderSheet onClose={() => setNewFolder(false)} onSave={createFolder} />
+      )}
+      {moving && (
+        <MoveSheet doc={moving} onClose={() => setMoving(null)}
+          onPick={(target) => moveTo(moving, target)} />
+      )}
 
       {addFile && <AddDoc file={addFile} onClose={() => setAddFile(null)}
         onSaved={() => { setAddFile(null); load(true) }} />}
@@ -301,21 +403,98 @@ function ExpiryBadge({ d }: { d: DocumentItem }) {
   return <span className={`doc-exp ${s}`}>{txt}</span>
 }
 
-function DocCard({ d, onOpen }: { d: DocumentItem; onOpen: () => void }) {
+function DocCard({ d, onOpen, onMove }: {
+  d: DocumentItem; onOpen: () => void; onMove?: () => void
+}) {
   const meta = catMeta(useCats(), d.category)
+  // A div wrapping a button, not a button wrapping everything: the move
+  // affordance is itself a button, and nesting one inside another is invalid
+  // HTML that browsers resolve by silently un-nesting, which breaks both.
   return (
-    <button className="doc-card" onClick={onOpen}>
-      <div className="doc-thumb">
-        {d.thumb_url ? <AuthImg src={d.thumb_url} className="doc-thumb-img" />
-          : <div className="doc-fileicon"><span>{docIcon(d)}</span><b>{(d.ext || 'file').toUpperCase()}</b></div>}
-        {!!d.is_favourite && <span className="doc-star">★</span>}
-        <ExpiryBadge d={d} />
-      </div>
-      <div className="doc-meta">
-        <div className="doc-title">{d.title}</div>
-        <div className="doc-sub">{meta.emoji} {meta.label}{d.doc_number ? ` · ${mask(d.doc_number)}` : ''}</div>
-      </div>
-    </button>
+    <div className="doc-card">
+      <button className="doc-hit" onClick={onOpen}>
+        <div className="doc-thumb">
+          {d.thumb_url ? <AuthImg src={d.thumb_url} className="doc-thumb-img" />
+            : <div className="doc-fileicon"><span>{docIcon(d)}</span><b>{(d.ext || 'file').toUpperCase()}</b></div>}
+          {!!d.is_favourite && <span className="doc-star">★</span>}
+          <ExpiryBadge d={d} />
+        </div>
+        <div className="doc-meta">
+          <div className="doc-title">{d.title}</div>
+          <div className="doc-sub">{meta.emoji} {meta.label}{d.doc_number ? ` · ${mask(d.doc_number)}` : ''}</div>
+        </div>
+      </button>
+      {onMove && (
+        <button className="doc-move" title="Move to a folder"
+          onClick={(e) => { e.stopPropagation(); onMove() }}>⤴</button>
+      )}
+    </div>
+  )
+}
+
+
+function NameFolderSheet({ onClose, onSave }: {
+  onClose: () => void; onSave: (name: string) => void
+}) {
+  const [name, setName] = useState('')
+  return (
+    <Sheet title="New folder" onClose={onClose}>
+      <Field label="Name">
+        <input className="inp" autoFocus value={name} maxLength={160}
+          placeholder="Bank statements"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) onSave(name.trim()) }} />
+      </Field>
+      <button className="btn primary block" disabled={!name.trim()}
+        onClick={() => onSave(name.trim())}>Create</button>
+    </Sheet>
+  )
+}
+
+
+function MoveSheet({ doc, onClose, onPick }: {
+  doc: DocumentItem; onClose: () => void; onPick: (folderId: number | null) => void
+}) {
+  const [folders, setFolders] = useState<DocFolder[] | null>(null)
+  useEffect(() => {
+    api<{ items: DocFolder[] }>('/api/documents/folders')
+      .then((d) => setFolders(d.items)).catch(() => setFolders([]))
+  }, [])
+
+  // Indented by depth, so a flat list still reads as a tree. Depth is walked
+  // from parent_id rather than stored, and bounded, because a cycle here would
+  // otherwise hang the render rather than the request.
+  const depthOf = (f: DocFolder, all: DocFolder[]): number => {
+    let n = 0
+    let cur = f.parent_id
+    const seen = new Set<number>()
+    while (cur && n < 32 && !seen.has(cur)) {
+      seen.add(cur); n++
+      cur = all.find((x) => x.id === cur)?.parent_id ?? null
+    }
+    return n
+  }
+
+  return (
+    <Sheet title={`Move “${doc.title}”`} onClose={onClose}>
+      {!folders ? <Spinner /> : (
+        <div className="move-list">
+          <button className="move-row" onClick={() => onPick(null)}>
+            <span className="folder-ic">🗂️</span> Documents (top level)
+          </button>
+          {folders.map((f) => (
+            <button key={f.id} className="move-row"
+              style={{ paddingLeft: 12 + depthOf(f, folders) * 18 }}
+              onClick={() => onPick(f.id)}>
+              <span className="folder-ic">📁</span> {f.name}
+            </button>
+          ))}
+          {!folders.length && (
+            <p className="muted">No folders yet. Make one first.</p>
+          )}
+        </div>
+      )}
+    </Sheet>
   )
 }
 
