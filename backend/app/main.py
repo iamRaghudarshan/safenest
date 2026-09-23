@@ -269,6 +269,12 @@ def _migrate() -> None:
         ("documents", "folder_id", "ALTER TABLE documents ADD COLUMN folder_id INT NULL"),
         ("documents", "content_hash",
          "ALTER TABLE documents ADD COLUMN content_hash VARCHAR(64) NULL"),
+        # People management (hide, and "me"). Both default 0, which is what
+        # every existing person already is.
+        ("people", "is_hidden",
+         "ALTER TABLE people ADD COLUMN is_hidden TINYINT NOT NULL DEFAULT 0"),
+        ("people", "is_me",
+         "ALTER TABLE people ADD COLUMN is_me TINYINT NOT NULL DEFAULT 0"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).

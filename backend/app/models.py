@@ -617,6 +617,16 @@ class Person(Base):
     user_id = Column(Integer)
     name = Column(String(120))
     cover_id = Column(Integer)
+    # Hidden from the People grid without losing the grouping. Google Photos
+    # calls it hiding; the faces stay clustered and the photos are untouched,
+    # it simply stops being offered. Deleting the person instead would throw
+    # away the clustering work and the faces would regroup on the next pass.
+    is_hidden = Column(Integer, default=0)
+    # Exactly one person may be "me", which is what makes "photos of me" a
+    # searchable thing. Not enforced by a constraint because the enforcement is
+    # "setting a new one clears the old", which is a rule about intent rather
+    # than a shape the database can express.
+    is_me = Column(Integer, default=0)
     created_at = Column(FlexDateTime)
     updated_at = Column(FlexDateTime)
 
