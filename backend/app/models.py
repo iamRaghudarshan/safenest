@@ -339,6 +339,13 @@ class GalleryPhoto(Base):
     caption = Column(String(255))
     taken_at = Column(FlexDate)
     is_favorite = Column(Integer, default=0)
+    # Out of the timeline, still in the library. Archive is NOT a soft delete:
+    # the photo keeps its files, its faces, its search text and its albums, and
+    # it is still found by search and still counted in storage. The only thing
+    # it stops doing is appearing in the main grid — for the receipts, the
+    # screenshots of a wifi password, the twelve shots of a whiteboard that are
+    # worth keeping and not worth scrolling past every day.
+    is_archived = Column(Integer, default=0)
     is_trashed = Column(Integer, default=0)
     size_bytes = Column(Integer, default=0)
     content_hash = Column(String(64), index=True)  # sha256 of normalised JPEG — exact-dup key

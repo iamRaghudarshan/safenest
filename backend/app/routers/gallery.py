@@ -362,6 +362,7 @@ def _search_filter(db: Session, uid: int, term: str):
 @router.get("")
 def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: int = 0,
           smart: int = 0, kind: str = "", sort: str = "", near: str = "", person: int = 0,
+          archived: int = 0,
           user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
     """Paginated gallery. Returns the requested page plus the true total count so
     the whole library (well beyond one page) is reachable via infinite scroll.
@@ -477,6 +478,17 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
             raise HTTPException(404, "Person not found")
         sel = sel.filter(GalleryPhoto.id.in_(
             db.query(PhotoPerson.photo_id).filter(PhotoPerson.person_id == person)))
+    # Archive scoping. The timeline hides archived photos; `archived=1` is the
+    # Archive view itself. A SEARCH still reaches them either way, which is the
+    # whole point of archiving rather than deleting: it is out of the way, not
+    # gone, and someone looking for a receipt should find it.
+    if not smart and not term and not person:
+        if archived:
+            sel = sel.filter(GalleryPhoto.is_archived == 1)
+        else:
+            sel = sel.filter((GalleryPhoto.is_archived == 0)
+                             | (GalleryPhoto.is_archived.is_(None)))
+
     _sort = (sort or "").strip().lower()
     if _sort == "added":
         order = [GalleryPhoto.created_at.desc(), GalleryPhoto.id.desc()]
@@ -2060,6 +2072,55 @@ def bulk(body: dict = Body(...), user: User = Depends(guard("gallery", "edit")),
     db.commit()
     audit(db, user.id, f"bulk_{action}", "gallery", None, {"count": n})
     return {"changed": n, "action": action}
+
+
+@router.post("/{id}/archive")
+def archive(id: int, body: dict = Body(...),
+            user: User = Depends(guard("gallery", "edit")),
+            db: Session = Depends(get_db)):
+    """Take a photo out of the timeline without deleting anything.
+
+    Archive and trash are different promises and must not be confused. Trash
+    is "I want this gone, give me a month to change my mind" and it ends in
+    the file being removed. Archive is "keep this, stop showing it to me" and
+    it ends in nothing: the file, the faces, the search text and the album
+    memberships are all untouched, storage is unchanged, and search still
+    finds it.
+    """
+    p = (db.query(GalleryPhoto)
+         .filter(GalleryPhoto.id == id, GalleryPhoto.user_id == user.id).first())
+    if not p:
+        raise HTTPException(404, "Photo not found")
+    p.is_archived = 1 if body.get("archived", True) else 0
+    p.updated_at = ist.now()
+    db.commit()
+    audit(db, user.id, "archive" if p.is_archived else "unarchive", "photo", id,
+          {"label": p.caption or p.orig_name or f"Photo {p.id}"})
+    return {"id": id, "is_archived": int(p.is_archived)}
+
+
+@router.post("/archive/bulk")
+def archive_bulk(body: dict = Body(...),
+                 user: User = Depends(guard("gallery", "edit")),
+                 db: Session = Depends(get_db)):
+    """Archive or unarchive a selection in one round trip.
+
+    Same reasoning as /bulk: archiving is something people do to a day or a
+    burst at a time, and two hundred POSTs is two hundred commits.
+    """
+    raw = body.get("ids") or []
+    ids = [int(x) for x in raw if str(x).lstrip("-").isdigit()][:5000]
+    if not ids:
+        return {"changed": 0}
+    on = 1 if body.get("archived", True) else 0
+    n = (db.query(GalleryPhoto)
+         .filter(GalleryPhoto.user_id == user.id, GalleryPhoto.id.in_(ids))
+         .update({GalleryPhoto.is_archived: on, GalleryPhoto.updated_at: ist.now()},
+                 synchronize_session=False))
+    db.commit()
+    audit(db, user.id, "archive_bulk", "gallery", None,
+          {"count": int(n), "archived": on})
+    return {"changed": int(n), "archived": on}
 
 
 @router.post("/{id}/favourite")

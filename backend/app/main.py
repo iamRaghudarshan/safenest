@@ -275,6 +275,10 @@ def _migrate() -> None:
          "ALTER TABLE people ADD COLUMN is_hidden TINYINT NOT NULL DEFAULT 0"),
         ("people", "is_me",
          "ALTER TABLE people ADD COLUMN is_me TINYINT NOT NULL DEFAULT 0"),
+        # Archive: out of the timeline, still in the library. Every existing
+        # photo is un-archived, which is what DEFAULT 0 already says.
+        ("gallery_photos", "is_archived",
+         "ALTER TABLE gallery_photos ADD COLUMN is_archived TINYINT NOT NULL DEFAULT 0"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).
