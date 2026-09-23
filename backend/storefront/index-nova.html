@@ -308,6 +308,55 @@ section.mist{background:var(--tint-mist)}
 .feat h3{font-size:19px; margin-bottom:var(--s3)}
 .feat p{font-size:14.5px; color:var(--body); line-height:1.7}
 .feat.wide{grid-column:span 1}
+/* ---- the module ring -------------------------------------------------
+   Twelve modules around a centre that names what they share. A 4x4 grid
+   has exactly twelve perimeter cells, so nothing has to be positioned by
+   hand beyond naming which cell each card lands in. */
+@media (min-width:1100px){
+  #features-grid{
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    grid-auto-rows:1fr; gap:var(--s4);
+  }
+  #features-grid .feat:nth-child(1){grid-area:1/1} #features-grid .feat:nth-child(2){grid-area:1/2}
+  #features-grid .feat:nth-child(3){grid-area:1/3} #features-grid .feat:nth-child(4){grid-area:1/4}
+  #features-grid .feat:nth-child(5){grid-area:2/1} #features-grid .feat:nth-child(6){grid-area:2/4}
+  #features-grid .feat:nth-child(7){grid-area:3/1} #features-grid .feat:nth-child(8){grid-area:3/4}
+  #features-grid .feat:nth-child(9){grid-area:4/1} #features-grid .feat:nth-child(10){grid-area:4/2}
+  #features-grid .feat:nth-child(11){grid-area:4/3} #features-grid .feat:nth-child(12){grid-area:4/4}
+  #features-grid .hub{grid-area:2/2/4/4}
+  /* In the ring the cards are compact: the name carries them, and the
+     description is a second line rather than a paragraph. */
+  #features-grid .feat p{font-size:13.5px; line-height:1.55}
+}
+
+.hub{
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; gap:10px; padding:var(--s6);
+  border-radius:var(--r-card); color:#fff;
+  background:var(--grad);
+  box-shadow:0 22px 50px -22px rgba(0,84,240,.75);
+}
+.hub-mark{width:62px; height:62px; border-radius:16px; background:rgba(255,255,255,.14); padding:8px}
+.hub strong{font-size:21px; letter-spacing:.2px; line-height:1.25}
+.hub span{font-size:14px; color:rgba(255,255,255,.88); max-width:24ch; line-height:1.6}
+
+@media (max-width:1099px){
+  /* Out of the ring, in front of it: still the first thing read. */
+  .hub{grid-column:1/-1; flex-direction:row; text-align:left; justify-content:flex-start; gap:var(--s5)}
+  .hub span{max-width:none}
+}
+
+/* A radial stagger: the ring fills from the corners inward, then the hub. */
+.js #features-grid .feat{transform:translateY(18px) scale(.97)}
+.js #features-grid .feat.in{transform:none}
+.js .hub{opacity:0; transform:scale(.94)}
+.js .hub.in{
+  opacity:1; transform:none;
+  transition-property:opacity, transform;
+  transition-duration:.6s;
+  transition-timing-function:cubic-bezier(.2,.8,.3,1);
+}
+
 /* The module cards: icon left, text ranged left beside it. */
 .feat{
   display:grid; grid-template-columns:auto minmax(0,1fr);
@@ -507,7 +556,14 @@ footer .brand-word i{color:#79b0f7}
 
 /* ---- motion --------------------------------------------------------- */
 .js .reveal{opacity:0; transform:translateY(22px)}
-.js .reveal.in{opacity:1; transform:none; transition:opacity .6s ease, transform .6s ease}
+.js .reveal.in{
+  opacity:1; transform:none;
+  /* Longhands on purpose: the `transition` shorthand resets transition-delay
+     to 0 and would silently discard the per-card stagger set inline. */
+  transition-property:opacity, transform;
+  transition-duration:.6s;
+  transition-timing-function:cubic-bezier(.2,.8,.3,1);
+}
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{animation:none !important; transition:none !important}
@@ -1049,6 +1105,6 @@ footer .brand-word i{color:#79b0f7}
   </div>
 </footer>
 
-<script src="/storefront.js?v=6.3-icons"></script>
+<script src="/storefront.js?v=7.1-ring"></script>
 </body>
 </html>

@@ -127,8 +127,17 @@ const card = ([i, t, d, c, span], n) =>
      <h3>${t}</h3><p>${d}</p></div>`;
 
 
+// The hub is emitted with the cards rather than written into the markup,
+// because this line replaces everything inside the grid.
+const HUB = `
+  <div class="hub reveal" style="transition-delay:260ms">
+    <img class="hub-mark" src="/storefront-img/logo-icon.png" alt="" width="256" height="256">
+    <strong>One place for all of it</strong>
+    <span>Twelve kinds of record, one app, on your own computer.</span>
+  </div>`;
+
 const grid = document.getElementById('features-grid');
-if (grid) grid.innerHTML = MODULES.map(card).join('');
+if (grid) grid.innerHTML = MODULES.map(card).join('') + HUB;
 
 const extras = document.getElementById('extras-grid');
 if (extras) extras.innerHTML = EXTRAS.map(card).join('');
@@ -375,9 +384,26 @@ const io = new IntersectionObserver((es) => es.forEach((x) => {
   io.unobserve(x.target);
 }), { threshold: .18 });
 document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
-// Safety net: reveal anything the observer missed so nothing stays invisible.
-// Kept short — a marketing page must never sit blank waiting on an observer.
-setTimeout(() => document.querySelectorAll('.reveal:not(.in)').forEach((el) => el.classList.add('in')), 800);
+// Safety net, for the case it was written for: something sitting blank in
+// front of the reader. It used to reveal EVERY .reveal on the page, which
+// meant anything below the fold played its transition off screen and was
+// already finished by the time it was scrolled to — the reveals were shipped
+// and never seen. Only rescue what is actually on screen; the observer is
+// perfectly capable of the rest.
+setTimeout(() => {
+  const onScreen = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.top < innerHeight && r.bottom > 0;
+  };
+  document.querySelectorAll('.reveal:not(.in)').forEach((el) => {
+    if (onScreen(el)) el.classList.add('in');
+  });
+}, 800);
+
+// And if the browser has no observer at all, nothing would ever reveal.
+if (!('IntersectionObserver' in window)) {
+  document.querySelectorAll('.reveal').forEach((el) => el.classList.add('in'));
+}
 
 // Slim scroll-progress bar along the top.
 const bar = document.getElementById('progress');
