@@ -365,6 +365,10 @@ export interface PersonSummary {
   name: string
   count: number
   cover_url: string | null
+  /** Exactly one person may be "me", which is what makes "photos of me"
+   *  searchable. Optional so an older server simply omits it. */
+  is_me?: number
+  is_hidden?: number
 }
 
 export interface MemoryGroup {

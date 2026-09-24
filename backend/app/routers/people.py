@@ -79,6 +79,9 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
         photo = covers.get(p.cover_id)
         people.append({
             "id": p.id, "name": p.name, "count": n,
+            # The UI needs both: "me" to mark the owner's own face, and
+            # "hidden" so the show-hidden view can offer to unhide.
+            "is_me": int(p.is_me or 0), "is_hidden": int(p.is_hidden or 0),
             "cover_url": media_url(photo.user_id, storage.THUMB, photo.filename) if photo else None,
         })
     return {"people": people, "total": len(ranked), "offset": offset, "limit": limit,

@@ -1124,6 +1124,9 @@ function PersonView({ person, onBack, onOpen, view, setView, toggleFav, trash, c
   const toast = useToast()
   const [name, setName] = useState(person.name)
   const [renaming, setRenaming] = useState(false)
+  const [merging, setMerging] = useState(false)
+  const [fixing, setFixing] = useState(false)
+  const [isMe, setIsMe] = useState(!!person.is_me)
   const { items, total, more, done, loadMore, reload } =
     usePagedPhotos(`/api/people/${person.id}/photos`)
   const load = reload
@@ -1133,13 +1136,52 @@ function PersonView({ person, onBack, onOpen, view, setView, toggleFav, trash, c
     setName(v); setRenaming(false); toast('Renamed')
   }
 
+  async function markMe() {
+    try {
+      await api(`/api/people/${person.id}/me`, { method: 'POST' })
+      setIsMe(true); toast(`${name} is you`)
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  async function hide() {
+    // Hiding, not deleting. Deleting would throw away the clustering and the
+    // next indexing pass would simply rebuild the same group.
+    if (!window.confirm(`Hide ${name} from People? Their photos are not affected.`)) return
+    try {
+      await api(`/api/people/${person.id}/hide`, { method: 'POST', body: { hidden: true } })
+      toast('Hidden'); onBack()
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  async function mergeInto(ids: number[]) {
+    try {
+      const r = await api<{ merged: number }>(`/api/people/${person.id}/merge`,
+        { method: 'POST', body: { ids } })
+      setMerging(false); load()
+      toast(r.merged === 1 ? 'Merged' : `${r.merged} groups merged`)
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
   return (
     <div className="screen">
       {/* The server's total, not items.length — that was the length of the page
           that happened to be fetched, so a person with more photos than one
           page had their count quietly understated on their own screen. */}
-      <TopBar title={name} sub={`${(total || person.count).toLocaleString()} photos`} onBack={onBack}
+      <TopBar title={name} sub={`${(total || person.count).toLocaleString()} photos${isMe ? ' \u00b7 you' : ''}`}
+        onBack={onBack}
         right={canEdit ? <button className="btn ghost sm" onClick={() => setRenaming(true)}>Rename</button> : undefined} />
+
+      {/* The corrections. Clustering that cannot be corrected is clustering
+          somebody has to live with, and these are the four things people
+          actually reach for. */}
+      {canEdit && (
+        <div className="person-acts">
+          <button className="btn sm" onClick={() => setMerging(true)}>Merge…</button>
+          <button className="btn sm" onClick={() => setFixing(true)}>Fix faces…</button>
+          {!isMe && <button className="btn sm" onClick={markMe}>This is me</button>}
+          <button className="btn sm ghost" onClick={hide}>Hide</button>
+        </div>
+      )}
       {!items ? <Spinner /> : items.length === 0 ? <Empty icon="🙂" title="No photos" /> : (
         <>
           <PhotoGrid photos={items} onOpen={onOpen} />
@@ -1148,10 +1190,119 @@ function PersonView({ person, onBack, onOpen, view, setView, toggleFav, trash, c
         </>
       )}
       {renaming && <RenameSheet initial={name} onClose={() => setRenaming(false)} onSave={rename} />}
+      {merging && <MergeSheet personId={person.id} onClose={() => setMerging(false)} onMerge={mergeInto} />}
+      {fixing && <FacesSheet personId={person.id} name={name}
+        onClose={() => setFixing(false)} onChanged={load} />}
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)} onTrash={() => { trash(view); load() }} canEdit={canEdit} />}
     </div>
   )
 }
+
+function MergeSheet({ personId, onClose, onMerge }: {
+  personId: number; onClose: () => void; onMerge: (ids: number[]) => void
+}) {
+  const [people, setPeople] = useState<PersonSummary[] | null>(null)
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+  useEffect(() => {
+    api<{ people: PersonSummary[] }>('/api/people?limit=200')
+      .then((d) => setPeople((d.people || []).filter((p) => p.id !== personId)))
+      .catch(() => setPeople([]))
+  }, [personId])
+
+  return (
+    <Sheet title="Merge other groups into this one" onClose={onClose}>
+      {!people ? <Spinner /> : !people.length ? <p className="muted">Nobody else to merge.</p> : (
+        <div className="merge-list">
+          {people.map((p) => (
+            <button key={p.id}
+              className={`merge-row${picked.has(p.id) ? ' on' : ''}`}
+              onClick={() => setPicked((cur) => {
+                const n = new Set(cur)
+                if (n.has(p.id)) n.delete(p.id); else n.add(p.id)
+                return n
+              })}>
+              {p.cover_url ? <img src={p.cover_url} className="merge-face" alt="" />
+                : <span className="merge-face empty">\u1F642</span>}
+              <span className="merge-name">{p.name}</span>
+              <span className="muted">{p.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <button className="btn primary block" disabled={!picked.size}
+        onClick={() => onMerge([...picked])}>
+        {picked.size ? `Merge ${picked.size} into this person` : 'Choose who to merge'}
+      </button>
+    </Sheet>
+  )
+}
+
+
+function FacesSheet({ personId, name, onClose, onChanged }: {
+  personId: number; name: string; onClose: () => void; onChanged: () => void
+}) {
+  const toast = useToast()
+  type Face = { face_id: number; photo_id: number; thumb_url: string; score: number | null }
+  const [faces, setFaces] = useState<Face[] | null>(null)
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+
+  const load = useCallback(() => {
+    api<{ items: Face[] }>(`/api/people/${personId}/faces`)
+      .then((d) => setFaces(d.items || [])).catch(() => setFaces([]))
+  }, [personId])
+  useEffect(() => { load() }, [load])
+
+  // Splitting takes FACE ids, not photo ids: a group shot holds several faces
+  // and only one of them is the mistake.
+  async function split() {
+    try {
+      await api(`/api/people/${personId}/split`,
+        { method: 'POST', body: { face_ids: [...picked] } })
+      setPicked(new Set()); load(); onChanged()
+      toast('Moved to a new person')
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  async function detach() {
+    try {
+      for (const id of picked) {
+        await api(`/api/people/faces/${id}/assign`, { method: 'POST', body: { person_id: null } })
+      }
+      setPicked(new Set()); load(); onChanged()
+      toast('Removed from this person')
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  return (
+    <Sheet title={`Faces grouped as ${name}`} onClose={onClose}>
+      <p className="muted">Pick the ones that are not {name}.</p>
+      {!faces ? <Spinner /> : !faces.length ? <p className="muted">No faces here.</p> : (
+        <div className="faces-grid">
+          {faces.map((f) => (
+            <button key={f.face_id}
+              className={`face-cell${picked.has(f.face_id) ? ' on' : ''}`}
+              onClick={() => setPicked((cur) => {
+                const n = new Set(cur)
+                if (n.has(f.face_id)) n.delete(f.face_id); else n.add(f.face_id)
+                return n
+              })}>
+              <img src={f.thumb_url} loading="lazy" alt="" />
+            </button>
+          ))}
+        </div>
+      )}
+      {!!picked.size && (
+        <div className="faces-acts">
+          <button className="btn primary" onClick={split}>
+            These are someone else ({picked.size})
+          </button>
+          <button className="btn ghost" onClick={detach}>Not a person</button>
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
 
 function RenameSheet({ initial, onClose, onSave }: { initial: string; onClose: () => void; onSave: (v: string) => void }) {
   const [v, setV] = useState(initial)
