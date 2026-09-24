@@ -351,6 +351,15 @@ class GalleryPhoto(Base):
     # means doing it thousands of times for an answer that cannot change. The
     # coordinates stay in lat/lon; this is only the label.
     place = Column(String(120), index=True)
+    # The edit currently applied, as JSON, or NULL for an untouched photo.
+    #
+    # The EDIT is stored rather than only its result, so the picture can be
+    # re-rendered from the pristine original at any time — which is what makes
+    # "revert" free and what stops a second crop compounding the loss of the
+    # first. It also means the screen can open the editor showing the sliders
+    # where the person left them, instead of at zero over a photo that is
+    # visibly not unedited.
+    edit = Column(Text)
     is_archived = Column(Integer, default=0)
     is_trashed = Column(Integer, default=0)
     size_bytes = Column(Integer, default=0)

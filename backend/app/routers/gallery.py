@@ -27,6 +27,7 @@ except Exception:
 
 from .. import ist
 from .. import bursts as _bursts
+from .. import photoedit
 from .. import dialect, indexer, nlquery, places, smartalbum, storage, vision
 from ..database import get_db
 from ..helpers import audit
@@ -96,6 +97,18 @@ def media_url(owner_id: int, variant: str, name: str) -> str:
     return f"/api/gallery/media/{variant}/{name}?t={sign(owner_id, f'{variant}/{name}')}"
 
 
+def _edit_of(p: GalleryPhoto) -> dict | None:
+    """A stored edit, or None. Never raises: a row written by a newer version
+    must not be able to stop the gallery listing."""
+    if not getattr(p, "edit", None):
+        return None
+    try:
+        got = json.loads(p.edit)
+        return got if isinstance(got, dict) else None
+    except Exception:
+        return None
+
+
 def _present(p: GalleryPhoto) -> dict:
     kind = (p.kind or "photo")
     return {
@@ -104,6 +117,10 @@ def _present(p: GalleryPhoto) -> dict:
         "thumb_url": media_url(p.user_id, storage.THUMB, thumb_name(p)),
         "is_favourite": int(p.is_favorite or 0),
         "taken_at": p.taken_at.isoformat() if p.taken_at else None,
+        # The edit currently applied, so the editor opens where it was left
+        # and the viewer can offer "revert" only when there is something to
+        # revert to.
+        "edit": _edit_of(p),
         "taken_fmt": p.taken_at.strftime("%d-%m-%Y") if p.taken_at else None,
         "caption": p.caption,
         "kind": kind,
@@ -1282,6 +1299,153 @@ def photo_people(id: int, user: User = Depends(guard("gallery", "view")), db: Se
     return {"people": [{"id": p.id, "name": p.name} for p in rows]}
 
 
+def _own_photo(db: Session, uid: int, pid: int) -> GalleryPhoto:
+    """One photo belonging to this account, or a 404.
+
+    The same three lines were written inline at four call sites. Scoping by
+    user_id in the FILTER rather than checking ownership after the fetch is
+    the part worth having in one place: the version that fetches first and
+    compares afterwards is one forgotten comparison away from editing
+    somebody else's photo.
+    """
+    p = (db.query(GalleryPhoto)
+         .filter(GalleryPhoto.id == pid, GalleryPhoto.user_id == uid).first())
+    if not p:
+        raise HTTPException(404, "Photo not found")
+    return p
+
+
+def _pristine_bytes(photo: GalleryPhoto) -> bytes:
+    """The untouched original, taking a copy the first time one is needed.
+
+    The copy is made lazily rather than on upload: most photos are never
+    edited, and doubling the disk footprint of an entire library to serve the
+    handful that are is not a trade worth making on a household machine.
+    """
+    keep = photo.filename + photoedit.PRISTINE_SUFFIX
+    path = storage.media_path(storage.GALLERY, photo.user_id, storage.ORIGINAL, keep)
+    if os.path.isfile(path):
+        with open(path, "rb") as fh:
+            return fh.read()
+
+    live = storage.media_path(storage.GALLERY, photo.user_id,
+                              storage.ORIGINAL, photo.filename)
+    if not os.path.isfile(live):
+        raise HTTPException(410, "That photo's file is no longer on the disk")
+    with open(live, "rb") as fh:
+        raw = fh.read()
+    # Written before the edit touches anything. If the process dies here the
+    # worst case is a spare copy of an unedited photo, which reconcile reports
+    # and nobody loses.
+    storage.save(storage.GALLERY, photo.user_id, storage.ORIGINAL, keep, raw)
+    return raw
+
+
+def _rethumb(photo: GalleryPhoto, raw: bytes) -> None:
+    pil = Image.open(io.BytesIO(raw))
+    upright = ImageOps.exif_transpose(pil) or pil
+    thumb = upright.copy()
+    thumb.thumbnail((THUMB_MAX, THUMB_MAX))
+    buf = io.BytesIO()
+    thumb.save(buf, format="JPEG", quality=80)
+    storage.save(storage.GALLERY, photo.user_id, storage.THUMB,
+                 photo.filename, buf.getvalue())
+
+
+@router.post("/{id}/edit")
+def edit_photo(id: int, body: dict = Body(...),
+               user: User = Depends(guard("gallery", "edit")),
+               db: Session = Depends(get_db)):
+    """Crop, rotate, adjust or filter a photo. Always reversible.
+
+    The edit is rendered from the PRISTINE original every time, never from the
+    last rendered result — so cropping twice is one crop of the real photo,
+    not a crop of a crop, and the JPEG is only ever encoded once from source.
+    """
+    photo = _own_photo(db, user.id, id)
+    if photo.kind == "video":
+        raise HTTPException(415, "Videos cannot be edited here")
+
+    try:
+        edit = photoedit.normalise(body.get("edit") if "edit" in body else body)
+    except photoedit.EditError as exc:
+        raise HTTPException(422, str(exc))
+
+    raw = _pristine_bytes(photo)
+
+    if photoedit.is_noop(edit):
+        # An edit of nothing is a revert, not an error. Somebody who drags
+        # every slider back to the middle has asked for the original.
+        return _revert(db, photo, raw)
+
+    try:
+        out, w, h = photoedit.apply(raw, edit)
+    except photoedit.EditError as exc:
+        raise HTTPException(422, str(exc))
+    except Exception as exc:
+        # Never leave the live file half written; the pristine copy is intact,
+        # so the photo is still the one it was.
+        print(f"[edit] photo {id} failed to render: {exc}")
+        raise HTTPException(500, "That edit could not be applied")
+
+    storage.save(storage.GALLERY, user.id, storage.ORIGINAL, photo.filename, out)
+    _rethumb(photo, out)
+
+    photo.edit = json.dumps(edit)
+    photo.size_bytes = len(out)
+    photo.width, photo.height = w, h
+    # See photoedit.py: phash describes what the picture LOOKS like and has
+    # changed; content_hash is the identity of the upload and has not.
+    try:
+        photo.phash = _dhash(Image.open(io.BytesIO(out)))
+    except Exception:
+        pass
+    photo.updated_at = ist.now()
+    db.commit()
+    audit(db, user.id, "edit", "photo", photo.id,
+          {"label": photo.caption or "", "edit": photoedit.describe(edit)})
+    return {"item": _present(photo), "edit": edit,
+            "edit_text": photoedit.describe(edit)}
+
+
+def _revert(db: Session, photo: GalleryPhoto, raw: bytes) -> dict:
+    storage.save(storage.GALLERY, photo.user_id, storage.ORIGINAL,
+                 photo.filename, raw)
+    _rethumb(photo, raw)
+    pil = Image.open(io.BytesIO(raw))
+    upright = ImageOps.exif_transpose(pil) or pil
+    photo.edit = None
+    photo.size_bytes = len(raw)
+    photo.width, photo.height = upright.width, upright.height
+    try:
+        photo.phash = _dhash(pil)
+    except Exception:
+        pass
+    photo.updated_at = ist.now()
+    db.commit()
+    # The live file is now byte-identical to the pristine one, so the spare
+    # copy is pure cost. Removed AFTER the commit: if the process dies between
+    # the two, the worst case is a spare copy of an unedited photo, and the
+    # other order risks a row that says "unedited" over a file that is not.
+    storage.remove(storage.GALLERY, photo.user_id, storage.ORIGINAL,
+                   photo.filename + photoedit.PRISTINE_SUFFIX)
+    return {"item": _present(photo), "edit": {}, "edit_text": "no change"}
+
+
+@router.post("/{id}/edit/revert")
+def revert_photo(id: int, user: User = Depends(guard("gallery", "edit")),
+                 db: Session = Depends(get_db)):
+    """Put the photo back exactly as the device sent it."""
+    photo = _own_photo(db, user.id, id)
+    if not photo.edit:
+        return {"item": _present(photo), "edit": {}, "edit_text": "no change"}
+    raw = _pristine_bytes(photo)
+    out = _revert(db, photo, raw)
+    audit(db, photo.user_id, "revert", "photo", photo.id,
+          {"label": photo.caption or ""})
+    return out
+
+
 @router.post("/{id}/tag")
 def tag(id: int, body: dict = Body(...), user: User = Depends(guard("gallery", "edit")), db: Session = Depends(get_db)):
     if not db.query(GalleryPhoto).filter(GalleryPhoto.id == id, GalleryPhoto.user_id == user.id).first():
@@ -2336,6 +2500,12 @@ def purge_photos(db: Session, rows: list) -> int:
             # filename left a `.jpg` behind for every video ever deleted.
             name = thumb_name(p) if variant == storage.THUMB else p.filename
             storage.remove(storage.GALLERY, p.user_id, variant, name)
+        # The pristine copy kept for an edited photo. Missing it would leak a
+        # full-size image per edited photo for ever — the same shape of bug as
+        # document versions surviving their document, and invisible in exactly
+        # the same way, because nothing lists a file that has no row.
+        storage.remove(storage.GALLERY, p.user_id, storage.ORIGINAL,
+                       p.filename + photoedit.PRISTINE_SUFFIX)
     db.query(PhotoFace).filter(PhotoFace.photo_id.in_(ids)).delete(synchronize_session=False)
     db.query(PhotoPerson).filter(PhotoPerson.photo_id.in_(ids)).delete(synchronize_session=False)
     db.query(PhotoVector).filter(PhotoVector.photo_id.in_(ids)).delete(synchronize_session=False)

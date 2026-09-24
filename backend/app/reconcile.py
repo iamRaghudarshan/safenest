@@ -33,7 +33,7 @@ import os
 
 from sqlalchemy.orm import Session
 
-from . import storage
+from . import photoedit, storage
 from .models import Document, GalleryPhoto, PhotoFace, PhotoVector
 
 #: Never return more than this many examples per category. The counts are the
@@ -82,6 +82,13 @@ def check_user(db: Session, user_id: int) -> dict:
         if not p.filename:
             continue
         claimed.add(p.filename)
+        # An edited photo keeps its untouched original beside it under
+        # `<filename>.orig`. Claimed UNCONDITIONALLY, not only when the row
+        # says it is edited: `stray` is presented as "files with no row", and
+        # somebody acting on that list would delete the one copy of every
+        # original in the library. Missing a leaked .orig is a wasted
+        # megabyte; reporting a live one is the whole photograph.
+        claimed.add(p.filename + photoedit.PRISTINE_SUFFIX)
         claimed_thumbs.add(_thumb_name(p))
         if p.filename not in originals:
             missing_file.append({"id": p.id, "filename": p.filename,

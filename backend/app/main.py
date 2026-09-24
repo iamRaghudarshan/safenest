@@ -291,6 +291,8 @@ def _migrate() -> None:
         # Where a photo was taken, resolved to a name once rather than on
         # every request.
         ("gallery_photos", "place", "ALTER TABLE gallery_photos ADD COLUMN place VARCHAR(120) NULL"),
+        # The edit applied to a photo, so it can be re-rendered or reverted.
+        ("gallery_photos", "edit", "ALTER TABLE gallery_photos ADD COLUMN edit TEXT NULL"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).
