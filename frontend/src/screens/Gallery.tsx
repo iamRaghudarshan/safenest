@@ -19,7 +19,7 @@ import type {
 } from '../types'
 import { appName } from '../branding'
 
-type Tab = 'all' | 'fav' | 'albums' | 'people' | 'memories'
+type Tab = 'all' | 'fav' | 'albums' | 'people' | 'memories' | 'archive'
 
 // Both buttons are <label for> pointing here, so the tap opens the picker as the
 // click's own default action rather than through a scripted .click().
@@ -114,6 +114,7 @@ export default function Gallery() {
     else if (it === 'similar') { setDupMode('similar'); setDupOpen(true) }
   }, [takeIntent])
   const isFav = tab === 'fav'
+  const isArchive = tab === 'archive'
   const offsetRef = useRef(0)   // next row to fetch
   const doneRef = useRef(false) // no more pages
   const busyRef = useRef(false) // a fetch is in flight
@@ -130,6 +131,11 @@ export default function Gallery() {
     try {
       const p = new URLSearchParams({ offset: String(off), limit: String(PAGE) })
       if (isFav) p.set('fav', '1')
+      // The Archive tab asks for archived photos; every other view gets the
+      // default, which excludes them. Search is deliberately unaffected —
+      // archiving hides a photo from the timeline, it does not hide it from
+      // somebody looking for it.
+      if (isArchive) p.set('archived', '1')
       if (query) p.set('q', query)
       if (query && smart) p.set('smart', '1')
       const d = await api<{ items: Photo[]; total: number }>(`/api/gallery?${p}`)
@@ -139,7 +145,7 @@ export default function Gallery() {
       doneRef.current = d.items.length < PAGE
     } catch { /* ignore */ }
     finally { setLoading(false); setMore(false); busyRef.current = false }
-  }, [isFav, query, smart])
+  }, [isFav, isArchive, query, smart])
 
   // (re)load page 0 whenever the tab (all ↔ fav) or the search term changes
   useEffect(() => { offsetRef.current = 0; doneRef.current = false; load(true) }, [load])
@@ -243,6 +249,25 @@ export default function Gallery() {
   // note on POST /api/gallery/bulk. The local state is then patched to match
   // instead of refetching, so a selection of two hundred does not throw the
   // scroll position back to the top of the library.
+  // Archive is its own endpoint rather than another `bulk` action: it is not
+  // a kind of delete, and putting it in the same switch is how the two end up
+  // sharing a confirmation nobody reads.
+  async function archiveSelected(on: boolean) {
+    const ids = [...sel]
+    if (!ids.length) return
+    try {
+      await api('/api/gallery/archive/bulk', { method: 'POST', body: { ids, archived: on } })
+    } catch (e) { toast(errorMessage(e)); return }
+    const gone = new Set(ids)
+    setPhotos((ps) => ps.filter((x) => !gone.has(x.id)))
+    setTotal((t) => Math.max(0, t - ids.length))
+    offsetRef.current = Math.max(0, offsetRef.current - ids.length)
+    toast(on
+      ? (ids.length === 1 ? 'Archived' : `${ids.length} archived`)
+      : (ids.length === 1 ? 'Back in your timeline' : `${ids.length} back in your timeline`))
+    clearSel()
+  }
+
   async function bulk(action: 'favourite' | 'unfavourite' | 'trash') {
     const ids = [...sel]
     if (!ids.length) return
@@ -307,7 +332,7 @@ export default function Gallery() {
     : isFav
       ? `${total} favourite${total === 1 ? '' : 's'}`
       : `${total.toLocaleString()} photo${total === 1 ? '' : 's'}`
-  const searchable = tab === 'all' || tab === 'fav'
+  const searchable = tab === 'all' || tab === 'fav' || tab === 'archive'
 
   return (
     <div className="screen">
@@ -321,6 +346,11 @@ export default function Gallery() {
           <button className="selbar-x" onClick={clearSel} aria-label="Clear selection">✕</button>
           <span className="selbar-n">{sel.size} selected</span>
           <button className="selbar-act" onClick={() => bulk('favourite')} title="Favourite">★</button>
+          <button className="selbar-act"
+            onClick={() => archiveSelected(!isArchive)}
+            title={isArchive ? 'Put back in the timeline' : 'Archive'}>
+            {isArchive ? '↩' : '⤓'}
+          </button>
           <button className="selbar-act" onClick={() => setAlbumPick([...sel])} title="Add to album">＋</button>
           {canEdit && (
             <button className="selbar-act danger" onClick={() => bulk('trash')} title="Move to trash">
@@ -449,11 +479,11 @@ export default function Gallery() {
           pick(files, backup).catch(() => toast('Those photos could not be queued'))
         }} />
 
-      <div className="seg4 five">
-        {(['all', 'fav', 'albums', 'people', 'memories'] as Tab[]).map((t) => (
+      <div className="seg4 six">
+        {(['all', 'fav', 'albums', 'people', 'memories', 'archive'] as Tab[]).map((t) => (
           <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
             {t === 'all' ? 'All' : t === 'fav' ? '★' : t === 'albums' ? 'Albums'
-              : t === 'people' ? 'People' : 'Memories'}
+              : t === 'people' ? 'People' : t === 'memories' ? 'Memories' : 'Archive'}
           </button>
         ))}
       </div>

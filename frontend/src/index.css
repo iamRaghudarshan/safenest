@@ -2871,3 +2871,6 @@ html.on-auth .auth-bg { opacity: 0.3; }
     bottom: calc(var(--tabbar-h, 64px) + 12px);
   }
 }
+
+/* Six tabs need a little less room each than five. */
+.seg4.six button { padding-left: 6px; padding-right: 6px; font-size: 13px; }
