@@ -1242,7 +1242,13 @@ function FacesSheet({ personId, name, onClose, onChanged }: {
   personId: number; name: string; onClose: () => void; onChanged: () => void
 }) {
   const toast = useToast()
-  type Face = { face_id: number; photo_id: number; thumb_url: string; score: number | null }
+  type Box = { x: number; y: number; w: number; h: number }
+  type Face = {
+    face_id: number; photo_id: number; thumb_url: string; score: number | null
+    /** Where the face sits, as fractions of the image. Null when the photo has
+     *  no stored dimensions, in which case the whole picture is shown. */
+    box: Box | null
+  }
   const [faces, setFaces] = useState<Face[] | null>(null)
   const [picked, setPicked] = useState<Set<number>>(new Set())
 
@@ -1286,7 +1292,22 @@ function FacesSheet({ personId, name, onClose, onChanged }: {
                 if (n.has(f.face_id)) n.delete(f.face_id); else n.add(f.face_id)
                 return n
               })}>
-              <img src={f.thumb_url} loading="lazy" alt="" />
+              {/* Cropped to the face, not the photo. Choosing between four
+                  copies of the same wide shot is impossible; choosing between
+                  four faces is the whole task. Done with background-size and
+                  -position so the browser crops a thumbnail it already has,
+                  rather than this needing a second request per face. */}
+              <span className="face-crop" style={f.box ? {
+                backgroundImage: `url(${f.thumb_url})`,
+                backgroundSize: `${100 / f.box.w}% ${100 / f.box.h}%`,
+                backgroundPosition:
+                  `${f.box.w < 1 ? (f.box.x / (1 - f.box.w)) * 100 : 50}% ` +
+                  `${f.box.h < 1 ? (f.box.y / (1 - f.box.h)) * 100 : 50}%`,
+              } : {
+                backgroundImage: `url(${f.thumb_url})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }} />
             </button>
           ))}
         </div>

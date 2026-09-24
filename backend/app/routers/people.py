@@ -329,7 +329,35 @@ def faces(id: int, user: User = Depends(guard("gallery", "view")),
         photo = db.query(GalleryPhoto).get(f.photo_id)
         if not photo or photo.is_trashed:
             continue
+        # The box as FRACTIONS of the image, not pixels.
+        #
+        # The stored bbox is in the ORIGINAL photo's pixels, and what the UI
+        # displays is a scaled-down thumbnail — so pixels are meaningless to
+        # it without also knowing both sizes. Fractions survive any scaling,
+        # which lets the browser crop to the face with no second request and
+        # no image processing on this side.
+        box = None
+        try:
+            x, y, w, h = (float(v) for v in (f.bbox or "").split(","))
+            pw, ph = float(photo.width or 0), float(photo.height or 0)
+            if pw > 0 and ph > 0 and w > 0 and h > 0:
+                # Widened a little: a face box cropped exactly to the detector's
+                # rectangle is a nose and two eyes, and people recognise a face
+                # by its outline. 35% padding is roughly head-and-hair.
+                pad = 0.35
+                cx, cy = x + w / 2, y + h / 2
+                w2, h2 = w * (1 + pad), h * (1 + pad)
+                box = {
+                    "x": max(0.0, (cx - w2 / 2) / pw),
+                    "y": max(0.0, (cy - h2 / 2) / ph),
+                    "w": min(1.0, w2 / pw),
+                    "h": min(1.0, h2 / ph),
+                }
+        except (ValueError, TypeError, ZeroDivisionError):
+            box = None
+
         out.append({"face_id": f.id, "photo_id": f.photo_id, "bbox": f.bbox,
+                    "box": box,
                     "score": float(f.score) if f.score is not None else None,
                     "thumb_url": media_url(photo.user_id, storage.THUMB,
                                            thumb_name(photo))})
