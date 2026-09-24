@@ -277,6 +277,10 @@ export interface Photo {
    *  read; those fall back to a 4:3 guess rather than collapsing the row. */
   width?: number | null
   height?: number | null
+  /** The edit currently applied, or null for an untouched photo. Present so
+   *  the editor opens with the sliders where they were left, rather than at
+   *  zero over a picture that is visibly not unedited. */
+  edit?: PhotoEdit | null
 }
 
 /** Photo + everything read from its EXIF. Any field may be null: shared photos,
@@ -372,6 +376,19 @@ export interface AlbumRule {
   kind?: string
   place?: string
   favourite?: number
+}
+
+/** An edit applied to a photo. Every key optional; an empty object means the
+ *  photo is exactly as the device sent it. */
+export interface PhotoEdit {
+  rotate?: number
+  flip?: boolean
+  crop?: { x: number; y: number; w: number; h: number }
+  brightness?: number
+  contrast?: number
+  saturation?: number
+  sharpness?: number
+  filter?: string
 }
 
 export interface AlbumSummary {

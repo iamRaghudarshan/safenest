@@ -15,7 +15,7 @@ import { fmtDate, fmtDateTime } from '../format'
 import { formatBytes } from '../maintenance'
 import type {
   Photo, PhotoInfo, PersonSummary, MemoryGroup, DuplicatesData, DuplicateGroup, AlbumSummary,
-  AlbumRule, IndexStatus,
+  AlbumRule, PhotoEdit, IndexStatus,
 } from '../types'
 import { appName } from '../branding'
 
@@ -761,6 +761,237 @@ function PhotoGrid({ photos, onOpen, selected, onToggle, onSelectDay }: {
   )
 }
 
+const FILTER_NAMES: [string, string][] = [
+  ['none', 'Original'], ['vivid', 'Vivid'], ['warm', 'Warm'], ['cool', 'Cool'],
+  ['fade', 'Fade'], ['mono', 'Mono'], ['noir', 'Noir'], ['sepia', 'Sepia'],
+]
+
+const ADJUSTMENTS: [keyof PhotoEdit, string][] = [
+  ['brightness', 'Brightness'], ['contrast', 'Contrast'],
+  ['saturation', 'Saturation'], ['sharpness', 'Sharpness'],
+]
+
+/** Crop, rotate, adjust and filter — with the original always recoverable.
+ *
+ *  The preview is CSS, not a round trip. Rotating and dragging a slider have
+ *  to feel immediate or nobody explores them, and re-rendering a 12-megapixel
+ *  JPEG on a home PC for every pixel of slider travel is a screen that
+ *  stutters and a fan that spins. What the browser shows is an approximation;
+ *  Save asks the server for the real thing, which is the only version that
+ *  ever touches the file.
+ *
+ *  Crop is a drag on an overlay in FRACTIONS of the picture, because the
+ *  browser knows the photo's displayed size and nothing else — sending pixels
+ *  would mean the two sides disagreeing about which size that was.
+ */
+function PhotoEditor({ photo, onClose, onSaved }: {
+  photo: Photo; onClose: () => void; onSaved: (p: Photo) => void
+}) {
+  useOverlayBack(onClose)
+  const toast = useToast()
+  const [edit, setEdit] = useState<PhotoEdit>(photo.edit || {})
+  const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<'crop' | 'adjust' | 'filter'>('crop')
+  const [drag, setDrag] = useState<null | { x: number; y: number }>(null)
+  const frame = useRef<HTMLDivElement>(null)
+
+  const set = (k: keyof PhotoEdit, v: unknown) =>
+    setEdit((e) => {
+      const next: Record<string, unknown> = { ...e }
+      if (v === undefined || v === null || v === '' || v === 1) delete next[k]
+      else next[k] = v
+      return next as PhotoEdit
+    })
+
+  // The live preview. Filters are approximated with the CSS equivalents of
+  // what the server does — close enough to choose by, never what is saved.
+  const cssFilter = (() => {
+    const bits: string[] = []
+    if (edit.brightness) bits.push(`brightness(${edit.brightness})`)
+    if (edit.contrast) bits.push(`contrast(${edit.contrast})`)
+    if (edit.saturation) bits.push(`saturate(${edit.saturation})`)
+    switch (edit.filter) {
+      case 'mono': bits.push('grayscale(1)'); break
+      case 'noir': bits.push('grayscale(1) contrast(1.35)'); break
+      case 'sepia': bits.push('sepia(0.85)'); break
+      case 'vivid': bits.push('saturate(1.45)'); break
+      case 'fade': bits.push('contrast(0.75) opacity(0.92)'); break
+      case 'warm': bits.push('sepia(0.25) saturate(1.1)'); break
+      case 'cool': bits.push('hue-rotate(-10deg) saturate(1.05)'); break
+    }
+    return bits.join(' ') || 'none'
+  })()
+
+  const transform = [
+    edit.rotate ? `rotate(${edit.rotate}deg)` : '',
+    edit.flip ? 'scaleX(-1)' : '',
+  ].filter(Boolean).join(' ') || 'none'
+
+  function pointAt(e: React.PointerEvent) {
+    const r = frame.current?.getBoundingClientRect()
+    if (!r) return { x: 0, y: 0 }
+    return {
+      x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+      y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
+    }
+  }
+
+  async function save() {
+    setBusy(true)
+    try {
+      const r = await api<{ item: Photo; edit_text: string }>(
+        `/api/gallery/${photo.id}/edit`, { method: 'POST', body: { edit } })
+      toast(r.edit_text === 'no change' ? 'Back to the original' : 'Saved')
+      onSaved(r.item); onClose()
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  async function revert() {
+    setBusy(true)
+    try {
+      const r = await api<{ item: Photo }>(
+        `/api/gallery/${photo.id}/edit/revert`, { method: 'POST', body: {} })
+      toast('Back to the original')
+      onSaved(r.item); onClose()
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  const c = edit.crop
+  return (
+    <div className="editor">
+      <div className="editor-stage">
+        <div className="editor-frame" ref={frame}
+          onPointerDown={(e) => {
+            if (tab !== 'crop') return
+            e.currentTarget.setPointerCapture(e.pointerId)
+            const p = pointAt(e)
+            setDrag(p); set('crop', undefined)
+          }}
+          onPointerMove={(e) => {
+            if (!drag) return
+            const p = pointAt(e)
+            set('crop', {
+              x: Math.min(drag.x, p.x), y: Math.min(drag.y, p.y),
+              w: Math.abs(p.x - drag.x), h: Math.abs(p.y - drag.y),
+            })
+          }}
+          onPointerUp={() => {
+            // A tap, not a drag. Clearing rather than saving a sliver is the
+            // forgiving reading: nobody means to crop a photo to four pixels.
+            if (c && (c.w < 0.05 || c.h < 0.05)) set('crop', undefined)
+            setDrag(null)
+          }}>
+          <img className="editor-img" src={photo.url} alt=""
+            style={{ filter: cssFilter, transform }} draggable={false} />
+          {tab === 'crop' && c && (
+            <>
+              <div className="crop-shade" style={{ inset: 0 }} />
+              <div className="crop-box" style={{
+                left: `${c.x * 100}%`, top: `${c.y * 100}%`,
+                width: `${c.w * 100}%`, height: `${c.h * 100}%`,
+              }} />
+            </>
+          )}
+        </div>
+        {tab === 'crop' && !c && (
+          <div className="editor-hint">Drag across the photo to crop it</div>
+        )}
+      </div>
+
+      <div className="editor-panel">
+        <div className="editor-tabs">
+          {(['crop', 'adjust', 'filter'] as const).map((t) => (
+            <button key={t} className={`chip${tab === t ? ' on' : ''}`}
+              onClick={() => setTab(t)}>
+              {t === 'crop' ? 'Crop & rotate' : t === 'adjust' ? 'Adjust' : 'Filters'}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'crop' && (
+          <div className="editor-row">
+            <button className="btn ghost sm"
+              onClick={() => set('rotate', ((edit.rotate || 0) + 270) % 360 || undefined)}>
+              ↺ Left
+            </button>
+            <button className="btn ghost sm"
+              onClick={() => set('rotate', ((edit.rotate || 0) + 90) % 360 || undefined)}>
+              ↻ Right
+            </button>
+            <button className={`btn ghost sm${edit.flip ? ' on' : ''}`}
+              onClick={() => set('flip', edit.flip ? undefined : true)}>
+              ⇋ Flip
+            </button>
+            {c && (
+              <button className="btn ghost sm" onClick={() => set('crop', undefined)}>
+                Clear crop
+              </button>
+            )}
+          </div>
+        )}
+
+        {tab === 'adjust' && (
+          <div className="editor-sliders">
+            {ADJUSTMENTS.map(([key, label]) => (
+              <label key={key} className="editor-slider">
+                <span>{label}</span>
+                <input type="range" min={0.5} max={2} step={0.05}
+                  value={(edit[key] as number) ?? 1}
+                  onChange={(e) => set(key, Number(e.target.value))} />
+                {/* The number, because a slider with no reading cannot be put
+                    back exactly where it was. */}
+                <b>{(((edit[key] as number) ?? 1)).toFixed(2)}×</b>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {tab === 'filter' && (
+          <div className="editor-filters">
+            {FILTER_NAMES.map(([key, label]) => (
+              <button key={key}
+                className={`filter-chip${(edit.filter || 'none') === key ? ' on' : ''}`}
+                onClick={() => set('filter', key === 'none' ? undefined : key)}>
+                {/* Each swatch is the real photo under that filter, so the
+                    choice is made by looking rather than by reading a word. */}
+                <span className="filter-thumb"
+                  style={{ backgroundImage: `url(${photo.thumb_url || photo.url})`,
+                           filter: key === 'none' ? 'none'
+                             : key === 'mono' ? 'grayscale(1)'
+                             : key === 'noir' ? 'grayscale(1) contrast(1.35)'
+                             : key === 'sepia' ? 'sepia(0.85)'
+                             : key === 'vivid' ? 'saturate(1.45)'
+                             : key === 'fade' ? 'contrast(0.75) opacity(0.92)'
+                             : key === 'warm' ? 'sepia(0.25) saturate(1.1)'
+                             : 'hue-rotate(-10deg) saturate(1.05)' }} />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="editor-actions">
+          <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          {/* Revert is offered only when there is something to revert TO —
+              otherwise it is a button that does nothing, which reads as a
+              broken one. */}
+          {photo.edit && Object.keys(photo.edit).length > 0 && (
+            <button className="btn ghost" onClick={revert} disabled={busy}>
+              Use original
+            </button>
+          )}
+          <button className="btn primary" onClick={save} disabled={busy}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFromAlbum }: {
   photo: Photo; onClose: () => void; onFav: () => void; onTrash: () => void; canEdit: boolean
   albumId?: number                    // set when viewing from inside an album
@@ -775,6 +1006,12 @@ function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFr
   const [zoomed, setZoomed] = useState(false)
   const [saving, setSaving] = useState(false)
   const [chrome, setChrome] = useState(true)
+  const [editing, setEditing] = useState(false)
+  // The photo as it stands NOW. Saving an edit changes its dimensions and its
+  // bytes, and the lightbox must show the new one without waiting for the
+  // grid behind it to reload — otherwise Save appears to do nothing.
+  const [shown, setShown] = useState(photo)
+  useEffect(() => { setShown(photo) }, [photo])
   const people = info?.people ?? []
 
   // Download the full-resolution original. The URL is already signed, so no
@@ -836,7 +1073,7 @@ function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFr
             controls playsInline preload="metadata"
             onPlay={() => setChrome(false)} onPause={() => setChrome(true)} />
         ) : (
-          <Zoomable fill src={photo.url} alt={photo.caption || ''}
+          <Zoomable fill src={shown.url} alt={shown.caption || ''}
             onZoomChange={setZoomed} onSingleTap={() => setChrome((c) => !c)} />
         )}
       </div>
@@ -850,6 +1087,10 @@ function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFr
         <button className="viewer-btn" onClick={onFav} aria-label="Favourite">
           {photo.is_favourite ? '★' : '☆'}
         </button>
+        {canEdit && !isVideo && (
+          <button className="viewer-btn" onClick={() => setEditing(true)}
+            aria-label="Edit photo" title="Edit">✎</button>
+        )}
         <button className="viewer-btn" onClick={() => setDetailsOpen(true)} aria-label="Photo details" title="Details">ⓘ</button>
         <button className="viewer-btn" onClick={download} disabled={saving} aria-label="Download">
           {saving ? '…' : '⤓'}
@@ -882,6 +1123,17 @@ function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFr
 
       {tagging && <TagSheet onClose={() => setTagging(false)} onPick={addTag} />}
       {detailsOpen && <DetailsSheet info={info} onClose={() => setDetailsOpen(false)} />}
+      {editing && (
+        <PhotoEditor photo={shown} onClose={() => setEditing(false)}
+          onSaved={(p) => {
+            // The signed media URL keeps the same filename, so the browser
+            // would serve the OLD bytes from cache and the edit would look
+            // like it had not happened. A cache-buster on the version we
+            // hold is enough; the URL's signature covers the path, not the
+            // query.
+            setShown({ ...p, url: `${p.url}&v=${Date.now()}` })
+          }} />
+      )}
       {albumPick && (
         <AlbumPickSheet photoIds={[photo.id]} inAlbums={(info?.albums ?? []).map((a) => a.id)}
           onClose={() => setAlbumPick(false)} onDone={loadInfo} />

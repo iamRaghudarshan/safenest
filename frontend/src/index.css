@@ -2840,6 +2840,98 @@ html.on-auth .auth-bg { opacity: 0.3; }
   .folder-x, .folder-ren, .doc-move, .doc-pick { opacity: 1; }
 }
 
+/* ---- Photo editor --------------------------------------------------------
+   Full screen above the lightbox, dark regardless of theme: judging a crop or
+   a filter against a light chrome means judging it against the wrong
+   surround, which is why every editor that does this is dark. */
+.editor {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; flex-direction: column;
+  background: #0b0b0d; color: #f4f4f5;
+}
+.editor-stage {
+  flex: 1; min-height: 0; position: relative;
+  display: grid; place-items: center; padding: 16px;
+}
+/* The frame is the img's own box, so a crop drawn on it is in fractions OF
+   THE PICTURE rather than of the stage — a letterboxed photo would otherwise
+   have its crop land somewhere else entirely. */
+.editor-frame {
+  position: relative; max-width: 100%; max-height: 100%;
+  line-height: 0; touch-action: none; cursor: crosshair;
+}
+.editor-img {
+  max-width: 100%; max-height: 70vh; object-fit: contain;
+  user-select: none; -webkit-user-drag: none;
+  transition: filter .12s linear;
+}
+.crop-shade {
+  position: absolute; background: rgba(0, 0, 0, .55); pointer-events: none;
+}
+.crop-box {
+  position: absolute; pointer-events: none;
+  outline: 1px solid #fff; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55);
+}
+.editor-hint {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  font-size: 12.5px; color: rgba(255, 255, 255, .7);
+  background: rgba(0, 0, 0, .45); padding: 6px 12px; border-radius: 999px;
+}
+
+.editor-panel {
+  flex: none; padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
+  background: #151518; border-top: 1px solid rgba(255, 255, 255, .08);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.editor-tabs { display: flex; gap: 8px; }
+.editor-tabs .chip {
+  background: rgba(255, 255, 255, .06); color: #e6e6e9;
+  border: 1px solid rgba(255, 255, 255, .12);
+}
+.editor-tabs .chip.on { background: #fff; color: #111; border-color: #fff; }
+
+.editor-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.editor-row .btn.ghost {
+  background: rgba(255, 255, 255, .06); color: #e6e6e9;
+  border-color: rgba(255, 255, 255, .14);
+}
+.editor-row .btn.ghost.on { background: #fff; color: #111; }
+
+.editor-sliders { display: flex; flex-direction: column; gap: 9px; }
+.editor-slider {
+  display: grid; grid-template-columns: 92px 1fr 52px;
+  align-items: center; gap: 10px; font-size: 12.5px;
+}
+.editor-slider input { width: 100%; }
+.editor-slider b {
+  font-variant-numeric: tabular-nums;   /* the reading must not jitter */
+  text-align: right; font-weight: 600; color: rgba(255, 255, 255, .8);
+}
+
+.editor-filters {
+  display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.editor-filters::-webkit-scrollbar { display: none; }
+.filter-chip {
+  flex: none; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font-size: 11.5px; color: rgba(255, 255, 255, .72);
+}
+.filter-thumb {
+  width: 56px; height: 56px; border-radius: 9px;
+  background-size: cover; background-position: center;
+  border: 2px solid transparent;
+}
+.filter-chip.on { color: #fff; }
+.filter-chip.on .filter-thumb { border-color: #fff; }
+
+.editor-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.editor-actions .btn.ghost {
+  background: rgba(255, 255, 255, .06); color: #e6e6e9;
+  border-color: rgba(255, 255, 255, .14);
+}
+
 /* ---- Saved searches (rule albums) ----------------------------------------
    Two buttons where there was one. Side by side rather than stacked: "New
    album" and "Saved search" are the same kind of decision, and stacking them
