@@ -384,6 +384,17 @@ export interface AlbumRule {
 
 /** An edit applied to a photo. Every key optional; an empty object means the
  *  photo is exactly as the device sent it. */
+/** One drawn mark. Coordinates are FRACTIONS of the picture, so the same
+ *  numbers drive the on-screen preview and the server's render — the screen
+ *  cannot drift from the file. */
+export interface PhotoMark {
+  t: 'pen' | 'highlight' | 'arrow' | 'rect' | 'ellipse' | 'text' | 'redact'
+  c: string
+  w?: number
+  p: [number, number][]
+  text?: string
+}
+
 export interface PhotoEdit {
   rotate?: number
   flip?: boolean
@@ -393,6 +404,8 @@ export interface PhotoEdit {
   saturation?: number
   sharpness?: number
   filter?: string
+  /** Drawn over everything, last. */
+  markup?: PhotoMark[]
 }
 
 export interface AlbumSummary {

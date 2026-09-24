@@ -196,7 +196,7 @@ async def main():
 
             tabs = await c.eval(
                 "document.querySelectorAll('.editor-tabs .chip').length", wait=False)
-            check(tabs == 3, "it has crop, adjust and filters", tabs)
+            check(tabs == 4, "it has crop, adjust, filters and markup", tabs)
 
             # ---- rotate moves the preview BEFORE anything is saved ---------
             before_t = await c.eval(
@@ -248,6 +248,84 @@ async def main():
             check(45 <= got["shown"] <= 55,
                   "and the box follows the drag, at about half the width", got)
 
+            # ---- markup ------------------------------------------------------
+            await c.eval(
+                "[...document.querySelectorAll('.editor-tabs .chip')]"
+                ".find(b => /markup/i.test(b.textContent)).click()", wait=False)
+            await asyncio.sleep(0.6)
+            tools = await c.eval(
+                "document.querySelectorAll('.mk-panel .rule-chips .chip').length",
+                wait=False)
+            check(tools == 7, "the markup tab offers seven tools", tools)
+            dots = await c.eval(
+                "document.querySelectorAll('.mk-dot').length", wait=False)
+            check(dots == 8, "and eight colours", dots)
+
+            drew = await c.eval("""
+            (async () => {
+              const f = document.querySelector('.editor-frame');
+              const r = f.getBoundingClientRect();
+              f.setPointerCapture = () => {};
+              const ev = (type, fx, fy) => f.dispatchEvent(new PointerEvent(type, {
+                bubbles: true, pointerId: 2, clientX: r.left + r.width * fx,
+                clientY: r.top + r.height * fy,
+              }));
+              ev('pointerdown', 0.15, 0.7);
+              await new Promise(z => setTimeout(z, 60));
+              ev('pointermove', 0.35, 0.55);
+              await new Promise(z => setTimeout(z, 60));
+              ev('pointermove', 0.55, 0.72);
+              await new Promise(z => setTimeout(z, 120));
+              const midPts = document.querySelectorAll('.mk-layer path').length;
+              ev('pointerup', 0.55, 0.72);
+              await new Promise(z => setTimeout(z, 200));
+              return JSON.stringify({
+                during: midPts,
+                after: document.querySelectorAll('.mk-layer path').length,
+              });
+            })()
+            """)
+            got = json.loads(drew)
+            check(got["during"] >= 1, "a stroke shows while it is being drawn", got)
+            check(got["after"] >= 1, "and stays once the pointer lifts", got)
+
+            # Undo removes the whole MARK, not the last point — which is why a
+            # stroke is committed only on pointerup.
+            await c.eval(
+                "[...document.querySelectorAll('.mk-panel .btn')]"
+                ".find(b => /Undo/.test(b.textContent)).click()", wait=False)
+            await asyncio.sleep(0.5)
+            after_undo = await c.eval(
+                "document.querySelectorAll('.mk-layer path').length", wait=False)
+            check(after_undo == 0, "undo removes the whole stroke, not a point",
+                  after_undo)
+
+            # Draw it again so the save below has something to carry.
+            await c.eval("""
+            (async () => {
+              const f = document.querySelector('.editor-frame');
+              const r = f.getBoundingClientRect();
+              f.setPointerCapture = () => {};
+              const ev = (type, fx, fy) => f.dispatchEvent(new PointerEvent(type, {
+                bubbles: true, pointerId: 3, clientX: r.left + r.width * fx,
+                clientY: r.top + r.height * fy,
+              }));
+              ev('pointerdown', 0.15, 0.7);
+              await new Promise(z => setTimeout(z, 60));
+              ev('pointermove', 0.55, 0.72);
+              await new Promise(z => setTimeout(z, 60));
+              ev('pointerup', 0.55, 0.72);
+              await new Promise(z => setTimeout(z, 200));
+              return 1;
+            })()
+            """)
+
+            # Back to crop, so the crop assertions below still hold.
+            await c.eval(
+                "[...document.querySelectorAll('.editor-tabs .chip')]"
+                ".find(b => /Crop/.test(b.textContent)).click()", wait=False)
+            await asyncio.sleep(0.4)
+
             # ---- save --------------------------------------------------------
             await c.eval(
                 "[...document.querySelectorAll('.editor-actions .btn')]"
@@ -262,6 +340,8 @@ async def main():
             check((w, h) == (200, 100),
                   "and the photo really is cropped to half", (w, h))
             check(edit and "crop" in edit, "the edit is recorded", edit)
+            check(edit and "markup" in edit,
+                  "and the drawing went with it", edit)
 
             # ---- use original ------------------------------------------------
             # The button must appear only now that there IS an original to go

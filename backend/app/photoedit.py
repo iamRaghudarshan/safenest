@@ -111,6 +111,33 @@ FILTERS = {
 }
 
 
+#: Markup colours, by name. A fixed palette rather than free-form strings:
+#: PIL will happily parse "rebeccapurple" and then raise on "#gg0000", and an
+#: editor that 500s because of a colour is an editor nobody trusts. Names also
+#: survive a round trip through JSON without anybody quoting a hash.
+MARKUP_COLOURS = {
+    "red": (229, 57, 53), "orange": (245, 124, 0), "yellow": (253, 216, 53),
+    "green": (67, 160, 71), "blue": (30, 136, 229), "purple": (142, 68, 173),
+    "black": (24, 24, 27), "white": (255, 255, 255),
+}
+
+#: What can be drawn. `redact` is not decoration: the reason a household app
+#: needs markup at all is usually covering an account number before sending a
+#: photo of a bill to somebody.
+MARKUP_TOOLS = ("pen", "highlight", "arrow", "rect", "ellipse", "text", "redact")
+
+#: Caps. An edit is stored as JSON on the row and re-rendered on every save,
+#: so an unbounded stroke list is both a large column and a slow render.
+MAX_MARKUP_OPS = 80
+MAX_POINTS = 600
+MAX_TEXT_CHARS = 120
+
+#: Stroke width, as a fraction of the picture's short edge. Stored relative so
+#: a line drawn on a phone preview is the same THICKNESS on the full-size
+#: render — a width in pixels would come out hairline on a 12-megapixel photo.
+MARKUP_MIN_W, MARKUP_MAX_W = 0.002, 0.06
+
+
 class EditError(ValueError):
     """A request that cannot be honoured, with a sentence for the person."""
 
@@ -165,12 +192,76 @@ def normalise(raw: dict | None) -> dict:
             if abs(v - 1.0) > 0.001:
                 out[key] = round(v, 3)
 
+    marks = raw.get("markup")
+    if marks:
+        if not isinstance(marks, list):
+            raise EditError("Markup must be a list of marks")
+        out["markup"] = [_one_mark(m) for m in marks[:MAX_MARKUP_OPS]]
+        # A markup list that validated down to nothing is not markup.
+        out["markup"] = [m for m in out["markup"] if m]
+        if not out["markup"]:
+            del out["markup"]
+
     f = (raw.get("filter") or "none").strip().lower()
     if f not in FILTERS:
         raise EditError(f"There is no filter called {f!r}")
     if f != "none":
         out["filter"] = f
 
+    return out
+
+
+def _frac(v, what: str) -> float:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        raise EditError(f"{what} must be a number")
+    # Clamped rather than rejected: a stroke dragged past the edge of the
+    # picture is a normal gesture, not a mistake, and refusing the whole mark
+    # because one point went over the line would lose the drawing.
+    return max(0.0, min(1.0, f))
+
+
+def _one_mark(m) -> dict | None:
+    """Validate one mark, or None if there is nothing left of it."""
+    if not isinstance(m, dict):
+        return None
+    tool = str(m.get("t") or "").strip().lower()
+    if tool not in MARKUP_TOOLS:
+        raise EditError(f"There is no markup tool called {tool!r}")
+
+    colour = str(m.get("c") or "red").strip().lower()
+    if colour not in MARKUP_COLOURS:
+        raise EditError(f"There is no colour called {colour!r}")
+
+    try:
+        width = float(m.get("w", 0.006))
+    except (TypeError, ValueError):
+        raise EditError("Stroke width must be a number")
+    out = {"t": tool, "c": colour,
+           "w": round(max(MARKUP_MIN_W, min(MARKUP_MAX_W, width)), 4)}
+
+    if tool == "text":
+        text = str(m.get("text") or "").strip()[:MAX_TEXT_CHARS]
+        if not text:
+            return None          # an empty label is not a mark
+        out["text"] = text
+        out["p"] = [[_frac(m.get("x"), "x"), _frac(m.get("y"), "y")]]
+        return out
+
+    pts = m.get("p") or []
+    if not isinstance(pts, list):
+        raise EditError("A mark needs a list of points")
+    clean = []
+    for pt in pts[:MAX_POINTS]:
+        if not isinstance(pt, (list, tuple)) or len(pt) < 2:
+            continue
+        clean.append([_frac(pt[0], "x"), _frac(pt[1], "y")])
+    # A shape needs two corners; a stroke needs two points to be a line. One
+    # point is a tap, and a tap is how somebody dismisses a tool.
+    if len(clean) < 2:
+        return None
+    out["p"] = clean
     return out
 
 
@@ -232,11 +323,118 @@ def apply(raw_bytes: bytes, edit: dict) -> tuple[bytes, int, int]:
     if fn is not None:
         im = fn(im)
 
+    # Markup goes on LAST, over everything.
+    #
+    # Its coordinates are fractions of the picture the person was looking at,
+    # which is the one that has already been rotated and cropped — so drawing
+    # it before the geometry would put every mark in the wrong place, and
+    # drawing it before the filter would have a sepia wash recolour the
+    # arrows somebody drew in red.
+    if edit.get("markup"):
+        im = _draw_markup(im, edit["markup"])
+
     if im.mode != "RGB":
         im = im.convert("RGB")
     buf = io.BytesIO()
     im.save(buf, format="JPEG", quality=JPEG_QUALITY)
     return buf.getvalue(), im.width, im.height
+
+
+def _draw_markup(im: "Image.Image", marks: list) -> "Image.Image":
+    from PIL import ImageDraw, ImageFilter, ImageFont
+
+    W, H = im.size
+    short = min(W, H)
+    # A separate RGBA layer, composited once. Drawing highlights straight onto
+    # the photo cannot be translucent, and compositing per mark would darken
+    # every overlap into a different colour than the one chosen.
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+
+    for m in marks:
+        rgb = MARKUP_COLOURS.get(m.get("c"), MARKUP_COLOURS["red"])
+        w = max(1, int(round(float(m.get("w", 0.006)) * short)))
+        pts = [(p[0] * W, p[1] * H) for p in (m.get("p") or [])]
+        if not pts:
+            continue
+        tool = m.get("t")
+
+        if tool == "redact":
+            # Not a black rectangle drawn over the pixels — actually destroys
+            # them. A box that merely covers something survives being undone
+            # by anyone who opens the file in another editor, which is the
+            # opposite of what somebody redacting an account number wants.
+            box = _box(pts, W, H)
+            if box:
+                im.paste(Image.new("RGB", (box[2] - box[0], box[3] - box[1]),
+                                   (20, 20, 22)), box[:2])
+            continue
+
+        if tool == "text":
+            x, y = pts[0]
+            size = max(12, int(round(float(m.get("w", 0.02)) * short * 6)))
+            try:
+                font = ImageFont.load_default(size=size)
+            except TypeError:
+                font = ImageFont.load_default()
+            # A dark outline under the glyphs, so white text stays readable on
+            # a white sky and black text on a black coat.
+            d.text((x, y), m.get("text", ""), font=font, fill=rgb + (255,),
+                   stroke_width=max(1, size // 14), stroke_fill=(0, 0, 0, 170))
+            continue
+
+        if tool == "highlight":
+            # Translucent and blunt-ended, like a marker pen.
+            d.line(pts, fill=rgb + (95,), width=max(w, short // 90), joint="curve")
+        elif tool == "pen":
+            d.line(pts, fill=rgb + (255,), width=w, joint="curve")
+        elif tool == "arrow":
+            _arrow(d, pts[0], pts[-1], rgb, w)
+        elif tool == "rect":
+            box = _box(pts, W, H)
+            if box:
+                d.rectangle(box, outline=rgb + (255,), width=w)
+        elif tool == "ellipse":
+            box = _box(pts, W, H)
+            if box:
+                d.ellipse(box, outline=rgb + (255,), width=w)
+
+    if layer.getbbox() is None:
+        return im
+    base = im.convert("RGBA")
+    base.alpha_composite(layer)
+    return base.convert("RGB")
+
+
+def _box(pts, W: int, H: int):
+    """A normalised rectangle from any two corners, or None if degenerate."""
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    x0, x1 = int(min(xs)), int(max(xs))
+    y0, y1 = int(min(ys)), int(max(ys))
+    # PIL raises on a rectangle whose corners are the wrong way round, and a
+    # drag upwards and to the left is the normal way half of people draw one.
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return None
+    return (max(0, x0), max(0, y0), min(W, x1), min(H, y1))
+
+
+def _arrow(d, start, end, rgb, w: int) -> None:
+    import math as _m
+    d.line([start, end], fill=rgb + (255,), width=w, joint="curve")
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = _m.hypot(dx, dy)
+    if length < 4:
+        return
+    # The head is sized from the STROKE, not from the arrow's length: a short
+    # arrow with a head scaled to its length has almost no head, and a long
+    # one ends up with a head the size of a house.
+    head = max(10.0, w * 5.0)
+    ang = _m.atan2(dy, dx)
+    for spread in (2.6, -2.6):
+        d.line([end, (end[0] + head * _m.cos(ang + spread),
+                      end[1] + head * _m.sin(ang + spread))],
+               fill=rgb + (255,), width=w)
 
 
 def describe(edit: dict) -> str:
@@ -253,4 +451,13 @@ def describe(edit: dict) -> str:
             bits.append(f"{key} {edit[key]:g}×")
     if edit.get("filter"):
         bits.append(str(edit["filter"]))
+    marks = edit.get("markup") or []
+    if marks:
+        n = len(marks)
+        redacted = sum(1 for m in marks if m.get("t") == "redact")
+        # Redaction is called out separately because it is the one mark that
+        # destroys pixels, and somebody reading an audit line should see that
+        # it happened.
+        bits.append(f"{n} mark{'' if n == 1 else 's'}"
+                    + (f" ({redacted} redacted)" if redacted else ""))
     return ", ".join(bits) or "no change"

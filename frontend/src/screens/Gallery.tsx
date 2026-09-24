@@ -15,7 +15,7 @@ import { fmtDate, fmtDateTime } from '../format'
 import { formatBytes } from '../maintenance'
 import type {
   Photo, PhotoInfo, PersonSummary, MemoryGroup, DuplicatesData, DuplicateGroup, AlbumSummary,
-  AlbumRule, PhotoEdit, IndexStatus,
+  AlbumRule, PhotoEdit, PhotoMark, IndexStatus,
 } from '../types'
 import { appName } from '../branding'
 
@@ -766,6 +766,19 @@ const FILTER_NAMES: [string, string][] = [
   ['fade', 'Fade'], ['mono', 'Mono'], ['noir', 'Noir'], ['sepia', 'Sepia'],
 ]
 
+const MARKUP_TOOLS: [PhotoMark['t'], string][] = [
+  ['pen', '✏️'], ['highlight', '🖍'], ['arrow', '↗'],
+  ['rect', '▭'], ['ellipse', '◯'], ['text', 'T'], ['redact', '█'],
+]
+
+/** Names, not hex. The server takes the same eight and refuses anything else,
+ *  so a colour picker offering millions would mostly offer errors. */
+const MARKUP_COLOURS: [string, string][] = [
+  ['red', '#e53935'], ['orange', '#f57c00'], ['yellow', '#fdd835'],
+  ['green', '#43a047'], ['blue', '#1e88e5'], ['purple', '#8e44ad'],
+  ['black', '#18181b'], ['white', '#ffffff'],
+]
+
 const ADJUSTMENTS: [keyof PhotoEdit, string][] = [
   ['brightness', 'Brightness'], ['contrast', 'Contrast'],
   ['saturation', 'Saturation'], ['sharpness', 'Sharpness'],
@@ -791,9 +804,16 @@ function PhotoEditor({ photo, onClose, onSaved }: {
   const toast = useToast()
   const [edit, setEdit] = useState<PhotoEdit>(photo.edit || {})
   const [busy, setBusy] = useState(false)
-  const [tab, setTab] = useState<'crop' | 'adjust' | 'filter'>('crop')
+  const [tab, setTab] = useState<'crop' | 'adjust' | 'filter' | 'markup'>('crop')
   const [drag, setDrag] = useState<null | { x: number; y: number }>(null)
   const frame = useRef<HTMLDivElement>(null)
+  const [tool, setTool] = useState<PhotoMark['t']>('pen')
+  const [colour, setColour] = useState('red')
+  // The mark being drawn right now. Kept out of `edit` until the pointer
+  // lifts: every move would otherwise push a new object into the saved edit,
+  // and undo would step back one PIXEL at a time.
+  const [wip, setWip] = useState<PhotoMark | null>(null)
+  const [typing, setTyping] = useState<null | { x: number; y: number }>(null)
 
   const set = (k: keyof PhotoEdit, v: unknown) =>
     setEdit((e) => {
@@ -826,6 +846,42 @@ function PhotoEditor({ photo, onClose, onSaved }: {
     edit.rotate ? `rotate(${edit.rotate}deg)` : '',
     edit.flip ? 'scaleX(-1)' : '',
   ].filter(Boolean).join(' ') || 'none'
+
+  const marks = edit.markup || []
+  const setMarks = (next: PhotoMark[]) =>
+    setEdit((e) => {
+      const out = { ...e }
+      if (next.length) out.markup = next
+      else delete out.markup
+      return out
+    })
+
+  function markDown(p: { x: number; y: number }) {
+    if (tool === 'text') { setTyping(p); return }
+    setWip({ t: tool, c: colour, w: tool === 'highlight' ? 0.022 : 0.007,
+             p: [[p.x, p.y]] })
+  }
+
+  function markMove(p: { x: number; y: number }) {
+    setWip((m) => {
+      if (!m) return m
+      // Freehand keeps every point; a shape has only two corners, so the
+      // second one is REPLACED as the pointer moves rather than appended —
+      // otherwise a dragged rectangle stores a thousand corners and the one
+      // it is drawn from is whichever happened to be last.
+      const pts = (m.t === 'pen' || m.t === 'highlight')
+        ? [...m.p, [p.x, p.y] as [number, number]]
+        : [m.p[0], [p.x, p.y] as [number, number]]
+      return { ...m, p: pts }
+    })
+  }
+
+  function markUp() {
+    setWip((m) => {
+      if (m && m.p.length >= 2) setMarks([...marks, m])
+      return null
+    })
+  }
 
   function pointAt(e: React.PointerEvent) {
     const r = frame.current?.getBoundingClientRect()
@@ -864,12 +920,18 @@ function PhotoEditor({ photo, onClose, onSaved }: {
       <div className="editor-stage">
         <div className="editor-frame" ref={frame}
           onPointerDown={(e) => {
+            if (tab === 'markup') {
+              e.currentTarget.setPointerCapture(e.pointerId)
+              markDown(pointAt(e))
+              return
+            }
             if (tab !== 'crop') return
             e.currentTarget.setPointerCapture(e.pointerId)
             const p = pointAt(e)
             setDrag(p); set('crop', undefined)
           }}
           onPointerMove={(e) => {
+            if (tab === 'markup') { if (wip) markMove(pointAt(e)); return }
             if (!drag) return
             const p = pointAt(e)
             set('crop', {
@@ -878,6 +940,7 @@ function PhotoEditor({ photo, onClose, onSaved }: {
             })
           }}
           onPointerUp={() => {
+            if (tab === 'markup') { markUp(); return }
             // A tap, not a drag. Clearing rather than saving a sliver is the
             // forgiving reading: nobody means to crop a photo to four pixels.
             if (c && (c.w < 0.05 || c.h < 0.05)) set('crop', undefined)
@@ -885,6 +948,17 @@ function PhotoEditor({ photo, onClose, onSaved }: {
           }}>
           <img className="editor-img" src={photo.url} alt=""
             style={{ filter: cssFilter, transform }} draggable={false} />
+          {/* The marks, drawn over the photo in the SAME fractional space the
+              server renders them in — so what is on screen is what gets
+              saved, rather than an impression of it. */}
+          {(marks.length > 0 || wip) && (
+            <svg className="mk-layer" viewBox="0 0 1000 1000"
+              preserveAspectRatio="none">
+              {[...marks, ...(wip ? [wip] : [])].map((m, i) => (
+                <MarkShape key={i} m={m} />
+              ))}
+            </svg>
+          )}
           {tab === 'crop' && c && (
             <>
               <div className="crop-shade" style={{ inset: 0 }} />
@@ -902,10 +976,11 @@ function PhotoEditor({ photo, onClose, onSaved }: {
 
       <div className="editor-panel">
         <div className="editor-tabs">
-          {(['crop', 'adjust', 'filter'] as const).map((t) => (
+          {(['crop', 'adjust', 'filter', 'markup'] as const).map((t) => (
             <button key={t} className={`chip${tab === t ? ' on' : ''}`}
               onClick={() => setTab(t)}>
-              {t === 'crop' ? 'Crop & rotate' : t === 'adjust' ? 'Adjust' : 'Filters'}
+              {t === 'crop' ? 'Crop & rotate' : t === 'adjust' ? 'Adjust'
+                : t === 'filter' ? 'Filters' : 'Markup'}
             </button>
           ))}
         </div>
@@ -972,6 +1047,39 @@ function PhotoEditor({ photo, onClose, onSaved }: {
           </div>
         )}
 
+        {tab === 'markup' && (
+          <div className="mk-panel">
+            <div className="rule-chips">
+              {MARKUP_TOOLS.map(([t, icon]) => (
+                <button key={t} className={`chip${tool === t ? ' on' : ''}`}
+                  title={t === 'redact' ? 'Cover something for good' : t}
+                  onClick={() => setTool(t)}>{icon}</button>
+              ))}
+            </div>
+            <div className="mk-colours">
+              {MARKUP_COLOURS.map(([name, hex]) => (
+                <button key={name}
+                  className={`mk-dot${colour === name ? ' on' : ''}`}
+                  style={{ background: hex }} aria-label={name}
+                  onClick={() => setColour(name)} />
+              ))}
+              {/* Undo removes the LAST mark, not the last pixel — which is
+                  why a stroke is only committed when the pointer lifts. */}
+              <button className="btn ghost sm" disabled={!marks.length}
+                onClick={() => setMarks(marks.slice(0, -1))}>Undo</button>
+              <button className="btn ghost sm" disabled={!marks.length}
+                onClick={() => setMarks([])}>Clear</button>
+            </div>
+            {tool === 'redact' && (
+              <p className="mk-warn">
+                Redaction removes what is underneath. It cannot be undone once
+                this is saved — the original photo can still be restored with
+                “Use original”.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="editor-actions">
           <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
           {/* Revert is offered only when there is something to revert TO —
@@ -987,7 +1095,87 @@ function PhotoEditor({ photo, onClose, onSaved }: {
           </button>
         </div>
       </div>
+
+      {typing && (
+        <TextMarkSheet onClose={() => setTyping(null)}
+          onAdd={(text) => {
+            setMarks([...marks, { t: 'text', c: colour, w: 0.02,
+                                  text, p: [[typing.x, typing.y]] }])
+            setTyping(null)
+          }} />
+      )}
     </div>
+  )
+}
+
+
+/** One mark, as SVG. The viewBox is 1000x1000 and the marks are fractions, so
+ *  the same numbers drive this preview and the server's render — the screen
+ *  cannot drift from the file. */
+function MarkShape({ m }: { m: PhotoMark }) {
+  const hex = MARKUP_COLOURS.find(([n]) => n === m.c)?.[1] || '#e53935'
+  const pts = m.p.map(([x, y]) => [x * 1000, y * 1000] as [number, number])
+  const w = Math.max(2, (m.w || 0.007) * 1000)
+  if (!pts.length) return null
+
+  if (m.t === 'text') {
+    return (
+      <text x={pts[0][0]} y={pts[0][1] + w * 3} fill={hex}
+        stroke="rgba(0,0,0,.65)" strokeWidth={w / 2} paintOrder="stroke"
+        fontSize={w * 6} fontWeight={700}>{m.text}</text>
+    )
+  }
+  if (m.t === 'redact' || m.t === 'rect' || m.t === 'ellipse') {
+    const x = Math.min(pts[0][0], pts[pts.length - 1][0])
+    const y = Math.min(pts[0][1], pts[pts.length - 1][1])
+    const ww = Math.abs(pts[pts.length - 1][0] - pts[0][0])
+    const hh = Math.abs(pts[pts.length - 1][1] - pts[0][1])
+    if (m.t === 'ellipse') {
+      return <ellipse cx={x + ww / 2} cy={y + hh / 2} rx={ww / 2} ry={hh / 2}
+        fill="none" stroke={hex} strokeWidth={w} />
+    }
+    return <rect x={x} y={y} width={ww} height={hh}
+      fill={m.t === 'redact' ? '#18181b' : 'none'}
+      stroke={m.t === 'redact' ? 'none' : hex} strokeWidth={w} />
+  }
+  let d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0]} ${p[1]}`).join(' ')
+  if (m.t === 'arrow' && pts.length >= 2) {
+    // The head is drawn into the same path rather than with a <marker>: a
+    // marker inherits the stroke width through a scale that differs between
+    // browsers, and the preview has to match what the server renders, which
+    // sizes the head from the stroke.
+    const [x0, y0] = pts[0]
+    const [x1, y1] = pts[pts.length - 1]
+    const ang = Math.atan2(y1 - y0, x1 - x0)
+    const head = Math.max(10, w * 5)
+    for (const spread of [2.6, -2.6]) {
+      d += ` M${x1} ${y1} L${x1 + head * Math.cos(ang + spread)}` +
+           ` ${y1 + head * Math.sin(ang + spread)}`
+    }
+  }
+  return (
+    <path d={d} fill="none" stroke={hex} strokeWidth={m.t === 'highlight' ? w * 3 : w}
+      strokeOpacity={m.t === 'highlight' ? 0.38 : 1}
+      strokeLinecap="round" strokeLinejoin="round" />
+  )
+}
+
+
+function TextMarkSheet({ onClose, onAdd }: {
+  onClose: () => void; onAdd: (text: string) => void
+}) {
+  const [v, setV] = useState('')
+  return (
+    <Sheet title="Add text" onClose={onClose}>
+      <Field label="Text">
+        <input className="inp" autoFocus value={v} maxLength={120}
+          placeholder="Rent receipt"
+          onChange={(e) => setV(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && v.trim()) onAdd(v.trim()) }} />
+      </Field>
+      <button className="btn primary block" disabled={!v.trim()}
+        onClick={() => onAdd(v.trim())}>Add</button>
+    </Sheet>
   )
 }
 
