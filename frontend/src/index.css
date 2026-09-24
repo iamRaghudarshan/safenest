@@ -2851,6 +2851,12 @@ html.on-auth .auth-bg { opacity: 0.3; }
   background: #fff; border-radius: 999px;
 }
 
+/* Said next to the buttons rather than in a toast: a re-encode takes long
+   enough that somebody will otherwise decide it has hung. */
+.mk-busy {
+  align-self: center; font-size: 12px; color: rgba(255, 255, 255, .7);
+}
+
 /* ---- Markup --------------------------------------------------------------
    The marks sit in an SVG stretched over the image, in the same 0..1 space
    the server renders them in. preserveAspectRatio="none" is deliberate: the

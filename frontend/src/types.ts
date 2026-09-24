@@ -408,6 +408,9 @@ export interface PhotoEdit {
   markup?: PhotoMark[]
   /** Videos only. A lossless cut, recorded so the clip can be put back. */
   trim?: { start_ms: number; end_ms: number }
+  /** Videos only, and only where the build has a transcoder. Re-encodes, so
+   *  the pristine original is the only way back. */
+  effect?: string
 }
 
 export interface AlbumSummary {

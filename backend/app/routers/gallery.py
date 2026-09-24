@@ -7,6 +7,7 @@ import json
 import math
 import mimetypes
 import os
+import tempfile
 import time
 import uuid
 from datetime import date, datetime, timedelta
@@ -1367,6 +1368,95 @@ def _rethumb(photo: GalleryPhoto, raw: bytes) -> None:
                  photo.filename, buf.getvalue())
 
 
+@router.get("/effects/available")
+def effects_available(user: User = Depends(guard("gallery", "view"))):
+    """Whether this build can do the operations that need a transcoder.
+
+    Asked by the UI before it offers any of them: a button that is always
+    there and sometimes 503s is worse than one that is only there when it
+    works.
+    """
+    from .. import videofx
+    return {"available": videofx.available(),
+            "operations": ["speed", "stabilise", "colour"] if videofx.available() else []}
+
+
+@router.post("/{id}/effect")
+def video_effect(id: int, body: dict = Body(...),
+                 user: User = Depends(guard("gallery", "edit")),
+                 db: Session = Depends(get_db)):
+    """Speed, stabilisation or colour on a video. Re-encodes; reversible.
+
+    Unlike a trim this cannot be lossless — the pixels genuinely change — so
+    the pristine original matters more here, not less. It is copied aside
+    first and "Use original" puts the clip back exactly as it arrived.
+    """
+    from .. import videofx
+    photo = _own_photo(db, user.id, id)
+    if (photo.kind or "photo") != "video":
+        raise HTTPException(415, "That is not a video")
+    if not videofx.available():
+        raise HTTPException(
+            503, "Video effects are not available in this build. "
+                 "Trimming still works — it needs no extra software.")
+
+    kind = str(body.get("kind") or "").strip().lower()
+    if kind not in ("speed", "stabilise", "colour"):
+        raise HTTPException(422, "That is not an effect this can apply")
+
+    raw = _pristine_bytes(photo)
+    work = tempfile.mkdtemp(prefix="fx-")
+    src = os.path.join(work, "in.mp4")
+    dst = os.path.join(work, "out.mp4")
+    try:
+        with open(src, "wb") as fh:
+            fh.write(raw)
+        try:
+            if kind == "speed":
+                videofx.speed(src, dst, float(body.get("factor") or 1.0))
+            elif kind == "stabilise":
+                videofx.stabilise(src, dst)
+            else:
+                videofx.colour(src, dst, str(body.get("filter") or "none"),
+                               float(body.get("brightness") or 1.0),
+                               float(body.get("contrast") or 1.0),
+                               float(body.get("saturation") or 1.0))
+        except videofx.FxError as exc:
+            raise HTTPException(422, str(exc))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "Those settings are not numbers")
+
+        if not os.path.isfile(dst) or os.path.getsize(dst) == 0:
+            raise HTTPException(500, "That effect produced nothing")
+        with open(dst, "rb") as fh:
+            out = fh.read()
+
+        storage.save(storage.GALLERY, user.id, storage.ORIGINAL,
+                     photo.filename, out)
+        _rethumb(photo, out)
+        photo.edit = json.dumps({"effect": kind})
+        photo.size_bytes = len(out)
+        secs = videofx.duration_s(dst)
+        if secs:
+            photo.duration_ms = int(secs * 1000)
+        photo.updated_at = ist.now()
+        db.commit()
+        audit(db, user.id, kind, "photo", photo.id, {"label": photo.caption or ""})
+        return {"item": _present(photo), "effect": kind}
+    finally:
+        # The working copy is a whole video; leaving it behind would fill the
+        # disk one edit at a time.
+        for f in (src, dst):
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
+        try:
+            os.rmdir(work)
+        except OSError:
+            pass
+
+
 @router.post("/{id}/trim")
 def trim_video(id: int, body: dict = Body(...),
                user: User = Depends(guard("gallery", "edit")),
@@ -1937,6 +2027,30 @@ def _video_poster(path: str) -> tuple[bytes | None, dict]:
             ok, frame = cap.read()
         cap.release()
         if not ok or frame is None:
+            # OpenCV could not decode this clip. FFmpeg can, when it is
+            # installed — a fallback rather than a replacement, so nothing
+            # that already works starts paying for a subprocess.
+            #
+            # NOTE ON THE CLAIM THIS REPAIRS: the shipped OpenCV is said not to
+            # read iPhone HEVC, and that is why videos have had placeholder
+            # tiles. It was NOT reproduced here — opencv 5.0 decoded a libx265
+            # clip fine — so this is a fallback for whatever does fail rather
+            # than a proven fix for that specific case.
+            try:
+                from .. import videofx
+                shot = videofx.poster(path)
+            except Exception as exc:
+                print(f"[poster] ffmpeg fallback failed: {exc}")
+                shot = None
+            if shot:
+                meta.setdefault("duration_ms", None)
+                try:
+                    secs = videofx.duration_s(path)
+                    if secs:
+                        meta["duration_ms"] = int(secs * 1000)
+                except Exception:
+                    pass
+                return shot, meta
             return None, meta
         ok, buf = cv2.imencode(".jpg", frame)
         return (buf.tobytes() if ok else None), meta

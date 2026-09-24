@@ -60,11 +60,24 @@ REM The point of the restart: probe a route that exists ONLY in the newest
 REM code, so "it answered" cannot be confused with "it restarted". A 404 here
 REM means the old build is still serving, which is more use than a cheerful
 REM "done". Move this probe on whenever it stops being the newest thing.
-for /f %%A in ('curl.exe -s -o nul -w "%%{http_code}" http://127.0.0.1:8080/ai-bit-latest.json') do set CODE=%%A
-if "%CODE%"=="200" (
-    echo   New code confirmed - the AI BIT download routes are live.
+REM
+REM THIS PROBE WENT STALE ONCE AND WOULD HAVE COST THE AFTERNOON THE COMMENT
+REM ABOVE WARNS ABOUT. It used to ask for /ai-bit-latest.json and expect 200 --
+REM but AI BIT was deliberately removed from this server in September 2026, so
+REM a perfectly good restart reported "still serving the old build" for ever
+REM after.
+REM
+REM An authenticated route is a better probe than a public one, because the
+REM answer distinguishes the two cases that matter without needing a token:
+REM   401 = the route is THERE and wants a sign-in  -> new code
+REM   404 = the route does not exist at all         -> old code still running
+for /f %%A in ('curl.exe -s -o nul -w "%%{http_code}" http://127.0.0.1:8080/api/gallery/suggestions') do set CODE=%%A
+if "%CODE%"=="401" (
+    echo   New code confirmed - the suggestions route is live.
+) else if "%CODE%"=="404" (
+    echo   [!] Still serving the OLD build ^(got 404 - that route does not exist yet^).
 ) else (
-    echo   [!] Still serving the old build ^(got %CODE%, expected 200^).
+    echo   [?] Unexpected answer %%CODE%% from the probe - check the API log.
 )
 
 :done

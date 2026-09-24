@@ -43,6 +43,19 @@ requests==2.34.2
 # is deliberately not installed — it would add ~2 GB for no benefit here.
 numpy==2.5.1
 opencv-python-headless==5.0.0.93
+# OPTIONAL. Ships a static FFmpeg binary (~88 MB unpacked) for the video
+# operations that cannot avoid a re-encode: speed, stabilisation and colour.
+# Trimming deliberately does NOT use it — a cut changes only the index, so
+# app/videotrim.py does that losslessly with nothing installed.
+#
+# Remove this line and the app keeps working: videofx.available() goes False,
+# those three operations stop being offered, and everything else is unchanged.
+#
+# LICENCE: the bundled build reports --enable-gpl, so it is GPL, not LGPL.
+# Nothing links against it — it is invoked as a separate process — but
+# DISTRIBUTING it carries the GPL's obligations for that binary. See the
+# header of app/videofx.py before shipping this to customers.
+imageio-ffmpeg==0.6.0
 onnxruntime==1.28.0
 transformers==5.14.1
 # Reading the text layer out of a PDF. Pure Python, ~400 KB, no native

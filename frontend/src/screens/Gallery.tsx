@@ -1196,6 +1196,31 @@ function VideoTrimmer({ photo, onClose, onSaved }: {
   const [a, setA] = useState(0)
   const [bEnd, setBEnd] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<'trim' | 'effects'>('trim')
+  // Whether this BUILD can re-encode. Asked once, and the tab is not drawn at
+  // all when it cannot: a control that is always present and sometimes
+  // answers 503 is worse than one that is only there when it works.
+  const [canFx, setCanFx] = useState(false)
+  const [speedF, setSpeedF] = useState(2)
+  const [look, setLook] = useState('mono')
+
+  useEffect(() => {
+    api<{ available: boolean }>('/api/gallery/effects/available')
+      .then((r) => setCanFx(!!r.available)).catch(() => setCanFx(false))
+  }, [])
+
+  async function effect(body: Record<string, unknown>) {
+    setBusy(true)
+    try {
+      // These re-encode, so they are genuinely slow — the button says so
+      // rather than looking hung.
+      const r = await api<{ item: Photo }>(`/api/gallery/${photo.id}/effect`,
+                                           { method: 'POST', body })
+      toast('Done')
+      onSaved(r.item); onClose()
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
 
   // The duration the FILE reports, not the one the row stores: a clip whose
   // duration was never read comes through as 0, and two handles over a
@@ -1247,7 +1272,54 @@ function VideoTrimmer({ photo, onClose, onSaved }: {
           onLoadedMetadata={onMeta} onTimeUpdate={onTime} />
       </div>
       <div className="editor-panel">
-        <div className="trim-track">
+        {canFx && (
+          <div className="editor-tabs">
+            {(['trim', 'effects'] as const).map((t) => (
+              <button key={t} className={`chip${tab === t ? ' on' : ''}`}
+                onClick={() => setTab(t)}>
+                {t === 'trim' ? 'Trim' : 'Effects'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {tab === 'effects' && canFx && (
+          <div className="mk-panel">
+            <div className="editor-slider">
+              <span>Speed</span>
+              <input type="range" min={0.25} max={4} step={0.25} value={speedF}
+                onChange={(e) => setSpeedF(Number(e.target.value))} />
+              <b>{speedF}×</b>
+            </div>
+            <div className="rule-chips">
+              <button className="btn ghost sm" disabled={busy}
+                onClick={() => effect({ kind: 'speed', factor: speedF })}>
+                Apply speed
+              </button>
+              <button className="btn ghost sm" disabled={busy}
+                onClick={() => effect({ kind: 'stabilise' })}>
+                Stabilise
+              </button>
+            </div>
+            <div className="rule-chips">
+              {FILTER_NAMES.filter(([k]) => k !== 'none').map(([k, label]) => (
+                <button key={k} className={`chip${look === k ? ' on' : ''}`}
+                  onClick={() => setLook(k)}>{label}</button>
+              ))}
+              <button className="btn ghost sm" disabled={busy}
+                onClick={() => effect({ kind: 'colour', filter: look })}>
+                Apply look
+              </button>
+            </div>
+            <p className="mk-warn">
+              These re-encode the video, so they take a while and lose a little
+              quality — unlike trimming, which is lossless. “Use original”
+              still puts the clip back exactly as it arrived.
+            </p>
+          </div>
+        )}
+
+        {tab === 'trim' && <><div className="trim-track">
           <div className="trim-keep"
             style={{ left: `${pct(a)}%`, width: `${pct(bEnd - a)}%` }} />
         </div>
@@ -1273,10 +1345,10 @@ function VideoTrimmer({ photo, onClose, onSaved }: {
           Keeping {fmtClock(Math.max(0, bEnd - a))} of {fmtClock(len)}. The cut
           is lossless, so it can only start on a keyframe — the beginning may
           move back slightly. “Use original” restores the whole clip.
-        </p>
+        </p></>}
         <div className="editor-actions">
           <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
-          {photo.edit?.trim && (
+          {(photo.edit?.trim || photo.edit?.effect) && (
             <button className="btn ghost" disabled={busy}
               onClick={async () => {
                 setBusy(true)
@@ -1290,10 +1362,15 @@ function VideoTrimmer({ photo, onClose, onSaved }: {
                 finally { setBusy(false) }
               }}>Use original</button>
           )}
-          <button className="btn primary" onClick={save}
-            disabled={busy || bEnd - a < 0.2}>
-            {busy ? 'Trimming…' : 'Trim'}
-          </button>
+          {tab === 'trim' && (
+            <button className="btn primary" onClick={save}
+              disabled={busy || bEnd - a < 0.2}>
+              {busy ? 'Trimming…' : 'Trim'}
+            </button>
+          )}
+          {tab === 'effects' && busy && (
+            <span className="mk-busy">Working… this re-encodes the video</span>
+          )}
         </div>
       </div>
     </div>
