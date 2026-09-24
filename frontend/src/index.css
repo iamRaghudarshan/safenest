@@ -2928,3 +2928,10 @@ html.on-auth .auth-bg { opacity: 0.3; }
   text-overflow: ellipsis; white-space: nowrap; }
 .kind-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .kind-grid .chip { text-transform: capitalize; }
+
+/* The quiet default: one flat surface, the way a tool that shows other
+   people's content should look. The scene is still available in Settings. */
+.plain-backdrop {
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background: var(--bg);
+}

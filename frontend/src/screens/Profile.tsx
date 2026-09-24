@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { backdropPref, setBackdropPref } from '../NatureBackdrop'
 import { api, ApiError, errorMessage, tokenStore } from '../api'
 import { useAuth } from '../auth'
 import { useNav } from '../nav'
@@ -25,6 +26,9 @@ export default function Profile() {
   const [theme, setTheme] = useState<Theme>(getTheme())
   const [pwOpen, setPwOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  // The background choice lives in localStorage, so nothing in React state
+  // changes when it is set. This forces the row to redraw.
+  const [, bump] = useState(0)
   const [exportScope, setExportScope] = useState<ExportScope | null>(null)
   const [brandOpen, setBrandOpen] = useState(false)
   const [webOpen, setWebOpen] = useState(false)
@@ -67,6 +71,21 @@ export default function Profile() {
       </SettingsGroup>
 
       <SettingsGroup title="Appearance">
+        {/* Plain by default. A tool that shows your photographs and your
+            paperwork should be a quiet surface behind them; the scene is kept
+            because somebody chose it, but it is now a choice. */}
+        <SettingsRow icon="\u{1F5BC}" tint="var(--ink-faint)" label="Background"
+          sub={backdropPref() === 'plain'
+            ? 'Plain, so photos and documents are read against nothing.'
+            : 'The nature scene, behind everything.'}
+          value={
+            <div className="seg2">
+              <button className={backdropPref() === 'plain' ? 'on' : ''}
+                onClick={() => { setBackdropPref('plain'); bump((n) => n + 1) }}>Plain</button>
+              <button className={backdropPref() === 'scene' ? 'on' : ''}
+                onClick={() => { setBackdropPref('scene'); bump((n) => n + 1) }}>Scene</button>
+            </div>
+          } />
         <SettingsBlock>
           <Segment value={theme} onChange={changeTheme}
             options={[{ value: 'light', label: '☀️ Light' }, { value: 'dark', label: '🌙 Dark' }, { value: 'system', label: '⚙️ Auto' }]} />

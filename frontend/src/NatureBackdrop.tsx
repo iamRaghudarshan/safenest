@@ -1,9 +1,49 @@
+import { useEffect, useState } from 'react'
 /** A full, friendly nature world fixed behind the WHOLE app — every screen and
  *  the sign-in page: sky, clouds, birds, a sun, snow-capped mountains, a pine
  *  forest, rolling hills, a deer and a rabbit. Kept faint (via --nb-op) so cards
  *  and text stay readable on top. Colours are CSS variables, so it turns to dusk
  *  in dark mode and on login without a second copy. Mounted once in main.tsx. */
+/** Which background the app draws behind everything.
+ *
+ *  'plain' is the default and is what a document or photo tool should be: a
+ *  quiet neutral surface. The scene is lovely and it competes — a justified
+ *  photo timeline has gaps between rows and a short final row per day, and a
+ *  landscape came through them and sat behind every thumbnail, so each picture
+ *  was read against whatever happened to be behind it.
+ *
+ *  It is kept, not deleted, because somebody chose it deliberately. It is now
+ *  a choice rather than the only option.
+ */
+export type Backdrop = 'plain' | 'scene'
+
+export function backdropPref(): Backdrop {
+  try {
+    return (localStorage.getItem('finmate.backdrop') as Backdrop) || 'plain'
+  } catch {
+    // Private windows and blocked site data both throw here. A background is
+    // not worth failing a render over.
+    return 'plain'
+  }
+}
+
+export function setBackdropPref(v: Backdrop) {
+  try { localStorage.setItem('finmate.backdrop', v) } catch { /* see above */ }
+  document.documentElement.dataset.backdrop = v
+  window.dispatchEvent(new Event('backdrop'))
+}
+
 export function NatureBackdrop() {
+  const [mode, setMode] = useState<Backdrop>(backdropPref())
+  useEffect(() => {
+    document.documentElement.dataset.backdrop = mode
+    const h = () => setMode(backdropPref())
+    window.addEventListener('backdrop', h)
+    return () => window.removeEventListener('backdrop', h)
+  }, [mode])
+
+  if (mode === 'plain') return <div className="plain-backdrop" aria-hidden="true" />
+
   return (
     <div className="nature-backdrop" aria-hidden="true">
       <svg className="nb-scene" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
