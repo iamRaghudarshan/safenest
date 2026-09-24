@@ -156,6 +156,11 @@ def _present(d: Document) -> dict:
         "file_url": f"/api/documents/{d.id}/file",
         "thumb_url": f"/api/documents/{d.id}/thumb" if d.has_thumb else None,
         "is_favourite": int(d.is_favorite or 0),
+        # What the classifier read this as, and who decided. The UI needs both:
+        # a suggestion is offered for correction, a correction is not.
+        "kind": d.kind,
+        "kind_source": d.kind_source,
+        "folder_id": d.folder_id,
         "is_trashed": int(d.is_trashed or 0),
         "trashed_fmt": _fmt(d.trashed_at) if d.trashed_at else None,
         "created_at": d.created_at.isoformat() if d.created_at else None,

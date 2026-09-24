@@ -27,6 +27,12 @@ export interface Note {
 }
 
 export interface DocumentItem {
+  /** What the classifier read this as (see app/doctype.py), and who
+   *  decided. A suggestion may be corrected; a correction is never
+   *  overwritten by a later indexing pass. */
+  kind?: string | null
+  kind_source?: string | null
+  folder_id?: number | null
   id: number
   title: string
   category: string

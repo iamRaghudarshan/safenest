@@ -1140,6 +1140,77 @@ const SLICES = [
  *  recalculated or kept in step — the number is whatever is actually there.
  *  Re-fetched whenever the screen is opened or the app comes back to the
  *  foreground, so it can't sit showing yesterday's figure. */
+/** "Does the database still agree with the disk?"
+ *
+ *  Nothing in the app had ever asked, so a photo could vanish from disk while
+ *  its row, its thumbnail entry and its search text all carried on as though
+ *  it were fine. This is the only place that question gets asked, and it is
+ *  read-only: the repair clears derived rows for photos that no longer exist,
+ *  and never touches a file.
+ */
+function ReconcileRow() {
+  type Rep = {
+    clean: boolean
+    gallery: { rows: number; files: number; missing_file: number
+               missing_thumb: number; stray_file: number }
+    documents: { rows: number; files: number; missing_file: number; stray_file: number }
+    derived: { orphan_vectors: number; orphan_faces: number }
+  }
+  const toast = useToast()
+  const [rep, setRep] = useState<Rep | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const run = useCallback(async () => {
+    setBusy(true)
+    try { setRep(await api<Rep>('/api/system/reconcile')) }
+    catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }, [toast])
+
+  async function repair() {
+    setBusy(true)
+    try {
+      const r = await api<{ vectors_removed: number; faces_removed: number }>(
+        '/api/system/reconcile/repair', { method: 'POST', body: {} })
+      toast(`Cleared ${r.vectors_removed + r.faces_removed} leftover rows`)
+      await run()
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  const derived = rep ? rep.derived.orphan_vectors + rep.derived.orphan_faces : 0
+
+  return (
+    <>
+      <SettingsRow icon="\u{1FA7A}" tint="var(--ink-faint)" label="Check my files"
+        sub={rep
+          ? (rep.clean
+              ? 'Everything on the disk matches the records.'
+              : `${rep.gallery.missing_file} photo file(s) missing, `
+                + `${rep.gallery.stray_file} unknown file(s), `
+                + `${rep.documents.missing_file} document(s) missing`)
+          : 'Compares what is on the disk with what the records say.'}
+        value={<button className="btn sm" disabled={busy} onClick={run}>
+          {busy ? '...' : rep ? 'Check again' : 'Check'}
+        </button>} />
+
+      {rep && !rep.clean && derived > 0 && (
+        <SettingsRow icon="\u{1F9F9}" tint="var(--ink-faint)" label="Leftover search data"
+          sub={`${derived} row(s) belong to photos that no longer exist. `
+               + 'Clearing them cannot lose anything - they are rebuilt from the photo.'}
+          value={<button className="btn sm" disabled={busy} onClick={repair}>Clear</button>} />
+      )}
+
+      {rep && !rep.clean && (rep.gallery.missing_file > 0 || rep.documents.missing_file > 0) && (
+        <SettingsRow icon="⚠️" tint="var(--warn)" label="Files that are not there"
+          sub={'Nothing has been deleted. A missing file is often a drive that is '
+               + 'not plugged in rather than data that is gone, so this only reports it.'} />
+      )}
+    </>
+  )
+}
+
+
 function StorageUse() {
   const [r, setR] = useState<StorageReport | null>(null)
 
@@ -1199,6 +1270,7 @@ function StorageUse() {
           inside "This computer", between the Wi-Fi address and a timestamp —
           a disk path filed under networking. */}
       <RecordsLocationRow />
+      <ReconcileRow />
 
       {r.disk && (
         <SettingsRow icon="💽" tint={r.disk.free < 5e9 ? 'var(--warn)' : 'var(--ok)'}

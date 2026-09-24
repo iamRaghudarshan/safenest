@@ -26,7 +26,7 @@ except Exception:
     pass
 
 from .. import ist
-from .. import dialect, indexer, places, storage, vision
+from .. import dialect, indexer, nlquery, places, storage, vision
 from ..database import get_db
 from ..helpers import audit
 from ..models import (Album, AlbumPhoto, GalleryPhoto, Person, PhotoFace,
@@ -466,6 +466,33 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
             return {"items": items, "total": len(ordered), "offset": offset,
                     "limit": limit, "mode": "smart"}
         return {"items": [], "total": 0, "offset": offset, "limit": limit, "mode": "smart"}
+
+    # A sentence, split into the filters that already exist.
+    #
+    # "Alice at the beach in 2024" is a person, a label and a year, and until
+    # now all three were handed to CLIP as one string — which finds beaches and
+    # ignores Alice entirely. Anything the parser cannot place stays in the
+    # text and still goes to semantic search, so a query with nothing
+    # structured in it behaves exactly as it did before.
+    if term and not person and not label:
+        people_rows = db.query(Person.id, Person.name).filter(
+            Person.user_id == user.id).all()
+        parsed = nlquery.parse(term, [(p_.id, p_.name) for p_ in people_rows],
+                               list(vision.LABELS))
+        if parsed["matched"]:
+            person = parsed["person_id"] or person
+            label = parsed["label"] or label
+            if parsed["kind"] and not kind:
+                kind = parsed["kind"]
+            if parsed["year"]:
+                sel = sel.filter(dialect.year_of(GalleryPhoto.taken_at)
+                                 == int(parsed["year"]))
+            if parsed["month"]:
+                sel = sel.filter(dialect.month_of(GalleryPhoto.taken_at)
+                                 == int(parsed["month"]))
+            # Whatever is left is the real search term. Empty means the whole
+            # query was filters, and the filters ARE the answer.
+            term = parsed["text"]
 
     if term:
         sel = sel.filter(_search_filter(db, user.id, term))

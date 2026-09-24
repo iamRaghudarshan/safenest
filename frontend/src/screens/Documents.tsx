@@ -6,6 +6,8 @@ import { useAuth } from '../auth'
 import { useToast } from '../toast'
 import { TopBar, Spinner, Empty, Sheet, Field } from '../ui'
 import { PullToRefresh } from '../PullToRefresh'
+import { formatBytes } from '../maintenance'
+import { fmtDate } from '../format'
 import { Zoomable } from '../Zoomable'
 import { ScanFlow } from './Scan'
 import type { DocFolder, DocumentItem, DocumentsData, MasterItem } from '../types'
@@ -90,6 +92,7 @@ export default function Documents() {
   // "no filter". Searching leaves the tree entirely (see `load`).
   const [folderId, setFolderId] = useState(0)
   const [newFolder, setNewFolder] = useState(false)
+  const [recent, setRecent] = useState(false)
   const [moving, setMoving] = useState<DocumentItem | null>(null)
 
   // Pull the (user-editable) category list from masters; keep built-ins as fallback.
@@ -111,11 +114,24 @@ export default function Documents() {
       // every file manager that did it has had, and a browse that flattened
       // the tree would make folders pointless.
       const searching = !!q.trim() || !!cat
+      if (recent) {
+        // Three lists from one call, flattened newest-first with duplicates
+        // removed: a file that was both just added and just changed should
+        // appear once, not twice.
+        const r = await api<{ added: DocumentItem[]; changed: DocumentItem[]
+                              starred: DocumentItem[] }>('/api/documents/recent')
+        const seen = new Set<number>()
+        const items = [...(r.changed || []), ...(r.added || [])]
+          .filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)))
+        setData({ items, folders: [], path: [], total: items.length,
+                  counts: {}, trashed: 0 })
+        return
+      }
       if (!searching) params.set('folder', String(folderId))
       const d = await api<DocumentsData>(`/api/documents?${params}`)
       setData(d)
     } catch { setData({ items: [], total: 0, counts: {}, trashed: 0 }) }
-  }, [cat, q, folderId])
+  }, [cat, q, folderId, recent])
   useEffect(() => { load() }, [load])
 
   function pickFile(f: FileList | null) {
@@ -204,7 +220,12 @@ export default function Documents() {
       </div>
 
       <div className="doc-cats">
-        <button className={`chip${cat === '' ? ' on' : ''}`} onClick={() => setCat('')}>All</button>
+        <button className={`chip${cat === '' && !recent ? ' on' : ''}`}
+          onClick={() => { setCat(''); setRecent(false) }}>All</button>
+        {/* Recent is a view, not a category — it cuts across all of them, which
+            is why it sits here rather than in the folder tree. */}
+        <button className={`chip${recent ? ' on' : ''}`}
+          onClick={() => { setRecent((v) => !v); setCat('') }}>Recent</button>
         {cats.map((c) => {
           const n = data?.counts?.[c.key] || 0
           return (
@@ -515,7 +536,18 @@ function DocViewer({ d, canEdit, onClose, onFav, onDelete, onEdit, onChanged }: 
   const [zoomed, setZoomed] = useState(false)
   const [details, setDetails] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [versions, setVersions] = useState(false)
+  const [typing, setTyping] = useState(false)
   const meta = catMeta(useCats(), d.category)
+
+  async function copy() {
+    setSaving(true)
+    try {
+      await api(`/api/documents/${d.id}/copy`, { method: 'POST', body: {} })
+      toast('Copied'); onChanged()
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setSaving(false) }
+  }
 
   async function openOrDownload(download: boolean) {
     setSaving(true)
@@ -571,6 +603,12 @@ function DocViewer({ d, canEdit, onClose, onFav, onDelete, onEdit, onChanged }: 
         <button className="viewer-btn" onClick={() => openOrDownload(true)} disabled={saving} aria-label="Download">
           {saving ? '…' : '⤓'}
         </button>
+        {canEdit && <button className="viewer-btn" onClick={() => setVersions(true)}
+          aria-label="Versions" title="Versions">↺</button>}
+        {canEdit && <button className="viewer-btn" onClick={() => setTyping(true)}
+          aria-label="What kind of document" title="What kind of document">Ἷ7</button>}
+        {canEdit && <button className="viewer-btn" onClick={copy} disabled={saving}
+          aria-label="Make a copy" title="Make a copy">⧉</button>}
         {canEdit && <button className="viewer-btn" onClick={onEdit} aria-label="Edit">✎</button>}
         {canEdit && <button className="viewer-btn danger" onClick={() => setConfirm(true)} aria-label="Delete">🗑</button>}
       </div>
@@ -601,6 +639,11 @@ function DocViewer({ d, canEdit, onClose, onFav, onDelete, onEdit, onChanged }: 
         {details && <DocText id={d.id} onApplied={onChanged} />}
       </div>
 
+      {versions && <VersionsSheet doc={d} onClose={() => setVersions(false)}
+        onChanged={onChanged} />}
+      {typing && <KindSheet doc={d} onClose={() => setTyping(false)}
+        onChanged={onChanged} />}
+
       {confirm && (
         <Sheet title="Move to recycle bin?" onClose={() => setConfirm(false)}>
           <p className="muted" style={{ fontSize: 13.5, marginBottom: 16 }}>
@@ -618,6 +661,130 @@ function DocViewer({ d, canEdit, onClose, onFav, onDelete, onEdit, onChanged }: 
 }
 
 /* ---------- Add / Edit ---------- */
+
+function VersionsSheet({ doc, onClose, onChanged }: {
+  doc: DocumentItem; onClose: () => void; onChanged: () => void
+}) {
+  const toast = useToast()
+  type V = { id: number; version: number; orig_name: string | null; ext: string | null
+             size_bytes: number; note: string | null; created_at: string | null }
+  const [items, setItems] = useState<V[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const load = useCallback(() => {
+    api<{ items: V[] }>(`/api/documents/${doc.id}/versions`)
+      .then((r) => setItems(r.items || [])).catch(() => setItems([]))
+  }, [doc.id])
+  useEffect(() => { load() }, [load])
+
+  async function replace(f: File) {
+    setBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', f)
+      fd.append('note', f.name)
+      const r = await fetch(`/api/documents/${doc.id}/replace`, {
+        method: 'POST', body: fd,
+        headers: { Authorization: `Bearer ${tokenStore.get()}` },
+      })
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Failed')
+      load(); onChanged(); toast('Replaced \u2014 the old file is kept as a version')
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  async function restore(v: number) {
+    setBusy(true)
+    try {
+      await api(`/api/documents/${doc.id}/versions/${v}/restore`, { method: 'POST', body: {} })
+      load(); onChanged(); toast(`Version ${v} is now the current file`)
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Sheet title="Versions" onClose={onClose}>
+      <p className="muted">
+        Replacing a file keeps the old one, so nothing is lost by uploading the
+        wrong scan.
+      </p>
+      <input ref={fileRef} type="file" className="file-offscreen"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          e.currentTarget.value = ''
+          if (f) replace(f)
+        }} />
+      <button className="btn block" disabled={busy}
+        onClick={() => fileRef.current?.click()}>
+        {busy ? 'Working\u2026' : 'Replace with a new file'}
+      </button>
+
+      {!items ? <Spinner /> : !items.length ? (
+        <p className="muted" style={{ marginTop: 12 }}>No earlier versions yet.</p>
+      ) : (
+        <div className="ver-list">
+          {items.map((v) => (
+            <div key={v.id} className="ver-row">
+              <div className="ver-main">
+                <div className="ver-name">Version {v.version}</div>
+                <div className="ver-sub">
+                  {v.note || v.orig_name || ''}
+                  {v.size_bytes ? ` \u00b7 ${formatBytes(v.size_bytes)}` : ''}
+                  {v.created_at ? ` \u00b7 ${fmtDate(v.created_at)}` : ''}
+                </div>
+              </div>
+              <button className="btn sm" disabled={busy}
+                onClick={() => restore(v.version)}>Restore</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
+
+function KindSheet({ doc, onClose, onChanged }: {
+  doc: DocumentItem; onClose: () => void; onChanged: () => void
+}) {
+  const toast = useToast()
+  const [kinds, setKinds] = useState<string[] | null>(null)
+  useEffect(() => {
+    api<{ items: string[] }>('/api/documents/kinds')
+      .then((d) => setKinds(d.items || [])).catch(() => setKinds([]))
+  }, [])
+
+  async function set(kind: string | null) {
+    try {
+      await api(`/api/documents/${doc.id}/kind`, { method: 'POST', body: { kind } })
+      onChanged(); onClose()
+      toast(kind ? `Filed as ${kind.replace(/_/g, ' ')}` : 'Type cleared')
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  return (
+    <Sheet title="What kind of document is this?" onClose={onClose}>
+      <p className="muted">
+        {doc.kind
+          ? `Read as ${String(doc.kind).replace(/_/g, ' ')}${
+              doc.kind_source === 'user' ? ', by you' : ' automatically'}.`
+          : 'Not recognised automatically.'}
+      </p>
+      {!kinds ? <Spinner /> : (
+        <div className="kind-grid">
+          {kinds.map((k) => (
+            <button key={k} className={`chip${doc.kind === k ? ' on' : ''}`}
+              onClick={() => set(k)}>{k.replace(/_/g, ' ')}</button>
+          ))}
+        </div>
+      )}
+      <button className="btn ghost block" onClick={() => set(null)}
+        style={{ marginTop: 12 }}>None of these</button>
+    </Sheet>
+  )
+}
+
 
 function CatPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const cats = useCats()
