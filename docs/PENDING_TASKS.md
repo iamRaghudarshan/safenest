@@ -62,7 +62,9 @@ Closed since:
 | §41 | Automatic creations — collages and moving highlights | same file; an animated WebP, not FFmpeg |
 | §30 | Office preview (docx, xlsx, pptx) | `verify_officedoc.py` 24 — read as content, no LibreOffice, and a zip bomb refused |
 | §30 | Video and audio preview in documents | `verify_preview.py` |
-| — | Photo editing: crop, rotate, flip, adjust, filter | `verify_photoedit.py` 28, `verify_editor_ui.py` 15 |
+| — | Photo editing: crop, rotate, flip, adjust, filter | `verify_photoedit.py` 28, `verify_editor_ui.py` 21 |
+| — | Markup: pen, highlighter, arrow, shapes, text, redact | `verify_markup.py` 17 — the redaction is checked by reading the pixels back |
+| — | Video trim, lossless and without FFmpeg | `verify_videotrim.py` 24 — the result is DECODED, not just returned |
 
 ### 3. Architecture
 | # | Task | Why | Size |
@@ -106,6 +108,9 @@ is what the indexing and pagination work is scoped to.
 Both were found by running things, not by reading them, and both had already
 passed a typecheck and a code read.
 
+- **`_rethumb` handed video bytes to PIL**, which raises. A video's
+  thumbnail is a poster frame pulled from the file on disk, and without that
+  branch reverting a trimmed clip took the request down with it.
 - **store_photo normalised every upload to JPEG**, which is right for one
   format on disk and fatal for an animation, because a JPEG holds one frame.
   The first moving highlight came back as a still — a feature that silently

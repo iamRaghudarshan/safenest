@@ -177,3 +177,26 @@ everything else is server-side and takes effect on restart.
 
 Tier 1 is roughly a day, each item independent and testable. Tier 2 is a second
 day. Tier 3 is where the brief's real weight sits.
+
+
+---
+
+## Editing (added 24 September 2026)
+
+| Google Photos behaviour | Status | Notes |
+|---|---|---|
+| Crop, rotate, flip | DONE | rendered from the pristine original every time, so a second crop is not a crop of a crop |
+| Brightness / contrast / saturation / sharpness | DONE | clamped to 0.5x–2x; past that a slider stops being an adjustment |
+| Filters | DONE | seven, each a plain function of an RGB image |
+| Markup: pen, highlighter, arrow, shapes, text | DONE | coordinates are fractions, so the preview and the render cannot drift |
+| Markup: redact | DONE, and stronger than Google's | the pixels are destroyed, not covered — a drawn box is undone by any other editor |
+| Revert to original | DONE | the file the device sent is never overwritten |
+| Video trim | DONE | lossless, no FFmpeg; starts on a keyframe and says where it landed |
+| Video stabilise, speed, filters | NOT BUILT | each needs a re-encode, which needs a transcoder |
+| Google Lens lookup | NOT BUILT | OCR and labels exist; pointing at an object to search it does not |
+
+**The trade worth knowing about redaction.** Markup is part of the EDIT, so it
+re-renders from the pristine original and "Use original" brings back what was
+covered. That is right for a library — the alternative is a tool that destroys
+the only copy of a photograph because somebody drew on it — but it means the
+safe thing to send someone is the exported file, not the library copy.
