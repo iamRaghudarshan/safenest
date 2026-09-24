@@ -759,6 +759,26 @@ class PhotoVector(Base):
     created_at = Column(FlexDateTime)
 
 
+class Suggestion(Base):
+    """A proposal this account has said no to.
+
+    Only the NOs are stored. Suggestions themselves are recomputed from the
+    library every time they are asked for, so there is no queue to keep in
+    step with reality — and the key is derived from the thing itself
+    ("collage:2026-05-01") rather than handed out, or a dismissal would
+    attach to a row that no longer exists and the same proposal would come
+    back wearing a new number.
+    """
+    __tablename__ = "suggestions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "key", name="uq_suggestion_user_key"),
+    )
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    key = Column(String(120), index=True)
+    created_at = Column(DateTime)
+
+
 class Album(Base):
     """A user-made collection of photos. A photo can sit in any number of albums;
     deleting an album never touches the photos themselves."""

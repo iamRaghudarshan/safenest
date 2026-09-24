@@ -1446,6 +1446,102 @@ def revert_photo(id: int, user: User = Depends(guard("gallery", "edit")),
     return out
 
 
+@router.get("/suggestions")
+def suggestions(user: User = Depends(guard("gallery", "view")),
+                db: Session = Depends(get_db)):
+    """What the library implies. Nothing here has happened yet."""
+    from .. import suggest
+    try:
+        return {"items": suggest.build(db, user.id)}
+    except Exception as exc:
+        # A suggestion panel that 500s takes the screen it sits on with it.
+        # There is nothing here anybody is waiting for, so an empty list is
+        # the right failure — logged, not swallowed.
+        print(f"[suggest] could not build suggestions: {exc}")
+        return {"items": [], "error": "Could not work out any suggestions"}
+
+
+@router.post("/suggestions/dismiss")
+def suggestions_dismiss(body: dict = Body(...),
+                        user: User = Depends(guard("gallery", "view")),
+                        db: Session = Depends(get_db)):
+    """No, and do not ask again.
+
+    Deliberately not a "not now": a suggestion that returns tomorrow is how
+    people learn to ignore the whole panel.
+    """
+    from .. import suggest
+    suggest.dismiss(db, user.id, str(body.get("key") or ""))
+    return {"dismissed": body.get("key")}
+
+
+@router.post("/creations")
+def make_creation(body: dict = Body(...),
+                  user: User = Depends(guard("gallery", "create")),
+                  db: Session = Depends(get_db)):
+    """Build a collage or a moving highlight and save it into the gallery.
+
+    Saved as an ORDINARY photo, not into a table of its own: albums,
+    favourites, export, the trash and the backup then work on it for free,
+    and the alternative is a second kind of object every screen has to learn
+    about.
+    """
+    from .. import creations
+    kind = str(body.get("kind") or "collage").lower()
+    if kind not in ("collage", "reel"):
+        raise HTTPException(422, "A creation is a collage or a reel")
+
+    ids = [int(x) for x in (body.get("photo_ids") or [])
+           if str(x).lstrip("-").isdigit()][:60]
+    if not ids:
+        raise HTTPException(422, "Which photos?")
+
+    rows = (db.query(GalleryPhoto)
+            .filter(GalleryPhoto.user_id == user.id,
+                    GalleryPhoto.id.in_(ids),
+                    GalleryPhoto.is_trashed == 0,
+                    GalleryPhoto.kind != "video").all())
+    # Back into the order they were asked for: the query returns them by id,
+    # and a reel whose frames run in a different order from the timeline is
+    # visibly wrong.
+    order = {pid: i for i, pid in enumerate(ids)}
+    rows.sort(key=lambda r: order.get(r.id, 1 << 30))
+    if len(rows) < 2:
+        raise HTTPException(422, "Not enough photos to make anything")
+
+    blobs = []
+    for r in rows:
+        path = storage.media_path(storage.GALLERY, user.id, storage.ORIGINAL, r.filename)
+        if not os.path.isfile(path):
+            continue
+        with open(path, "rb") as fh:
+            blobs.append(fh.read())
+
+    try:
+        if kind == "collage":
+            out = creations.collage(blobs)
+            ext, mime = "jpg", "image/jpeg"
+        else:
+            out = creations.reel(blobs)
+            ext, mime = "webp", "image/webp"
+    except creations.CreationError as exc:
+        raise HTTPException(422, str(exc))
+    except Exception as exc:
+        print(f"[creations] {kind} failed: {exc}")
+        raise HTTPException(500, "That could not be made")
+
+    label = str(body.get("title") or "").strip()[:120]
+    if not label:
+        label = "Collage" if kind == "collage" else "Highlight"
+    res = store_photo(db, user, out, f"{label}.{ext}")
+    if body.get("key"):
+        # Made, so never offer it again — the same table a "no" goes in,
+        # because from the panel's side both mean "done with this one".
+        from .. import suggest
+        suggest.dismiss(db, user.id, str(body["key"]))
+    return {"item": res.get("item", res), "kind": kind, "from": len(blobs)}
+
+
 @router.post("/{id}/tag")
 def tag(id: int, body: dict = Body(...), user: User = Depends(guard("gallery", "edit")), db: Session = Depends(get_db)):
     if not db.query(GalleryPhoto).filter(GalleryPhoto.id == id, GalleryPhoto.user_id == user.id).first():
@@ -2002,6 +2098,11 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str,
     try:
         pil = Image.open(io.BytesIO(raw))
         src_format = pil.format          # convert() clears it, and it decides the store below
+        # Read BEFORE convert(), which collapses an animation to its first
+        # frame and then reports one. A moving highlight stored through this
+        # path came back as a still JPEG, which looks exactly like a feature
+        # that silently does not work.
+        src_frames = int(getattr(pil, "n_frames", 1) or 1)
         meta = _read_exif(pil)  # read before convert(), which drops the EXIF block
         exif_blob = pil.info.get("exif")
         pil = pil.convert("RGB") if pil.mode not in ("RGB", "L") else pil
@@ -2054,7 +2155,19 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str,
             db.commit()
         return {"item": _present(dup), "faces_found": 0, "duplicate": True}
 
-    fname = f"{uuid.uuid4().hex}.jpg"
+    # An ANIMATED source keeps its own bytes and its own extension. Every
+    # other path here normalises to JPEG on purpose — one format on disk is
+    # what makes thumbnails, hashing and downloads simple — but a JPEG cannot
+    # hold more than one frame, so normalising an animation destroys the only
+    # thing that made it worth keeping.
+    #
+    # content_hash is still taken from the first frame's normalised JPEG
+    # above, which is the right answer: it identifies the upload, and two
+    # copies of the same animation still collide.
+    animated = src_frames > 1 and (src_format or "").upper() in ("WEBP", "GIF")
+    suffix = "webp" if (animated and (src_format or "").upper() == "WEBP") \
+        else "gif" if animated else "jpg"
+    fname = f"{uuid.uuid4().hex}.{suffix}"
     # The file on disk keeps its EXIF so a download really is the user's original;
     # only the hashing copy above is stripped.
     #
@@ -2065,7 +2178,7 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str,
     # phone backup it doubled the cost of every single JPEG.
     #
     # HEIC still has to be encoded — there is no JPEG in the box to keep.
-    if src_format == "JPEG":
+    if src_format == "JPEG" or animated:
         stored = raw
     elif exif_blob:
         try:

@@ -537,7 +537,7 @@ export default function Gallery() {
 
       {searchable && <PhotoIndexCard onStatus={setIndex} />}
 
-      {tab === 'albums' ? <><SmartAlbums onCreated={() => setAlbumsRev(n => n + 1)} /><AlbumsGrid key={albumsRev} onOpen={setAlbum} canEdit={canEdit} /></>
+      {tab === 'albums' ? <><Suggestions onMade={() => { refresh(); setAlbumsRev(n => n + 1) }} /><SmartAlbums onCreated={() => setAlbumsRev(n => n + 1)} /><AlbumsGrid key={albumsRev} onOpen={setAlbum} canEdit={canEdit} /></>
         : tab === 'people' ? <PeopleGrid onOpen={setPerson} />
         : tab === 'memories' ? <Memories onOpen={setView} />
         : (
@@ -1588,6 +1588,91 @@ function RenameSheet({ initial, onClose, onSave }: { initial: string; onClose: (
 }
 
 /* ---------- Albums ---------- */
+
+type Suggestion = {
+  key: string; kind: 'collage' | 'reel' | 'file_documents'
+  title: string; detail: string
+  photo_ids?: number[]
+  groups?: { kind: string; count: number }[]
+}
+
+/** Things the library implies, offered rather than done.
+ *
+ *  Every card has both answers on it. A panel with only "make it" leaves
+ *  dismissing to a corner ✕ that reads as "hide for now", and a suggestion
+ *  that comes back tomorrow is how people learn to ignore the whole panel —
+ *  so "No thanks" is a real button and it means never again.
+ */
+function Suggestions({ onMade }: { onMade: () => void }) {
+  const toast = useToast()
+  const [items, setItems] = useState<Suggestion[] | null>(null)
+  const [busy, setBusy] = useState('')
+
+  const load = useCallback(() => {
+    api<{ items: Suggestion[] }>('/api/gallery/suggestions')
+      .then((d) => setItems(d.items || [])).catch(() => setItems([]))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  // Removed from the list here rather than by reloading: the answer is
+  // already known, and a panel that blinks through a spinner to show one
+  // fewer card draws the eye to exactly the thing that just went away.
+  const drop = (key: string) => setItems((x) => (x || []).filter((s) => s.key !== key))
+
+  async function make(s: Suggestion) {
+    setBusy(s.key)
+    try {
+      await api('/api/gallery/creations', {
+        method: 'POST',
+        body: { kind: s.kind, photo_ids: s.photo_ids, title: s.title, key: s.key },
+      })
+      toast(s.kind === 'reel' ? 'Highlight saved to your gallery'
+                              : 'Collage saved to your gallery')
+      drop(s.key); onMade()
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy('') }
+  }
+
+  async function no(s: Suggestion) {
+    drop(s.key)
+    try {
+      await api('/api/gallery/suggestions/dismiss',
+                { method: 'POST', body: { key: s.key } })
+    } catch { /* it is already off the screen; re-showing it would be worse */ }
+  }
+
+  if (!items || !items.length) return null
+  return (
+    <div className="sugg">
+      <div className="sugg-head">Suggestions</div>
+      {items.map((s) => (
+        <div key={s.key} className="sugg-card">
+          <div className="sugg-ic">
+            {s.kind === 'reel' ? '🎞' : s.kind === 'collage' ? '🖼' : '🗂'}
+          </div>
+          <div className="sugg-main">
+            <div className="sugg-title">{s.title}</div>
+            <div className="sugg-detail">{s.detail}</div>
+          </div>
+          <div className="sugg-acts">
+            <button className="btn ghost sm" onClick={() => no(s)}>No thanks</button>
+            {s.kind === 'file_documents' ? (
+              // Filing lives in the documents screen; offering it here and
+              // doing it there would be two places to keep in step.
+              <button className="btn sm" onClick={() => no(s)}>Not here</button>
+            ) : (
+              <button className="btn sm" disabled={busy === s.key}
+                onClick={() => make(s)}>
+                {busy === s.key ? 'Making…' : 'Make it'}
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 
 function AlbumsGrid({ onOpen, canEdit }: {
   onOpen: (a: AlbumSummary) => void; canEdit: boolean
