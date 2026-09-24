@@ -345,6 +345,12 @@ class GalleryPhoto(Base):
     # it stops doing is appearing in the main grid — for the receipts, the
     # screenshots of a wifi password, the twelve shots of a whiteboard that are
     # worth keeping and not worth scrolling past every day.
+    # The place name for lat/lon, worked out once and kept.
+    #
+    # Resolving coordinates to "Goa" costs a lookup, and doing it per request
+    # means doing it thousands of times for an answer that cannot change. The
+    # coordinates stay in lat/lon; this is only the label.
+    place = Column(String(120), index=True)
     is_archived = Column(Integer, default=0)
     is_trashed = Column(Integer, default=0)
     size_bytes = Column(Integer, default=0)
@@ -751,7 +757,18 @@ class Album(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, index=True)
     name = Column(String(120))
-    cover_id = Column(Integer)  # gallery_photos.id used as the album tile
+    cover_id = Column(Integer)
+    # A SMART album is a saved query, not a list of photos.
+    #
+    # Stored as JSON rather than columns because the set of things you can
+    # filter by will grow — person, label, year, month, kind today, place
+    # tomorrow — and each new one would otherwise be another migration and
+    # another nullable column that most rows never use.
+    #
+    # NULL means an ordinary album: a hand-picked list in album_photos. The two
+    # kinds share a table because everything else about them is identical, and
+    # every screen that lists albums would otherwise need to merge two queries.
+    rule = Column(Text)  # gallery_photos.id used as the album tile
     created_at = Column(FlexDateTime)
     updated_at = Column(FlexDateTime)
 

@@ -286,6 +286,11 @@ def _migrate() -> None:
          "ALTER TABLE documents ADD COLUMN kind_confidence DOUBLE NULL"),
         ("documents", "kind_source",
          "ALTER TABLE documents ADD COLUMN kind_source VARCHAR(8) NULL"),
+        # Smart albums: a saved query instead of a hand-picked list.
+        ("albums", "rule", "ALTER TABLE albums ADD COLUMN rule TEXT NULL"),
+        # Where a photo was taken, resolved to a name once rather than on
+        # every request.
+        ("gallery_photos", "place", "ALTER TABLE gallery_photos ADD COLUMN place VARCHAR(120) NULL"),
     ]
 
     # Face embeddings moved from JSON text to a packed float16 blob (July 2026).

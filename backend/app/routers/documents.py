@@ -7,10 +7,13 @@ import hashlib
 import io
 import os
 import uuid
+import zipfile
+import tempfile
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from PIL import Image
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -436,6 +439,131 @@ def trash_list(user: User = Depends(guard("documents", "view")), db: Session = D
     return {"items": [_present(d) for d in rows], "total": len(rows)}
 
 
+@router.post("/export")
+def export_zip(body: dict = Body(...),
+               user: User = Depends(guard("documents", "view")),
+               db: Session = Depends(get_db)):
+    """Bundle documents into one zip the owner can send themselves.
+
+    THIS IS WHAT "SHARING" IS HERE, AND THE DIFFERENCE IS THE POINT.
+    Drive shares by putting a file behind a URL and deciding who may fetch it.
+    That model needs accounts, permissions and a public surface, and this
+    product has none of the three: it runs on one household's own computer and
+    its whole promise is that nothing leaves it. A link would be a door into
+    somebody's paperwork that stays open as long as the link exists, which is
+    exactly the thing they installed this instead of.
+
+    So the file comes to the owner, and what happens next is their decision on
+    their own terms — email it, put it on a stick, hand it over. No door.
+
+    Streamed to a temporary file rather than built in memory: a folder of
+    scans is hundreds of megabytes, and holding all of it while zipping is how
+    an export of somebody's whole library takes the server down.
+    """
+    raw = body.get("ids") or []
+    ids = [int(x) for x in raw if str(x).lstrip("-").isdigit()][:500]
+    folder = body.get("folder_id")
+    docs = []
+    if ids:
+        docs = (db.query(Document)
+                .filter(Document.user_id == user.id, Document.id.in_(ids),
+                        Document.is_trashed == 0).all())
+    elif folder is not None:
+        fid = int(folder) if folder else None
+        q = db.query(Document).filter(Document.user_id == user.id,
+                                      Document.is_trashed == 0)
+        q = q.filter(Document.folder_id.is_(None) if fid is None
+                     else Document.folder_id == fid)
+        docs = q.limit(500).all()
+    if not docs:
+        raise HTTPException(404, "Nothing to export")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    used: set[str] = set()
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+            for d in docs:
+                path = storage.media_path(storage.DOCUMENTS, user.id,
+                                          storage.ORIGINAL, d.filename)
+                if not os.path.isfile(path):
+                    continue        # reported by reconcile; not this job's problem
+                # A readable name, not the opaque stored one — and made unique,
+                # because two documents may legitimately share a title and a
+                # zip that silently drops one is a zip that loses a file.
+                base = "".join(c for c in (d.title or "document")
+                               if c.isalnum() or c in " -_.").strip() or "document"
+                name = f"{base}.{d.ext or 'bin'}"
+                n = 2
+                while name.lower() in used:
+                    name = f"{base} ({n}).{d.ext or 'bin'}"
+                    n += 1
+                used.add(name.lower())
+                z.write(path, arcname=name)
+    finally:
+        tmp.close()
+
+    if not used:
+        os.unlink(tmp.name)
+        raise HTTPException(409, "None of those files are on the disk")
+
+    audit(db, user.id, "export", "document", None, {"count": len(used)})
+    return FileResponse(
+        tmp.name, media_type="application/zip",
+        filename=f"documents-{ist.now().strftime('%Y-%m-%d')}.zip",
+        background=BackgroundTask(lambda: os.path.exists(tmp.name)
+                                  and os.unlink(tmp.name)))
+
+
+@router.post("/bulk")
+def bulk(body: dict = Body(...),
+         user: User = Depends(guard("documents", "edit")),
+         db: Session = Depends(get_db)):
+    """One action over a selection, in a single round trip.
+
+    Same reasoning as the gallery's /bulk: selecting a folder's worth of files
+    is easily a hundred documents, and a hundred POSTs is a hundred commits
+    plus a progress bar somebody watches crawl — and a tab closed halfway
+    leaves the selection half-applied with nothing saying which half.
+
+    Scoped by user_id inside the filter rather than checked afterwards, so a
+    document belonging to somebody else simply does not match. It is not an
+    error to report; it was never theirs.
+
+    `trash` is here and permanent delete is not: a bulk soft-delete is
+    recoverable from the bin, a bulk hard-delete is the one mistake that
+    cannot be taken back.
+    """
+    action = str(body.get("action") or "").strip().lower()
+    raw = body.get("ids") or []
+    ids = [int(x) for x in raw if str(x).lstrip("-").isdigit()][:2000]
+    if not ids:
+        return {"changed": 0}
+
+    now = ist.now()
+    sel = db.query(Document).filter(Document.user_id == user.id,
+                                    Document.id.in_(ids))
+    if action == "star":
+        vals = {Document.is_favorite: 1, Document.updated_at: now}
+    elif action == "unstar":
+        vals = {Document.is_favorite: 0, Document.updated_at: now}
+    elif action == "trash":
+        vals = {Document.is_trashed: 1, Document.trashed_at: now,
+                Document.updated_at: now}
+    elif action == "restore":
+        # Clearing trashed_at matters: a restored document that kept its stamp
+        # would be swept away later by a retention pass that never saw it come
+        # back.
+        vals = {Document.is_trashed: 0, Document.trashed_at: None,
+                Document.updated_at: now}
+    else:
+        raise HTTPException(400, "Unknown action")
+
+    n = sel.update(vals, synchronize_session=False)
+    db.commit()
+    audit(db, user.id, f"bulk_{action}", "document", None, {"count": int(n)})
+    return {"changed": int(n), "action": action}
+
+
 @router.post("/trash/empty")
 def empty_trash(user: User = Depends(guard("documents", "delete")), db: Session = Depends(get_db)):
     """Permanently delete every trashed document and its files."""
@@ -811,6 +939,61 @@ def versions(id: int, user: User = Depends(guard("documents", "view")),
             "total": len(rows)}
 
 
+#: How many previous copies of one document are kept.
+#:
+#: Versions were unbounded: every replace added a file and nothing removed
+#: one, so a document edited weekly for a year held fifty-two copies of itself
+#: on a household disk. Ten is enough to undo a mistake several times over,
+#: which is what the feature is for — it is not an archive of every draft.
+MAX_VERSIONS = 10
+
+
+def _trim_versions(db: Session, doc_id: int, user_id: int) -> int:
+    """Drop the oldest versions past MAX_VERSIONS, files included."""
+    rows = (db.query(DocumentVersion)
+            .filter(DocumentVersion.user_id == user_id,
+                    DocumentVersion.document_id == doc_id)
+            .order_by(DocumentVersion.version.desc()).all())
+    dead = rows[MAX_VERSIONS:]
+    for v in dead:
+        # Files first, then the row. A file left without its row is invisible
+        # and wastes space; a row left without its file is a Restore button
+        # that fails, which is worse.
+        try:
+            storage.remove(storage.DOCUMENTS, user_id, storage.ORIGINAL, v.filename)
+        except Exception:
+            pass
+        db.delete(v)
+    if dead:
+        db.commit()
+    return len(dead)
+
+
+@router.get("/{id}/versions/{version}/file")
+def version_file(id: int, version: int,
+                 user: User = Depends(guard("documents", "view")),
+                 db: Session = Depends(get_db)):
+    """Download one old version without making it current.
+
+    The common case for looking at an old copy is checking which one you want
+    before restoring — and a Restore that has to happen first, to find out, is
+    a Restore somebody then has to undo.
+    """
+    _owned(db, user.id, id)
+    v = (db.query(DocumentVersion)
+         .filter(DocumentVersion.user_id == user.id,
+                 DocumentVersion.document_id == id,
+                 DocumentVersion.version == version).first())
+    if not v:
+        raise HTTPException(404, "No such version")
+    path = storage.media_path(storage.DOCUMENTS, user.id, storage.ORIGINAL, v.filename)
+    if not os.path.isfile(path):
+        raise HTTPException(410, "That version's file is no longer on disk")
+    name = v.orig_name or f"version-{version}.{v.ext or 'bin'}"
+    return FileResponse(path, media_type=v.mime or "application/octet-stream",
+                        filename=name)
+
+
 @router.post("/{id}/replace")
 def replace(id: int, file: UploadFile = File(...),
             note: str = Form(""),
@@ -868,9 +1051,11 @@ def replace(id: int, file: UploadFile = File(...),
         d.kind_source = None
     d.updated_at = now
     db.commit()
+    dropped = _trim_versions(db, id, user.id)
     audit(db, user.id, "replace", "document", id,
-          {"label": d.title, "version": int(nxt)})
-    return {"item": _present(d), "kept_as_version": int(nxt)}
+          {"label": d.title, "version": int(nxt), "dropped": dropped})
+    return {"item": _present(d), "kept_as_version": int(nxt),
+            "dropped_oldest": dropped}
 
 
 @router.post("/{id}/versions/{version}/restore")

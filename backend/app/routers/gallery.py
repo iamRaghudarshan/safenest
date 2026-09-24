@@ -26,7 +26,8 @@ except Exception:
     pass
 
 from .. import ist
-from .. import dialect, indexer, nlquery, places, storage, vision
+from .. import bursts as _bursts
+from .. import dialect, indexer, nlquery, places, smartalbum, storage, vision
 from ..database import get_db
 from ..helpers import audit
 from ..models import (Album, AlbumPhoto, GalleryPhoto, Person, PhotoFace,
@@ -361,6 +362,7 @@ def _search_filter(db: Session, uid: int, term: str):
 
 @router.get("")
 def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: int = 0,
+          bursts: int = 0,
           smart: int = 0, kind: str = "", sort: str = "", near: str = "", person: int = 0,
           archived: int = 0,
           label: str = "",
@@ -436,6 +438,16 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
         sel = sel.filter(GalleryPhoto.lat.between(nlat - dlat, nlat + dlat),
                          GalleryPhoto.lon.between(nlon - dlon, nlon + dlon))
         near_centre = (nlat, nlon, nkm)
+    # A smart album is a saved rule, not a list. Resolving it here means the
+    # album answers itself every time it is opened, so a photo taken today
+    # that matches appears without anybody filing it.
+    if album:
+        _al = (db.query(Album)
+               .filter(Album.id == album, Album.user_id == user.id).first())
+        if _al is not None and _al.rule:
+            sel = smartalbum.apply(sel, db, user.id, smartalbum.parse(_al.rule))
+            album = 0          # do not also join album_photos: it is empty
+
     if album:
         # Ownership of the album is checked, not just its id — otherwise passing a
         # stranger's album id would confirm which of your photos they'd collected.
@@ -559,7 +571,29 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
     else:
         total = sel.count()
         rows = sel.order_by(*order).offset(offset).limit(limit).all()
-    return {"items": [_present(p) for p in rows], "total": total, "offset": offset,
+    items = [_present(p) for p in rows]
+    if bursts:
+        # ANNOTATED, NOT REMOVED. Every photo still comes back on the page it
+        # was on, so `total` stays true and pagination does not have to be
+        # recomputed against a collapsed count; the leader carries the group
+        # and the followers carry a pointer to it, and the timeline decides
+        # whether to draw one tile or eight.
+        #
+        # A burst that straddles a page boundary is seen as two shorter runs.
+        # With a 150-photo page and a minimum group of 3 that is rare, and the
+        # failure is cosmetic — two badges instead of one — which is the right
+        # side to be wrong on: the alternative is reading past the page to find
+        # out, on every request, for every page.
+        by_id = {p.id: it for p, it in zip(rows, items)}
+        for run in _bursts.group(rows):
+            if len(run) < _bursts.MIN_GROUP:
+                continue
+            lead = by_id[run[0].id]
+            lead["burst_count"] = len(run)
+            lead["burst_ids"] = [x.id for x in run]
+            for other in run[1:]:
+                by_id[other.id]["burst_of"] = run[0].id
+    return {"items": items, "total": total, "offset": offset,
             "limit": limit, "mode": "smart" if smart else "text"}
 
 
@@ -947,13 +981,44 @@ def albums_list(user: User = Depends(guard("gallery", "view")), db: Session = De
                   .join(GalleryPhoto, GalleryPhoto.id == AlbumPhoto.photo_id)
                   .filter(AlbumPhoto.album_id.in_(ids), GalleryPhoto.is_trashed == 0)
                   .group_by(AlbumPhoto.album_id).all())
-    return {"albums": [{
-        "id": a.id,
-        "name": a.name,
-        "count": int(counts.get(a.id, 0)),
-        "cover_url": _cover_url(db, a.cover_id or latest.get(a.id)),
-        "created_at": a.created_at.isoformat() if a.created_at else None,
-    } for a in rows]}
+    out = []
+    for a in rows:
+        rule = smartalbum.parse(getattr(a, "rule", None))
+        if rule:
+            # A smart album's count has to be ASKED, not looked up: nothing was
+            # ever filed into album_photos, so counts.get() would say 0 and the
+            # album would look empty until it was opened.
+            sel = smartalbum.apply(
+                db.query(func.count(GalleryPhoto.id))
+                .filter(GalleryPhoto.user_id == user.id,
+                        GalleryPhoto.is_trashed == 0,
+                        GalleryPhoto.is_archived == 0),
+                db, user.id, rule)
+            count = int(sel.scalar() or 0)
+            cover = smartalbum.apply(
+                db.query(GalleryPhoto)
+                .filter(GalleryPhoto.user_id == user.id,
+                        GalleryPhoto.is_trashed == 0,
+                        GalleryPhoto.is_archived == 0),
+                db, user.id, rule).order_by(GalleryPhoto.id.desc()).first()
+            cover_url = media_url(cover.user_id, storage.THUMB, cover.filename) if cover else None
+        else:
+            count = int(counts.get(a.id, 0))
+            cover_url = _cover_url(db, a.cover_id or latest.get(a.id))
+        out.append({
+            "id": a.id,
+            "name": a.name,
+            "count": count,
+            "cover_url": cover_url,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            # The rule travels with the album so the screen can show WHY these
+            # photos are here. A smart album whose rule is hidden is a folder
+            # that fills itself for reasons nobody can check.
+            "smart": bool(rule),
+            "rule": rule or None,
+            "rule_text": smartalbum.describe(rule) if rule else None,
+        })
+    return {"albums": out}
 
 
 def _album_name(body: dict) -> str:
@@ -1029,22 +1094,44 @@ def album_create(body: dict = Body(...), user: User = Depends(guard("gallery", "
     if db.query(Album).filter(Album.user_id == user.id, Album.name == name).first():
         raise HTTPException(409, "You already have an album with that name")
     now = ist.now()
-    a = Album(user_id=user.id, name=name, created_at=now, updated_at=now)
+    rule = smartalbum.parse(json.dumps(body.get("rule"))
+                            if isinstance(body.get("rule"), dict) else body.get("rule"))
+    a = Album(user_id=user.id, name=name, created_at=now, updated_at=now,
+              rule=smartalbum.dumps(rule) if rule else None)
     db.add(a); db.commit(); db.refresh(a)
+    if rule:
+        # A smart album takes no photo_ids even if some were sent: mixing a
+        # saved query with a hand-picked list gives an album whose contents
+        # nobody can predict, and no way to remove a photo the rule keeps
+        # putting back.
+        audit(db, user.id, "create", "album", a.id,
+              {"label": name, "smart": smartalbum.describe(rule)})
+        return {"id": a.id, "name": a.name, "count": 0, "smart": True,
+                "rule": rule, "rule_text": smartalbum.describe(rule)}
     # Creating an album straight from a selection is the common case.
     added = _album_add(db, user.id, a, body.get("photo_ids") or [])
     audit(db, user.id, "create", "album", a.id, {"label": name, "photos": added})
-    return {"id": a.id, "name": a.name, "count": added}
+    return {"id": a.id, "name": a.name, "count": added, "smart": False}
 
 
 @router.get("/albums/{aid}")
 def album_get(aid: int, user: User = Depends(guard("gallery", "view")),
               db: Session = Depends(get_db)):
     a = _own_album(db, user.id, aid)
-    count = (db.query(func.count(AlbumPhoto.photo_id))
-             .join(GalleryPhoto, GalleryPhoto.id == AlbumPhoto.photo_id)
-             .filter(AlbumPhoto.album_id == aid, GalleryPhoto.is_trashed == 0).scalar())
-    return {"id": a.id, "name": a.name, "count": int(count or 0)}
+    rule = smartalbum.parse(getattr(a, "rule", None))
+    if rule:
+        count = smartalbum.apply(
+            db.query(func.count(GalleryPhoto.id))
+            .filter(GalleryPhoto.user_id == user.id, GalleryPhoto.is_trashed == 0,
+                    GalleryPhoto.is_archived == 0),
+            db, user.id, rule).scalar()
+    else:
+        count = (db.query(func.count(AlbumPhoto.photo_id))
+                 .join(GalleryPhoto, GalleryPhoto.id == AlbumPhoto.photo_id)
+                 .filter(AlbumPhoto.album_id == aid, GalleryPhoto.is_trashed == 0).scalar())
+    return {"id": a.id, "name": a.name, "count": int(count or 0),
+            "smart": bool(rule), "rule": rule or None,
+            "rule_text": smartalbum.describe(rule) if rule else None}
 
 
 @router.put("/albums/{aid}")
@@ -1062,9 +1149,18 @@ def album_rename(aid: int, body: dict = Body(...),
         if db.query(AlbumPhoto).filter(AlbumPhoto.album_id == aid,
                                        AlbumPhoto.photo_id == cid).first():
             a.cover_id = cid
+    if "rule" in body:
+        # Passing an empty rule turns a smart album back into an ordinary one.
+        # It keeps whatever is in album_photos (normally nothing), which is the
+        # honest outcome: the photos it was showing were never IN it.
+        raw = body.get("rule")
+        rule = smartalbum.parse(json.dumps(raw) if isinstance(raw, dict) else raw)
+        a.rule = smartalbum.dumps(rule) if rule else None
     a.updated_at = ist.now()
     db.commit()
-    return {"id": a.id, "name": a.name}
+    rule = smartalbum.parse(getattr(a, "rule", None))
+    return {"id": a.id, "name": a.name, "smart": bool(rule), "rule": rule or None,
+            "rule_text": smartalbum.describe(rule) if rule else None}
 
 
 @router.delete("/albums/{aid}")
