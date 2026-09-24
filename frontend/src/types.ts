@@ -52,6 +52,10 @@ export interface DocumentItem {
   /** Showable as text or as a table, via /preview. The server decides from a
    *  list of extensions, so the UI does not keep a second copy of that list. */
   is_text?: boolean
+  /** Playable in the browser's own element. The server decides from a list of
+   *  extensions, so the UI keeps no second copy of that list. */
+  is_video?: boolean
+  is_audio?: boolean
   size_bytes: number
   pages: number
   file_url: string

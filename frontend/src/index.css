@@ -2982,6 +2982,44 @@ html.on-auth .auth-bg { opacity: 0.3; }
   font-weight: 700; background: var(--bg-elev);
   position: sticky; top: 0;        /* the header stays while the rows scroll */
 }
+/* Office content, shown as text. Measured for READING — a letter set in the
+   same monospace as a log file is a letter nobody reads. */
+.docprev { max-width: 62ch; margin: 0 auto; font-size: 14px; line-height: 1.65; }
+.docprev p { margin: 0 0 0.85em; }
+.docprev-gap { height: 0.85em; }
+
+.slideprev {
+  position: relative; margin: 0 auto 12px; max-width: 62ch;
+  padding: 14px 16px 14px 44px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg-elev);
+}
+.slideprev-n {
+  position: absolute; left: 12px; top: 13px;
+  width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--c-documents); color: #fff;
+  font-size: 11px; font-weight: 700;
+}
+.slideprev-t { font-weight: 700; font-size: 14.5px; margin-bottom: 4px; }
+.slideprev-b { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+/* Video and audio in the document viewer. */
+.mediaprev {
+  width: 100%; height: 100%; display: grid; place-items: center;
+  padding: 56px 14px 20px; background: #0b0b0d;
+}
+.mediaprev-v { max-width: 100%; max-height: 100%; }
+.mediaprev-a {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  color: #f4f4f5; text-align: center;
+}
+.mediaprev-ic {
+  width: 72px; height: 72px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 30px;
+  background: rgba(255, 255, 255, .08);
+}
+.mediaprev-t { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+
 .txtprev-more {
   flex: none; padding: 9px 14px; font-size: 12px; color: var(--muted);
   border-top: 1px solid var(--line); background: var(--bg-elev);

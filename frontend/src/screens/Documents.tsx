@@ -756,8 +756,19 @@ function MoveSheet({ what, onClose, onPick }: {
  *  arrives already split into rows: the browser would otherwise need its own
  *  parser for quoting rules Python already has. */
 function TextPreview({ d }: { d: DocumentItem }) {
-  type P = { kind: 'text' | 'csv'; text?: string; rows?: string[][]
-             truncated: boolean; size_bytes: number }
+  type P = {
+    kind: 'text' | 'csv' | 'doc' | 'sheet' | 'slides'
+    text?: string
+    rows?: string[][]
+    paragraphs?: string[]
+    slides?: string[][]
+    /** Office files are read as content, never rendered — so the screen has
+     *  to say that layout, images and formatting are missing rather than let
+     *  somebody conclude the document is broken. */
+    text_only?: boolean
+    truncated: boolean
+    size_bytes: number
+  }
   const [p, setP] = useState<P | null>(null)
   const [err, setErr] = useState('')
   useEffect(() => {
@@ -773,7 +784,29 @@ function TextPreview({ d }: { d: DocumentItem }) {
 
   return (
     <div className="txtprev">
-      {p.kind === 'csv' && p.rows ? (
+      {p.kind === 'doc' && p.paragraphs ? (
+        <div className="txtprev-scroll">
+          <div className="docprev">
+            {p.paragraphs.map((line, i) => (
+              line ? <p key={i}>{line}</p> : <div key={i} className="docprev-gap" />
+            ))}
+          </div>
+        </div>
+      ) : p.kind === 'slides' && p.slides ? (
+        <div className="txtprev-scroll">
+          {p.slides.map((lines, i) => (
+            <div key={i} className="slideprev">
+              <div className="slideprev-n">{i + 1}</div>
+              {lines.map((t, j) => (
+                // The first line of a slide is its title far more often than
+                // not, and weighting it is what makes a deck scannable.
+                <div key={j} className={j === 0 ? 'slideprev-t' : 'slideprev-b'}>{t}</div>
+              ))}
+              {!lines.length && <div className="slideprev-b muted">No text on this slide</div>}
+            </div>
+          ))}
+        </div>
+      ) : (p.kind === 'csv' || p.kind === 'sheet') && p.rows ? (
         <div className="txtprev-scroll">
           <table className="csvprev">
             <tbody>
@@ -792,12 +825,44 @@ function TextPreview({ d }: { d: DocumentItem }) {
       ) : (
         <pre className="txtprev-scroll txtprev-pre">{p.text}</pre>
       )}
-      {p.truncated && (
+      {(p.truncated || p.text_only) && (
         <div className="txtprev-more">
-          Showing the start of this file ({formatBytes(p.size_bytes)} in total).
-          Download it to see the rest.
+          {p.text_only
+            /* Said plainly. A Word file shown as plain paragraphs, with no
+               warning, reads as a document that has lost its formatting —
+               and somebody would go looking for the version that still had
+               it. */
+            ? <>Text only — layout, images and formatting are not shown.
+                {p.truncated ? ' Only the first part is here. ' : ' '}
+                Download it to see the document itself.</>
+            : <>Showing the start of this file ({formatBytes(p.size_bytes)} in
+                total). Download it to see the rest.</>}
         </div>
       )}
+    </div>
+  )
+}
+
+/** A video or audio file played where it sits.
+ *
+ *  The media URL needs the bearer token, which a <video src> cannot send — so
+ *  the file is fetched once as a blob and played from an object URL. That
+ *  means no range requests and no seeking ahead of the download, which is the
+ *  honest trade for a household file that is already on the same machine. */
+function MediaPreview({ d }: { d: DocumentItem }) {
+  const src = useAuthedBlob(d.file_url)
+  if (!src) return <div className="viewer-loading"><span className="spinner" /></div>
+  return (
+    <div className="mediaprev">
+      {d.is_video
+        ? <video className="mediaprev-v" src={src} controls playsInline preload="metadata" />
+        : (
+          <div className="mediaprev-a">
+            <div className="mediaprev-ic">♪</div>
+            <div className="mediaprev-t">{d.title}</div>
+            <audio src={src} controls preload="metadata" />
+          </div>
+        )}
     </div>
   )
 }
@@ -857,7 +922,13 @@ function DocViewer({ d, canEdit, onClose, onFav, onDelete, onEdit, onChanged }: 
   return (
     <div className="viewer">
       <div className="viewer-stage">
-        {d.is_text ? (
+        {d.is_video || d.is_audio ? (
+          /* Streamed from /file by the browser itself — nothing is read into
+             a preview first, because sending a 300MB recording through JSON
+             to play it would be absurd. Not autoplayed: a viewer reached by
+             paging through a folder must not start making noise. */
+          <MediaPreview d={d} />
+        ) : d.is_text ? (
           <TextPreview d={d} />
         ) : !d.is_image ? (
           <div className="viewer-pdf">

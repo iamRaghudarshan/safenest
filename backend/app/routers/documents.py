@@ -27,6 +27,7 @@ except Exception:
 from .. import doctype, ist, ocr
 from .. import storage
 from ..config import settings
+from .. import officedoc
 from ..database import get_db
 from ..helpers import audit
 from ..models import Document, DocumentFolder, DocumentVersion, User
@@ -173,7 +174,13 @@ def _present(d: Document) -> dict:
         # Can this be shown as text rather than offered as a download? The UI
         # cannot work it out from the extension alone without repeating the
         # list, and two lists drift.
-        "is_text": (d.ext or "").lower() in TEXT_EXT or (d.ext or "").lower() in CSV_EXT,
+        "is_text": (d.ext or "").lower() in TEXT_EXT
+                   or (d.ext or "").lower() in CSV_EXT
+                   or (d.ext or "").lower() in OFFICE_EXT,
+        # Playable where it stands. The viewer reaches for <video> or <audio>
+        # and streams /file; nothing is pre-read.
+        "is_video": (d.ext or "").lower() in VIDEO_EXT,
+        "is_audio": (d.ext or "").lower() in AUDIO_EXT,
         "size_bytes": d.size_bytes,
         "pages": int(d.pages or 1),
         "file_url": f"/api/documents/{d.id}/file",
@@ -489,6 +496,17 @@ def trash_list(user: User = Depends(guard("documents", "view")), db: Session = D
 TEXT_EXT = {"txt", "md", "log", "json", "xml", "yml", "yaml", "ini", "conf"}
 CSV_EXT = {"csv", "tsv"}
 
+#: Office files, read as CONTENT rather than rendered — see officedoc.py for
+#: why there is no LibreOffice here.
+OFFICE_EXT = {"docx", "xlsx", "pptx"}
+
+#: Playable in the browser's own <video>/<audio>. Not previewed through this
+#: endpoint at all: the file is streamed straight from /file, because sending
+#: a 300MB recording through a JSON preview to play it would be absurd. The
+#: flag only tells the UI which element to reach for.
+VIDEO_EXT = {"mp4", "webm", "mov", "m4v", "ogv"}
+AUDIO_EXT = {"mp3", "m4a", "aac", "wav", "ogg", "oga", "flac", "opus"}
+
 #: How much of a file is read for a preview.
 #:
 #: A preview is for recognising a file, not for reading it — and a household
@@ -513,7 +531,7 @@ def preview(id: int, user: User = Depends(guard("documents", "view")),
     """
     d = _owned(db, user.id, id)
     ext = (d.ext or "").lower()
-    if ext not in TEXT_EXT and ext not in CSV_EXT:
+    if ext not in TEXT_EXT and ext not in CSV_EXT and ext not in OFFICE_EXT:
         raise HTTPException(415, "That kind of file has no text preview")
 
     path = storage.media_path(storage.DOCUMENTS, user.id, storage.ORIGINAL, d.filename)
@@ -521,6 +539,21 @@ def preview(id: int, user: User = Depends(guard("documents", "view")),
         raise HTTPException(410, "That file is no longer on the disk")
 
     size = os.path.getsize(path)
+
+    if ext in OFFICE_EXT:
+        # Read from the file on disk rather than from bytes: the reader opens
+        # the zip and pulls out the two or three parts it needs, so a 40MB
+        # deck never has 40MB pulled into memory to show its first slide.
+        try:
+            out = officedoc.read(path, ext)
+        except officedoc.OfficeError as exc:
+            raise HTTPException(422, str(exc))
+        except Exception as exc:
+            print(f"[preview] office read failed for {id}: {exc}")
+            raise HTTPException(422, "That file could not be read")
+        out["size_bytes"] = size
+        return out
+
     with open(path, "rb") as fh:
         raw = fh.read(PREVIEW_BYTES)
     clipped = size > len(raw)
