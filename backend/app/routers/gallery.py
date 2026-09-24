@@ -549,7 +549,13 @@ def labels(min_count: int = 1, user: User = Depends(guard("gallery", "view")),
     rows = (db.query(PhotoLabel.label, func.count(PhotoLabel.photo_id))
             .join(GalleryPhoto, GalleryPhoto.id == PhotoLabel.photo_id)
             .filter(PhotoLabel.user_id == user.id,
-                    GalleryPhoto.is_trashed == 0)
+                    GalleryPhoto.is_trashed == 0,
+                    # Archived too. The count has to match what clicking the
+                    # chip shows, and the timeline hides archived photos —
+                    # "chart 17" that opens 16 is a small lie, and small lies
+                    # about counts are how people stop trusting the numbers.
+                    (GalleryPhoto.is_archived == 0)
+                    | (GalleryPhoto.is_archived.is_(None)))
             .group_by(PhotoLabel.label).all())
     items = [{"label": l, "count": int(n)} for l, n in rows
              if int(n) >= max(1, min_count)]

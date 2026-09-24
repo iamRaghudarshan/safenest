@@ -115,6 +115,11 @@ export default function Gallery() {
   }, [takeIntent])
   const isFav = tab === 'fav'
   const isArchive = tab === 'archive'
+  // What the indexer found in these photos. Only categories that real
+  // photos matched — offering "desert" to somebody with no desert
+  // pictures is how a category browser becomes a list of dead ends.
+  const [cats, setCats] = useState<{ label: string; count: number }[]>([])
+  const [cat, setCat] = useState('')
   const offsetRef = useRef(0)   // next row to fetch
   const doneRef = useRef(false) // no more pages
   const busyRef = useRef(false) // a fetch is in flight
@@ -136,6 +141,7 @@ export default function Gallery() {
       // archiving hides a photo from the timeline, it does not hide it from
       // somebody looking for it.
       if (isArchive) p.set('archived', '1')
+      if (cat) p.set('label', cat)
       if (query) p.set('q', query)
       if (query && smart) p.set('smart', '1')
       const d = await api<{ items: Photo[]; total: number }>(`/api/gallery?${p}`)
@@ -145,10 +151,16 @@ export default function Gallery() {
       doneRef.current = d.items.length < PAGE
     } catch { /* ignore */ }
     finally { setLoading(false); setMore(false); busyRef.current = false }
-  }, [isFav, isArchive, query, smart])
+  }, [isFav, isArchive, cat, query, smart])
 
   // (re)load page 0 whenever the tab (all ↔ fav) or the search term changes
   useEffect(() => { offsetRef.current = 0; doneRef.current = false; load(true) }, [load])
+
+  useEffect(() => {
+    api<{ items: { label: string; count: number }[] }>('/api/gallery/labels')
+      .then((d) => setCats(d.items || []))
+      .catch(() => setCats([]))
+  }, [photos.length === 0])
 
   // silent reload for pull-to-refresh (keeps the grid on screen)
   const refresh = useCallback(async () => {
@@ -554,6 +566,19 @@ export default function Gallery() {
                     )
               )
               : <>
+                  {cats.length > 0 && (
+                    <div className="cat-row">
+                      <button className={`chip${cat === '' ? ' on' : ''}`}
+                        onClick={() => setCat('')}>All</button>
+                      {cats.map((c) => (
+                        <button key={c.label}
+                          className={`chip${cat === c.label ? ' on' : ''}`}
+                          onClick={() => setCat(cat === c.label ? '' : c.label)}>
+                          {c.label} <span className="chip-n">{c.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <PhotoGrid photos={shown} onOpen={setView}
                     selected={sel} onToggle={toggleSel} onSelectDay={selectDay} />
                   <InfiniteSentinel onHit={() => load(false)} done={doneRef.current} loading={more}
