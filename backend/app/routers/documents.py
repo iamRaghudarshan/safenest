@@ -690,7 +690,7 @@ def empty_trash(user: User = Depends(guard("documents", "delete")), db: Session 
     rows = (db.query(Document)
             .filter(Document.user_id == user.id, Document.is_trashed == 1).all())
     for d in rows:
-        _delete_files(d)
+        _delete_files(d, db)
         db.delete(d)
     db.commit()
     audit(db, user.id, "empty_trash", "document", None, {"deleted": len(rows)})
@@ -1226,9 +1226,41 @@ def favourite(id: int, user: User = Depends(guard("documents", "edit")), db: Ses
     return {"id": id, "is_favourite": int(d.is_favorite)}
 
 
-def _delete_files(d: Document) -> None:
+def _delete_files(d: Document, db: Session | None = None) -> None:
+    """Every file this document owns, and its version rows with them.
+
+    THE VERSIONS ARE NOT OPTIONAL HOUSEKEEPING. Deleting a document used to
+    leave document_versions behind, which goes wrong twice over:
+
+      * the version FILES stay on the disk for ever, on a machine whose whole
+        job is to hold somebody's photographs and papers; and
+      * ids get reused, so the next document to take that id inherits a
+        deleted document's history — the old copies are listed under the new
+        file, and Restore will happily make one of them current.
+
+    The second is the serious one. It surfaced as a test suite that started
+    reporting "a fresh document has no versions: 10", which is exactly what it
+    looks like from the inside: paperwork somebody deleted, reappearing inside
+    an unrelated file.
+
+    `db` is optional only so the existing callers that had no session to hand
+    keep working; every delete path passes one.
+    """
     storage.remove(storage.DOCUMENTS, d.user_id, storage.ORIGINAL, d.filename)
     storage.remove(storage.DOCUMENTS, d.user_id, storage.THUMB, f"{d.filename}.jpg")
+    if db is None:
+        return
+    for v in (db.query(DocumentVersion)
+              .filter(DocumentVersion.user_id == d.user_id,
+                      DocumentVersion.document_id == d.id).all()):
+        # File first, then the row — the same order _trim_versions uses, and
+        # for the same reason: a row without its file is a Restore button that
+        # fails, which is worse than a file nothing points at.
+        try:
+            storage.remove(storage.DOCUMENTS, d.user_id, storage.ORIGINAL, v.filename)
+        except Exception:
+            pass
+        db.delete(v)
 
 
 #: How long a binned document is kept. The same 30 days the gallery uses, on
@@ -1269,7 +1301,7 @@ def sweep_trash(db: Session, days: int = TRASH_RETENTION_DAYS) -> int:
         # through leaves the remainder still in the bin rather than a half
         # committed batch, and each one is independent of the others.
         try:
-            _delete_files(d)
+            _delete_files(d, db)
         except Exception:
             pass
         db.delete(d)
@@ -1316,7 +1348,7 @@ def destroy_permanent(id: int, user: User = Depends(guard("documents", "delete")
     if not d.is_trashed:
         raise HTTPException(422, "Move the document to the recycle bin first")
     label = d.title
-    _delete_files(d)
+    _delete_files(d, db)
     db.delete(d); db.commit()
     audit(db, user.id, "delete", "document", id, {"label": label})
     return {"deleted": id}

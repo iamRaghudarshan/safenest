@@ -62,8 +62,14 @@ def describe(rule: dict) -> str:
         bits.append(str(rule["label"]))
     if rule.get("place"):
         bits.append("in " + str(rule["place"]))
+    # Both kinds, not just video. Naming only one of them meant a rule of
+    # {"kind": "photo"} described itself as "everything" — which is the exact
+    # failure this function exists to prevent: an album that fills itself for
+    # a reason the screen does not show.
     if rule.get("kind") == "video":
         bits.append("videos")
+    elif rule.get("kind") == "photo":
+        bits.append("photos")
     if rule.get("favourite"):
         bits.append("favourites")
     if rule.get("month"):

@@ -15,7 +15,7 @@ import { fmtDate, fmtDateTime } from '../format'
 import { formatBytes } from '../maintenance'
 import type {
   Photo, PhotoInfo, PersonSummary, MemoryGroup, DuplicatesData, DuplicateGroup, AlbumSummary,
-  IndexStatus,
+  AlbumRule, IndexStatus,
 } from '../types'
 import { appName } from '../branding'
 
@@ -1343,6 +1343,7 @@ function AlbumsGrid({ onOpen, canEdit }: {
   const toast = useToast()
   const [albums, setAlbums] = useState<AlbumSummary[] | null>(null)
   const [creating, setCreating] = useState(false)
+  const [ruling, setRuling] = useState(false)
 
   const load = useCallback(() => {
     api<{ albums: AlbumSummary[] }>('/api/gallery/albums')
@@ -1357,13 +1358,21 @@ function AlbumsGrid({ onOpen, canEdit }: {
     } catch (e) { toast(errorMessage(e, 'Could not create the album')) }
   }
 
+  async function createRule(name: string, rule: AlbumRule) {
+    try {
+      await api('/api/gallery/albums', { method: 'POST', body: { name, rule } })
+      setRuling(false); load(); toast(`Saved search “${name}” created`)
+    } catch (e) { toast(errorMessage(e, 'Could not save that search')) }
+  }
+
   if (!albums) return <Spinner />
   return (
     <div>
       {canEdit && (
-        <button className="btn ghost block" style={{ marginBottom: 14 }} onClick={() => setCreating(true)}>
-          ＋ New album
-        </button>
+        <div className="album-new">
+          <button className="btn ghost" onClick={() => setCreating(true)}>＋ New album</button>
+          <button className="btn ghost" onClick={() => setRuling(true)}>⌕ Saved search</button>
+        </div>
       )}
       {albums.length === 0
         ? <Empty icon="🗂️" title="No albums yet"
@@ -1374,18 +1383,140 @@ function AlbumsGrid({ onOpen, canEdit }: {
               <button key={a.id} className="album" onClick={() => onOpen(a)}>
                 <div className="album-cover">
                   {a.cover_url ? <img src={a.cover_url} loading="lazy" alt="" /> : <span>🗂️</span>}
+                  {a.smart && <span className="album-rule-badge" title="A saved search">⌕</span>}
                 </div>
                 <div className="album-name">{a.name}</div>
-                <div className="album-count">{a.count} photo{a.count === 1 ? '' : 's'}</div>
+                {/* The rule, in words. An album that fills itself for reasons
+                    nobody can see is a folder people stop trusting — when it
+                    shows the wrong photos, this line is the only way to tell
+                    why. */}
+                <div className="album-count">
+                  {a.smart && a.rule_text ? a.rule_text
+                    : `${a.count} photo${a.count === 1 ? '' : 's'}`}
+                </div>
               </button>
             ))}
           </div>
         )}
       {creating && <NameSheet title="New album" label="Album name" cta="Create"
         placeholder="Goa 2025, Receipts, Family…" onClose={() => setCreating(false)} onSave={create} />}
+      {ruling && <RuleSheet onClose={() => setRuling(false)} onSave={createRule} />}
     </div>
   )
 }
+
+/** Build the rule behind a saved search.
+ *
+ *  Called a SAVED SEARCH and not a "smart album" on purpose: this screen
+ *  already has a thing called Smart albums, and that one is a suggestion made
+ *  by clustering which becomes an ordinary album the moment it is accepted.
+ *  Two features one tap apart, both called smart, would be indistinguishable
+ *  in a support conversation.
+ *
+ *  The fields are the ones the gallery can already filter by, offered as
+ *  choices rather than typed: a rule somebody types is a rule they can spell
+ *  wrong, and a saved search that silently matches nothing because of a typo
+ *  is the worst version of this feature. */
+function RuleSheet({ initial, initialName, onClose, onSave }: {
+  initial?: AlbumRule; initialName?: string
+  onClose: () => void
+  onSave: (name: string, rule: AlbumRule) => void | Promise<void>
+}) {
+  const [name, setName] = useState(initialName || '')
+  const [rule, setRule] = useState<AlbumRule>(initial || {})
+  const [labels, setLabels] = useState<{ label: string; count: number }[]>([])
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    // Only the categories this library actually contains. Offering "desert"
+    // to somebody with no desert photographs is how a picker becomes a list
+    // of dead ends — the same reason /labels filters by count.
+    api<{ items: { label: string; count: number }[] }>('/api/gallery/labels')
+      .then((d) => setLabels(d.items || [])).catch(() => setLabels([]))
+  }, [])
+
+  const set = (k: keyof AlbumRule & string, v: string | number | undefined) =>
+    setRule((r: AlbumRule) => {
+      const next: Record<string, unknown> = { ...r }
+      if (v === undefined || v === '') delete next[k]
+      else next[k] = v
+      return next as AlbumRule
+    })
+
+  const empty = Object.keys(rule).length === 0
+  const problem = !name.trim() ? 'Give it a name'
+    : empty ? 'Choose at least one thing to match' : ''
+
+  const YEARS: number[] = []
+  for (let y = new Date().getFullYear(); y >= new Date().getFullYear() - 12; y--) YEARS.push(y)
+
+  return (
+    <Sheet title="Saved search" onClose={onClose}>
+      <p className="muted">
+        A saved search is a question, not a list. Photos that match it later
+        show up on their own — nothing has to be filed.
+      </p>
+      <Field label="Name">
+        <input className="inp" autoFocus value={name} maxLength={120}
+          placeholder="Beach days, Videos from 2024…"
+          onChange={(e) => setName(e.target.value)} />
+      </Field>
+
+      {!!labels.length && (
+        <Field label="What is in the photo">
+          <div className="rule-chips">
+            {labels.slice(0, 24).map((l) => (
+              <button key={l.label}
+                className={`chip${rule.label === l.label ? ' on' : ''}`}
+                onClick={() => set('label', rule.label === l.label ? undefined : l.label)}>
+                {l.label} {l.count}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
+
+      <Field label="Kind">
+        <div className="rule-chips">
+          {[['photo', 'Photos'], ['video', 'Videos']].map(([k, lbl]) => (
+            <button key={k} className={`chip${rule.kind === k ? ' on' : ''}`}
+              onClick={() => set('kind', rule.kind === k ? undefined : k)}>{lbl}</button>
+          ))}
+          <button className={`chip${rule.favourite ? ' on' : ''}`}
+            onClick={() => set('favourite', rule.favourite ? undefined : 1)}>★ Favourites</button>
+        </div>
+      </Field>
+
+      <Field label="When">
+        <div className="rule-chips">
+          <select className="inp rule-sel" value={rule.year ?? ''}
+            onChange={(e) => set('year', e.target.value ? Number(e.target.value) : undefined)}>
+            <option value="">Any year</option>
+            {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select className="inp rule-sel" value={rule.month ?? ''}
+            onChange={(e) => set('month', e.target.value ? Number(e.target.value) : undefined)}>
+            <option value="">Any month</option>
+            {['January', 'February', 'March', 'April', 'May', 'June', 'July',
+              'August', 'September', 'October', 'November', 'December']
+              .map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+          </select>
+        </div>
+      </Field>
+
+      {problem && <p className="muted">{problem}</p>}
+      <button className="btn primary block" disabled={!!problem || busy}
+        onClick={async () => {
+          if (problem || busy) return
+          setBusy(true)
+          try { await onSave(name.trim(), rule) } finally { setBusy(false) }
+        }}>
+        {busy ? 'Saving…' : 'Save'}
+      </button>
+    </Sheet>
+  )
+}
+
 
 /** Shared create/rename sheet — an album name is the only field either one needs. */
 function NameSheet({ title, label, cta, initial = '', placeholder, onClose, onSave }: {
@@ -1507,13 +1638,22 @@ function AlbumView({ album, onBack, canEdit }: {
   }
 
   const count = total || album.count
+  // A SAVED SEARCH has no membership to edit. "Add" would file a photo into a
+  // list this view never reads, and "Remove" would look broken — the rule
+  // simply puts it back on the next load. The rule itself is the subtitle, so
+  // the screen still says why these photos are here.
+  const isRule = !!album.smart
   return (
     <div className="screen">
-      <TopBar title={name} sub={`${count} photo${count === 1 ? '' : 's'}`} onBack={onBack}
+      <TopBar title={name}
+        sub={isRule && album.rule_text
+          ? `${album.rule_text} · ${count} photo${count === 1 ? '' : 's'}`
+          : `${count} photo${count === 1 ? '' : 's'}`}
+        onBack={onBack}
         right={canEdit ? (
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn ghost sm" onClick={() => setRenaming(true)}>Rename</button>
-            <button className="btn sm" onClick={() => setAddChoice(true)}>＋ Add</button>
+            {!isRule && <button className="btn sm" onClick={() => setAddChoice(true)}>＋ Add</button>}
           </div>
         ) : undefined} />
 
@@ -1588,7 +1728,8 @@ function AlbumView({ album, onBack, canEdit }: {
       )}
       {view && <Lightbox photo={view} onClose={() => setView(null)} onFav={() => toggleFav(view)}
         onTrash={() => trash(view)} canEdit={canEdit}
-        albumId={album.id} onRemoveFromAlbum={() => removeFromAlbum(view)} />}
+        {...(isRule ? {} : { albumId: album.id,
+                             onRemoveFromAlbum: () => removeFromAlbum(view) })} />}
     </div>
   )
 }

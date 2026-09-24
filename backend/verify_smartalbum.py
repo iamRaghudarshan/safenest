@@ -64,6 +64,11 @@ check("a month becomes a month name",
       smartalbum.describe({"month": 3}), "March")
 check("a nonsense month is skipped rather than crashing",
       smartalbum.describe({"month": 99, "year": 2024}), "2024")
+# Found by a browser test, not by this file: a photos-only rule described
+# itself as "everything", because only "video" was ever named. An album whose
+# rule is invisible is the thing describe() exists to prevent.
+check("a photos-only rule says so", smartalbum.describe({"kind": "photo"}), "photos")
+check("a videos-only rule still says so", smartalbum.describe({"kind": "video"}), "videos")
 
 
 # ---------------------------------------------------------------- bursts

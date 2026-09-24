@@ -361,12 +361,30 @@ export interface IndexStatus {
   photos: number
 }
 
+/** The rule behind a saved search. Every key is optional; an empty rule is
+ *  refused at creation, because an album that matches everything is the
+ *  gallery with a different name. */
+export interface AlbumRule {
+  person_id?: number
+  label?: string
+  year?: number
+  month?: number
+  kind?: string
+  place?: string
+  favourite?: number
+}
+
 export interface AlbumSummary {
   id: number
   name: string
   count: number
   cover_url: string | null
   created_at: string | null
+  /** True when this album is a saved search rather than a hand-picked list. */
+  smart?: boolean
+  rule?: AlbumRule | null
+  /** The rule in words, for the subtitle. */
+  rule_text?: string | null
 }
 
 export interface PersonSummary {

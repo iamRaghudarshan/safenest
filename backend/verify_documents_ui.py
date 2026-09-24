@@ -11,6 +11,7 @@ is reachable, and that nothing throws into the console while doing it.
 import asyncio
 import json
 import subprocess
+import sys
 import time
 import urllib.request
 import uuid
@@ -33,7 +34,12 @@ FOLDER = "Statements " + uuid.uuid4().hex[:6]
 
 
 def check(ok, label, extra=""):
-    print("  %-52s %s %s" % (label, "PASS" if ok else "FAIL", extra))
+    # This console is cp1252 and the page text is not — a rupee sign lifted
+    # out of the DOM crashed the run AFTER the check had passed, which reads
+    # as a failure of the thing under test rather than of the print.
+    line = "  %-52s %s %s" % (label, "PASS" if ok else "FAIL", extra)
+    enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+    print(line.encode(enc, "replace").decode(enc, "replace"))
     if not ok:
         FAIL.append(label)
 

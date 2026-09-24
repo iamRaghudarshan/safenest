@@ -2840,6 +2840,27 @@ html.on-auth .auth-bg { opacity: 0.3; }
   .folder-x, .folder-ren, .doc-move, .doc-pick { opacity: 1; }
 }
 
+/* ---- Saved searches (rule albums) ----------------------------------------
+   Two buttons where there was one. Side by side rather than stacked: "New
+   album" and "Saved search" are the same kind of decision, and stacking them
+   would read as one primary action with an afterthought under it. */
+.album-new { display: flex; gap: 8px; margin-bottom: 14px; }
+.album-new .btn { flex: 1; }
+
+/* The badge says an album fills itself. Without it a saved search is
+   indistinguishable from a hand-made album until somebody wonders why photos
+   keep appearing in it. */
+.album-rule-badge {
+  position: absolute; top: 6px; left: 6px;
+  display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0, 0, 0, .55); color: #fff; font-size: 12px;
+}
+.album-cover { position: relative; }
+
+.rule-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rule-sel { flex: 1; min-width: 130px; padding: 8px 10px; font-size: 13px; }
+
 /* ---- Text and CSV preview -------------------------------------------------
    Shown in the viewer where a picture would be. The scroller is the inner
    element rather than the stage, so the viewer's own chrome stays put while
