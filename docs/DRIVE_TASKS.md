@@ -40,7 +40,7 @@ remains is section C, which was always "decide before starting".
 | Recent | DONE | a chip beside the categories; it cuts across them |
 | Filter by type and date | DONE | grouped by what a file IS, not by extension |
 | Filter by owner / size | Not applicable | one household, one owner; size is a sort |
-| Sort by name / modified / size | API only | `?sort=` works; still no control |
+| Sort by name / modified / size | DONE | in the filter panel |
 | Automatic classification | DONE | correction sheet shows the classifier's evidence |
 
 ## 3. Versions
@@ -84,13 +84,14 @@ the thing they installed this instead of.
 
 ## Ordered task list
 
-**A — makes what exists reachable.** All done, except one.
+**A — makes what exists reachable.** All done.
 1. ~~Versions panel: list, restore, and the note~~
 2. ~~Recent screen: added / changed / starred~~
 3. ~~Copy, from the document menu~~
 4. ~~Document type correction, with the classifier's evidence shown~~
-5. Sort control: name / modified / size — **still the only A item left.**
-   `?sort=` has worked all along; nothing offers it.
+5. ~~Sort control: name / modified / size~~ — in the filter panel. An
+   explicit order turns the favourites float off, which is tested, because
+   otherwise "by name" quietly means "starred, then by name".
 6. ~~Rename and move a folder~~
 
 **B — genuinely missing.** All done.
