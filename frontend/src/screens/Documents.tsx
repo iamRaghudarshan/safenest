@@ -7,6 +7,7 @@ import { useToast } from '../toast'
 import { TopBar, Spinner, Empty, Sheet, Field } from '../ui'
 import { PullToRefresh } from '../PullToRefresh'
 import { formatBytes } from '../maintenance'
+import { shareFile, safeFilename, canShareFiles } from '../share'
 import { fmtDate } from '../format'
 import { Zoomable } from '../Zoomable'
 import { ScanFlow } from './Scan'
@@ -234,15 +235,31 @@ export default function Documents() {
       // Downloaded through the API helper so the bearer token goes with it —
       // a plain <a href> to the endpoint is unauthenticated and comes back 401.
       const blob = await apiBlob('/api/documents/export', { method: 'POST', body: { ids } })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `documents-${new Date().toISOString().slice(0, 10)}.zip`
-      document.body.appendChild(a); a.click(); a.remove()
-      // Revoked on the next tick, not immediately: Safari has not started the
-      // download yet when click() returns, and revoking first cancels it.
-      setTimeout(() => URL.revokeObjectURL(url), 10_000)
-      toast(`${ids.length} file${ids.length === 1 ? '' : 's'} downloaded`)
+      const name = `documents-${new Date().toISOString().slice(0, 10)}.zip`
+      // Offer the zip to the share sheet where there is one, so several
+      // documents can go to WhatsApp in one go rather than being downloaded
+      // and then attached by hand.
+      const file = new File([blob], name, { type: 'application/zip' })
+      let shared = false
+      if (canShareFiles() && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: name })
+          shared = true
+        } catch (err) {
+          if ((err as { name?: string })?.name === 'AbortError') { clearSel(); return }
+        }
+      }
+      if (!shared) {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = name
+        document.body.appendChild(a); a.click(); a.remove()
+        // Revoked on a delay, not immediately: Safari has not started the
+        // download yet when click() returns, and revoking first cancels it.
+        setTimeout(() => URL.revokeObjectURL(url), 10_000)
+        toast(`${ids.length} file${ids.length === 1 ? '' : 's'} downloaded`)
+      }
       clearSel()
     } catch (e) { toast(errorMessage(e)) }
   }
@@ -897,6 +914,19 @@ function DocViewer({ d, canEdit, onClose, onFav, onDelete, onEdit, onChanged }: 
     finally { setSaving(false) }
   }
 
+  /** The same share sheet the gallery uses. A document is more likely to be
+   *  sent to a person than posted, but that is the sheet's decision to offer
+   *  and theirs to make, not ours to guess. */
+  async function share() {
+    setSaving(true)
+    try {
+      const how = await shareFile(d.file_url, safeFilename(d.title, d.ext, 'document'),
+        { headers: { Authorization: `Bearer ${tokenStore.get()}` }, title: d.title })
+      if (how === 'downloaded') toast('Saved to your device — share it from there')
+    } catch { toast('Could not share that') }
+    finally { setSaving(false) }
+  }
+
   async function openOrDownload(download: boolean) {
     setSaving(true)
     try {
@@ -959,6 +989,8 @@ function DocViewer({ d, canEdit, onClose, onFav, onDelete, onEdit, onChanged }: 
         <button className="viewer-btn" onClick={() => openOrDownload(true)} disabled={saving} aria-label="Download">
           {saving ? '…' : '⤓'}
         </button>
+        <button className="viewer-btn" onClick={share} disabled={saving}
+          aria-label="Share" title="Share">↗</button>
         {canEdit && <button className="viewer-btn" onClick={() => setVersions(true)}
           aria-label="Versions" title="Versions">↺</button>}
         {canEdit && <button className="viewer-btn" onClick={() => setTyping(true)}

@@ -13,6 +13,7 @@ import { PhotoTimeline } from './PhotoTimeline'
 import { IcTrash } from '../icons'
 import { fmtDate, fmtDateTime } from '../format'
 import { formatBytes } from '../maintenance'
+import { shareFile, shareFiles, safeFilename, MAX_SHARE_FILES } from '../share'
 import type {
   Photo, PhotoInfo, PersonSummary, MemoryGroup, DuplicatesData, DuplicateGroup, AlbumSummary,
   AlbumRule, PhotoEdit, PhotoMark, IndexStatus,
@@ -257,6 +258,32 @@ export default function Gallery() {
     })
   }
 
+  /** Hand the whole selection to the device's share sheet.
+   *
+   *  Uses what is already on screen rather than asking the server again: the
+   *  timeline holds every selected photo's signed URL, and a second fetch to
+   *  rebuild a list we already have would only add a delay before the sheet
+   *  opens — which on iOS is exactly what costs the gesture. */
+  async function shareSelected() {
+    const chosen = shown.filter((p) => sel.has(p.id)).slice(0, MAX_SHARE_FILES)
+    if (!chosen.length) return
+    const missed = sel.size - chosen.length
+    try {
+      const how = await shareFiles(chosen.map((p) => ({
+        url: p.url,
+        filename: safeFilename(p.caption || `photo-${p.id}`,
+                               p.kind === 'video' ? 'mp4' : 'jpg'),
+      })))
+      if (how === 'downloaded') toast(`${chosen.length} saved to your device`)
+      // Said only when it applies, and said plainly: silently sharing 20 of
+      // 50 is how somebody sends half an album without noticing.
+      if (missed > 0 && how !== 'cancelled') {
+        toast(`Shared the first ${chosen.length} — ${missed} more were not included`)
+      }
+      if (how !== 'cancelled') clearSel()
+    } catch { toast('Could not share those') }
+  }
+
   // One request for the whole selection rather than one per photo — see the
   // note on POST /api/gallery/bulk. The local state is then patched to match
   // instead of refetching, so a selection of two hundred does not throw the
@@ -363,6 +390,7 @@ export default function Gallery() {
             title={isArchive ? 'Put back in the timeline' : 'Archive'}>
             {isArchive ? '↩' : '⤓'}
           </button>
+          <button className="selbar-act" onClick={shareSelected} title="Share">↗</button>
           <button className="selbar-act" onClick={() => setAlbumPick([...sel])} title="Add to album">＋</button>
           {canEdit && (
             <button className="selbar-act danger" onClick={() => bulk('trash')} title="Move to trash">
@@ -1409,6 +1437,23 @@ function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFr
   useEffect(() => { setShown(photo) }, [photo])
   const people = info?.people ?? []
 
+  /** Hand the photo to the device's own share sheet — WhatsApp, Mail, Save
+   *  to Photos, whatever is installed. Nothing is uploaded and no link is
+   *  created; the file goes to the sheet and no further. */
+  async function share() {
+    setSaving(true)
+    try {
+      const name = safeFilename(shown.caption || `photo-${shown.id}`,
+                                isVideo ? 'mp4' : 'jpg')
+      const how = await shareFile(shown.url, name, { title: shown.caption || undefined })
+      // Nothing is said when the sheet opened: the sheet IS the feedback, and
+      // a toast over it is noise. Only the fallback needs explaining, because
+      // "I pressed share and a file downloaded" otherwise looks like a fault.
+      if (how === 'downloaded') toast('Saved to your device — share it from there')
+    } catch { toast('Could not share that') }
+    finally { setSaving(false) }
+  }
+
   // Download the full-resolution original. The URL is already signed, so no
   // Authorization header is needed — but we still fetch it as a blob so the file
   // saves under a friendly name instead of the opaque stored uuid.
@@ -1488,6 +1533,10 @@ function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFr
             title={isVideo ? 'Trim' : 'Edit'}>{isVideo ? '✂' : '✎'}</button>
         )}
         <button className="viewer-btn" onClick={() => setDetailsOpen(true)} aria-label="Photo details" title="Details">ⓘ</button>
+        <button className="viewer-btn" onClick={share} disabled={saving}
+          aria-label="Share" title="Share">
+          {saving ? '…' : '↗'}
+        </button>
         <button className="viewer-btn" onClick={download} disabled={saving} aria-label="Download">
           {saving ? '…' : '⤓'}
         </button>
