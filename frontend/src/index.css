@@ -2781,8 +2781,63 @@ html.on-auth .auth-bg { opacity: 0.3; }
 }
 .move-row:hover { background: var(--bg-elev); }
 
+/* Rename sits beside delete, not in a menu: on a folder tile there are
+   exactly two things anyone does, and a kebab that opens to reveal two
+   items is a click spent on nothing. */
+.folder-ren {
+  position: absolute; top: 6px; right: 32px;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--muted); cursor: pointer; opacity: 0;
+  font-size: 13px; transition: opacity .12s ease;
+}
+.folder-tile:hover .folder-ren, .folder-ren:focus-visible { opacity: 1; }
+.folder-ren:hover { background: var(--bg); color: var(--text); }
+
+/* Drag a file onto a folder. The whole tile lights up rather than showing a
+   thin border, because the pointer is carrying something and a 1px cue under
+   a dragged thumbnail is not a cue. */
+.folder-tile.drop-on {
+  background: color-mix(in srgb, var(--c-documents) 18%, var(--bg-elev));
+  border-color: var(--c-documents);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-documents) 35%, transparent);
+}
+
+/* The select circle. Hidden until hover, like the move affordance — but
+   ALWAYS shown once it is ticked, or a selected card at rest looks identical
+   to an unselected one as soon as the pointer moves away. */
+.doc-pick {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  width: 26px; height: 26px; padding: 0; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .85);
+  background: rgba(0, 0, 0, .35); color: #fff; cursor: pointer;
+  font-size: 14px; line-height: 1; opacity: 0; transition: opacity .12s ease;
+}
+.doc-card:hover .doc-pick, .doc-pick:focus-visible, .doc-pick.on { opacity: 1; }
+.doc-pick.on { background: var(--c-documents); border-color: #fff; }
+.doc-card.picked {
+  border-color: var(--c-documents);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-documents) 40%, transparent);
+}
+
+/* Type and date. The date row wraps rather than scrolls: a date input is not
+   something you want to find by swiping a strip sideways. */
+.doc-filters {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 10px 12px; margin-bottom: 10px;
+  background: var(--bg-elev); border: 1px solid var(--line); border-radius: 12px;
+}
+.doc-types { display: flex; flex-wrap: wrap; gap: 8px; }
+.doc-dates { display: flex; flex-wrap: wrap; gap: 12px; }
+.doc-dates label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--muted);
+}
+.doc-dates .inp { padding: 7px 9px; font-size: 13px; }
+
 @media (hover: none) {
-  .folder-x, .doc-move { opacity: 1; }
+  /* No hover on a touch screen, so anything that reveals on hover would
+     never reveal at all. */
+  .folder-x, .folder-ren, .doc-move, .doc-pick { opacity: 1; }
 }
 
 /* ---- Upload card ---------------------------------------------------------

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { DocText } from '../DocText'
-import { api, errorMessage, tokenStore } from '../api'
+import { api, apiBlob, errorMessage, tokenStore } from '../api'
 import { useNav, useOverlayBack } from '../nav'
 import { useAuth } from '../auth'
 import { useToast } from '../toast'
@@ -29,6 +29,19 @@ const BUILTIN_CATS: Cat[] = [
 // Categories come from the user's editable master list (Profile → Manage lists).
 const CatsCtx = createContext<Cat[]>(BUILTIN_CATS)
 const useCats = () => useContext(CatsCtx)
+
+/** The type filter, worded the way people look for a file rather than by
+    extension — "was it .xls or .xlsx" is the question this exists to avoid.
+    Keys match TYPE_GROUPS in the backend; `other` is everything else. */
+const FILE_TYPES = [
+  { key: 'pdf', label: 'PDFs', emoji: '📕' },
+  { key: 'image', label: 'Images', emoji: '🖼️' },
+  { key: 'doc', label: 'Documents', emoji: '📝' },
+  { key: 'sheet', label: 'Spreadsheets', emoji: '📊' },
+  { key: 'slides', label: 'Slides', emoji: '📽️' },
+  { key: 'archive', label: 'Archives', emoji: '🗜️' },
+  { key: 'other', label: 'Other', emoji: '📎' },
+]
 const catMeta = (cats: Cat[], k: string): Cat =>
   cats.find((c) => c.key === k) || { key: k, label: k || 'Other', emoji: '📄' }
 
@@ -94,6 +107,22 @@ export default function Documents() {
   const [newFolder, setNewFolder] = useState(false)
   const [recent, setRecent] = useState(false)
   const [moving, setMoving] = useState<DocumentItem | null>(null)
+  // Multi-select. A Set rather than an array because every render asks "is
+  // this one selected?" once per card, and a 500-document folder would turn
+  // that into a linear scan per tile.
+  const [sel, setSel] = useState<Set<number>>(() => new Set())
+  const [bulkMove, setBulkMove] = useState(false)
+  const [renaming, setRenaming] = useState<DocFolder | null>(null)
+  // Which folder tile a drag is currently over, so it can light up. Null is
+  // "none" — the top-level crumb uses -1, since 0 is a real folder id here.
+  const [dropTarget, setDropTarget] = useState<number | null>(null)
+  // Type and date. Kept out of `q` deliberately: these narrow a listing and a
+  // search replaces it, and mixing them gave "search inside the filter" or
+  // "filter inside the search" depending on which ran last.
+  const [ftype, setFtype] = useState('')
+  const [since, setSince] = useState('')
+  const [until, setUntil] = useState('')
+  const [filters, setFilters] = useState(false)
 
   // Pull the (user-editable) category list from masters; keep built-ins as fallback.
   useEffect(() => {
@@ -108,6 +137,9 @@ export default function Documents() {
       const params = new URLSearchParams()
       if (cat) params.set('category', cat)
       if (q.trim()) params.set('q', q.trim())
+      if (ftype) params.set('ftype', ftype)
+      if (since) params.set('since', since)
+      if (until) params.set('until', until)
       // Searching or filtering by category looks through the WHOLE tree, and
       // browsing shows one folder. They are different questions: a search
       // limited to the folder you happen to be standing in is the complaint
@@ -131,7 +163,7 @@ export default function Documents() {
       const d = await api<DocumentsData>(`/api/documents?${params}`)
       setData(d)
     } catch { setData({ items: [], total: 0, counts: {}, trashed: 0 }) }
-  }, [cat, q, folderId, recent])
+  }, [cat, q, folderId, recent, ftype, since, until])
   useEffect(() => { load() }, [load])
 
   function pickFile(f: FileList | null) {
@@ -145,6 +177,82 @@ export default function Documents() {
         body: { name, parent_id: folderId || null },
       })
       setNewFolder(false); load(true)
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  const toggleSel = (id: number) =>
+    setSel((old) => {
+      const next = new Set(old)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  const clearSel = () => setSel(new Set())
+
+  // Leaving the folder, searching or filtering clears the selection. Keeping
+  // it would mean a bulk action firing on documents that are no longer on
+  // screen — which is exactly the case where nobody can check what they are
+  // about to do.
+  useEffect(() => { clearSel() }, [folderId, q, cat, recent, ftype, since, until])
+
+  async function bulk(action: string, label: string) {
+    const ids = [...sel]
+    if (!ids.length) return
+    try {
+      const r = await api<{ changed: number }>('/api/documents/bulk',
+        { method: 'POST', body: { ids, action } })
+      // Reports what CHANGED, not what was asked for. They differ when a
+      // document was already starred, or was trashed in another tab, and
+      // saying "4 starred" over 2 real changes is the kind of small lie that
+      // makes somebody stop trusting the counts.
+      toast(`${r.changed} ${label}`)
+      clearSel(); load(true)
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  async function exportSelected() {
+    const ids = [...sel]
+    if (!ids.length) return
+    try {
+      // Downloaded through the API helper so the bearer token goes with it —
+      // a plain <a href> to the endpoint is unauthenticated and comes back 401.
+      const blob = await apiBlob('/api/documents/export', { method: 'POST', body: { ids } })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `documents-${new Date().toISOString().slice(0, 10)}.zip`
+      document.body.appendChild(a); a.click(); a.remove()
+      // Revoked on the next tick, not immediately: Safari has not started the
+      // download yet when click() returns, and revoking first cancels it.
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      toast(`${ids.length} file${ids.length === 1 ? '' : 's'} downloaded`)
+      clearSel()
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  async function moveMany(target: number | null) {
+    const ids = [...sel]
+    try {
+      await api('/api/documents/move', { method: 'POST', body: { ids, folder_id: target } })
+      setBulkMove(false); clearSel(); toast(`${ids.length} moved`); load(true)
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  /** Dropping onto a folder tile. Moves the whole selection when the dragged
+      document is part of it, and just that one when it is not — which is what
+      dragging one of several selected files does in every file manager. */
+  async function dropOnto(id: number, target: number | null) {
+    const ids = sel.has(id) ? [...sel] : [id]
+    setDropTarget(null)
+    try {
+      await api('/api/documents/move', { method: 'POST', body: { ids, folder_id: target } })
+      clearSel(); toast(`${ids.length} moved`); load(true)
+    } catch (e) { toast(errorMessage(e)) }
+  }
+
+  async function renameFolder(f: DocFolder, name: string) {
+    try {
+      await api(`/api/documents/folders/${f.id}`, { method: 'PUT', body: { name } })
+      setRenaming(null); load(true)
     } catch (e) { toast(errorMessage(e)) }
   }
 
@@ -214,6 +322,21 @@ export default function Documents() {
       <input ref={fileRef} type="file" accept="*/*" hidden
         onChange={(e) => { pickFile(e.target.files); e.currentTarget.value = '' }} />
 
+      {sel.size > 0 && (
+        <div className="selbar">
+          <button className="selbar-x" onClick={clearSel} aria-label="Clear selection">✕</button>
+          <span className="selbar-n">{sel.size} selected</span>
+          <button className="selbar-act" onClick={() => bulk('star', 'starred')} title="Star">★</button>
+          <button className="selbar-act" onClick={() => bulk('unstar', 'unstarred')} title="Remove star">☆</button>
+          <button className="selbar-act" onClick={exportSelected} title="Download as a zip">⤓</button>
+          {canEdit && <button className="selbar-act" onClick={() => setBulkMove(true)} title="Move to a folder">⤴</button>}
+          {canEdit && (
+            <button className="selbar-act danger" onClick={() => bulk('trash', 'moved to the recycle bin')}
+              title="Move to recycle bin">🗑</button>
+          )}
+        </div>
+      )}
+
       <div className="doc-search">
         <input className="input" placeholder="Search documents…" value={q}
           onChange={(e) => setQ(e.target.value)} />
@@ -235,6 +358,40 @@ export default function Documents() {
           )
         })}
       </div>
+
+      {/* Type and date. Behind a toggle because most visits do not need them
+          and a row of always-open date inputs above a phone-sized list costs
+          more screen than the folders it is meant to help find. */}
+      <div className="doc-cats">
+        <button className={`chip${filters || ftype || since || until ? ' on' : ''}`}
+          onClick={() => setFilters((v) => !v)}>
+          ⚙ Filters{(ftype ? 1 : 0) + (since || until ? 1 : 0)
+            ? ` (${(ftype ? 1 : 0) + (since || until ? 1 : 0)})` : ''}
+        </button>
+        {(ftype || since || until) && (
+          <button className="chip" onClick={() => { setFtype(''); setSince(''); setUntil('') }}>
+            Clear
+          </button>
+        )}
+      </div>
+      {filters && (
+        <div className="doc-filters">
+          <div className="doc-types">
+            {FILE_TYPES.map((t) => (
+              <button key={t.key} className={`chip${ftype === t.key ? ' on' : ''}`}
+                onClick={() => setFtype((v) => (v === t.key ? '' : t.key))}>
+                {t.emoji} {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="doc-dates">
+            <label>From <input className="inp" type="date" value={since}
+              onChange={(e) => setSince(e.target.value)} /></label>
+            <label>To <input className="inp" type="date" value={until}
+              onChange={(e) => setUntil(e.target.value)} /></label>
+          </div>
+        </div>
+      )}
 
       {/* The path back up. Hidden while searching, because search results come
           from the whole tree and a breadcrumb over them would name a folder
@@ -267,7 +424,15 @@ export default function Documents() {
                 {!!(data.folders || []).length && (
                   <div className="folder-grid">
                     {(data.folders || []).map((f) => (
-                      <div key={f.id} className="folder-tile">
+                      <div key={f.id}
+                        className={`folder-tile${dropTarget === f.id ? ' drop-on' : ''}`}
+                        onDragOver={(e) => { e.preventDefault(); setDropTarget(f.id) }}
+                        onDragLeave={() => setDropTarget((t) => (t === f.id ? null : t))}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          const id = Number(e.dataTransfer.getData('text/document-id'))
+                          if (id) dropOnto(id, f.id)
+                        }}>
                         <button className="folder-hit" onClick={() => setFolderId(f.id)}>
                           <span className="folder-ic">📁</span>
                           <span className="folder-name">{f.name}</span>
@@ -279,6 +444,10 @@ export default function Documents() {
                           </span>
                         </button>
                         {canEdit && (
+                          <button className="folder-ren" title="Rename"
+                            onClick={() => setRenaming(f)}>✎</button>
+                        )}
+                        {canEdit && (
                           <button className="folder-x" title="Move to recycle bin"
                             onClick={() => trashFolder(f)}>✕</button>
                         )}
@@ -288,7 +457,12 @@ export default function Documents() {
                 )}
                 <div className="doc-grid">
                   {items.map((d) => (
-                    <DocCard key={d.id} d={d} onOpen={() => setView(d)}
+                    <DocCard key={d.id} d={d}
+                      selected={sel.has(d.id)}
+                      selecting={sel.size > 0}
+                      onToggle={() => toggleSel(d.id)}
+                      draggable={canEdit}
+                      onOpen={() => setView(d)}
                       onMove={canEdit ? () => setMoving(d) : undefined} />
                   ))}
                 </div>
@@ -299,8 +473,17 @@ export default function Documents() {
         <NameFolderSheet onClose={() => setNewFolder(false)} onSave={createFolder} />
       )}
       {moving && (
-        <MoveSheet doc={moving} onClose={() => setMoving(null)}
+        <MoveSheet what={`“${moving.title}”`} onClose={() => setMoving(null)}
           onPick={(target) => moveTo(moving, target)} />
+      )}
+      {bulkMove && (
+        <MoveSheet what={`${sel.size} document${sel.size === 1 ? '' : 's'}`}
+          onClose={() => setBulkMove(false)} onPick={moveMany} />
+      )}
+      {renaming && (
+        <NameFolderSheet title="Rename folder" initial={renaming.name} action="Rename"
+          onClose={() => setRenaming(null)}
+          onSave={(name) => renameFolder(renaming, name)} />
       )}
 
       {addFile && <AddDoc file={addFile} onClose={() => setAddFile(null)}
@@ -424,16 +607,33 @@ function ExpiryBadge({ d }: { d: DocumentItem }) {
   return <span className={`doc-exp ${s}`}>{txt}</span>
 }
 
-function DocCard({ d, onOpen, onMove }: {
+function DocCard({ d, onOpen, onMove, selected, selecting, onToggle, draggable }: {
   d: DocumentItem; onOpen: () => void; onMove?: () => void
+  selected?: boolean; selecting?: boolean; onToggle?: () => void; draggable?: boolean
 }) {
   const meta = catMeta(useCats(), d.category)
   // A div wrapping a button, not a button wrapping everything: the move
   // affordance is itself a button, and nesting one inside another is invalid
   // HTML that browsers resolve by silently un-nesting, which breaks both.
+  // Once ANYTHING is selected, a tap selects rather than opens. Mixing the
+  // two — tap opens, tap-on-checkbox selects — is how people select four
+  // files and then lose the lot by tapping the fifth.
   return (
-    <div className="doc-card">
-      <button className="doc-hit" onClick={onOpen}>
+    <div className={`doc-card${selected ? ' picked' : ''}`}
+      draggable={!!draggable}
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/document-id', String(d.id))
+        e.dataTransfer.effectAllowed = 'move'
+      }}>
+      {onToggle && (
+        <button className={`doc-pick${selected ? ' on' : ''}`}
+          aria-label={selected ? 'Deselect' : 'Select'}
+          aria-pressed={!!selected}
+          onClick={(e) => { e.stopPropagation(); onToggle() }}>
+          {selected ? '✓' : ''}
+        </button>
+      )}
+      <button className="doc-hit" onClick={() => (selecting && onToggle ? onToggle() : onOpen())}>
         <div className="doc-thumb">
           {d.thumb_url ? <AuthImg src={d.thumb_url} className="doc-thumb-img" />
             : <div className="doc-fileicon"><span>{docIcon(d)}</span><b>{(d.ext || 'file').toUpperCase()}</b></div>}
@@ -454,12 +654,14 @@ function DocCard({ d, onOpen, onMove }: {
 }
 
 
-function NameFolderSheet({ onClose, onSave }: {
+function NameFolderSheet({ onClose, onSave, title = 'New folder', initial = '',
+                          action = 'Create' }: {
   onClose: () => void; onSave: (name: string) => void
+  title?: string; initial?: string; action?: string
 }) {
-  const [name, setName] = useState('')
+  const [name, setName] = useState(initial)
   return (
-    <Sheet title="New folder" onClose={onClose}>
+    <Sheet title={title} onClose={onClose}>
       <Field label="Name">
         <input className="inp" autoFocus value={name} maxLength={160}
           placeholder="Bank statements"
@@ -467,14 +669,15 @@ function NameFolderSheet({ onClose, onSave }: {
           onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) onSave(name.trim()) }} />
       </Field>
       <button className="btn primary block" disabled={!name.trim()}
-        onClick={() => onSave(name.trim())}>Create</button>
+        onClick={() => onSave(name.trim())}>{action}</button>
     </Sheet>
   )
 }
 
 
-function MoveSheet({ doc, onClose, onPick }: {
-  doc: DocumentItem; onClose: () => void; onPick: (folderId: number | null) => void
+function MoveSheet({ what, onClose, onPick }: {
+  /** What is being moved, already worded — one title, or "4 documents". */
+  what: string; onClose: () => void; onPick: (folderId: number | null) => void
 }) {
   const [folders, setFolders] = useState<DocFolder[] | null>(null)
   useEffect(() => {
@@ -497,7 +700,7 @@ function MoveSheet({ doc, onClose, onPick }: {
   }
 
   return (
-    <Sheet title={`Move “${doc.title}”`} onClose={onClose}>
+    <Sheet title={`Move ${what}`} onClose={onClose}>
       {!folders ? <Spinner /> : (
         <div className="move-list">
           <button className="move-row" onClick={() => onPick(null)}>

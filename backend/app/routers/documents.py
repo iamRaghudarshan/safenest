@@ -59,6 +59,22 @@ def _too_big(what: str = "File") -> str:
 CATEGORIES = ["id", "financial", "medical", "property", "vehicle", "education", "insurance", "other"]
 IMAGE_EXT = {"jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp"}
 
+#: File types, grouped the way somebody looking for a file thinks of them.
+#:
+#: Not by extension: "was it .xls or .xlsx, and did I save that one as .csv?"
+#: is the question the filter exists to avoid having to answer. `other` is
+#: deliberately not listed — it is everything the named groups did not claim,
+#: which keeps a new extension appearing in the library from falling out of the
+#: filter entirely.
+TYPE_GROUPS = {
+    "pdf": {"pdf"},
+    "image": IMAGE_EXT,
+    "doc": {"doc", "docx", "odt", "rtf", "txt", "md", "pages"},
+    "sheet": {"xls", "xlsx", "ods", "csv", "numbers"},
+    "slides": {"ppt", "pptx", "odp", "key"},
+    "archive": {"zip", "rar", "7z", "tar", "gz"},
+}
+
 # Any file may be stored — a spreadsheet, a Word document, a zip of scans. What
 # varies is how it is SERVED, and that is the whole security question here.
 #
@@ -172,7 +188,7 @@ def _present(d: Document) -> dict:
 
 @router.get("")
 def index(category: str = "", q: str = "", fav: int = 0, folder: str = "",
-          sort: str = "",
+          sort: str = "", ftype: str = "", since: str = "", until: str = "",
           user: User = Depends(guard("documents", "view")), db: Session = Depends(get_db)):
     # Trashed documents are hidden everywhere except the recycle bin below.
     base = db.query(Document).filter(Document.user_id == user.id, Document.is_trashed == 0)
@@ -205,6 +221,30 @@ def index(category: str = "", q: str = "", fav: int = 0, folder: str = "",
         # number printed on a bill nobody ever typed into the form.
         query = query.filter((Document.title.like(like)) | (Document.doc_number.like(like))
                              | (Document.notes.like(like)) | (Document.ocr_text.like(like)))
+    # Type and date, which are the two questions a category cannot answer:
+    # "the spreadsheet, not the scan of it" and "the one from last March".
+    grp = (ftype or "").strip().lower()
+    if grp:
+        exts = TYPE_GROUPS.get(grp)
+        if exts:
+            query = query.filter(Document.ext.in_(sorted(exts)))
+        elif grp == "other":
+            known = sorted({e for g in TYPE_GROUPS.values() for e in g})
+            # NOT IN misses NULL in SQL, and a document with no extension is
+            # exactly the kind of thing "other" is meant to catch.
+            query = query.filter(Document.ext.is_(None) | ~Document.ext.in_(known))
+
+    for raw, op in ((since, "ge"), (until, "le")):
+        text = (raw or "").strip()[:10]
+        if not text:
+            continue
+        try:
+            when = date.fromisoformat(text)
+        except ValueError:
+            continue        # a half-typed date filters nothing, rather than 400
+        col = func.date(Document.created_at)
+        query = query.filter(col >= when if op == "ge" else col <= when)
+
     # Sort like a file manager. Favourites still float on the default, because
     # that is what the star is for; choosing an explicit order turns that off,
     # since someone who asked for "by name" means by name.

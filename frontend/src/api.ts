@@ -155,6 +155,59 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   return data as T
 }
 
+/** A request whose answer is a FILE, not JSON.
+ *
+ *  `api()` reads the body as text and parses it, which for a zip means
+ *  decoding megabytes of binary into a string and then failing to parse it.
+ *  This returns the Blob instead, and still goes through fetch with the bearer
+ *  token — a plain <a href> to a download endpoint carries no Authorization
+ *  header and comes back 401, which is the bug this exists to avoid.
+ *
+ *  Errors are still JSON, so a failure is read the way `api()` reads one.
+ */
+export async function apiBlob(path: string, opts: Options = {}): Promise<Blob> {
+  const { method = 'GET', body, auth = true } = opts
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  if (auth) {
+    const t = tokenStore.get()
+    if (t) headers['Authorization'] = `Bearer ${t}`
+  }
+
+  let res: Response
+  try {
+    res = await fetch(path, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+  } catch {
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false
+    connection.report(false)
+    throw new ApiError(0, isOffline ? OFFLINE_MSG : UNREACHABLE_MSG, true)
+  }
+
+  if (res.status === 401 && auth) {
+    tokenStore.clear()
+    onUnauthorized.handler?.()
+  }
+  connection.report(true)
+
+  if (!res.ok) {
+    let detail: unknown = res.statusText
+    try {
+      const text = await res.text()
+      const parsed = text ? JSON.parse(text) : null
+      if (parsed && typeof parsed === 'object' && 'detail' in parsed) {
+        detail = (parsed as { detail: unknown }).detail
+      }
+    } catch { /* a non-JSON error body tells us nothing; keep the status text */ }
+    throw new ApiError(res.status, readableDetail(detail, res.status))
+  }
+  return await res.blob()
+}
+
+
 /** Turn whatever came back in `detail` into a sentence a person can read.
  *
  *  A validation failure answers with a LIST of objects, not a string, and
