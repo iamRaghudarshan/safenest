@@ -13,6 +13,7 @@ import json
 import subprocess
 import time
 import urllib.request
+import uuid
 
 import websockets
 
@@ -24,6 +25,11 @@ PASSWORD = "DemoHouse#2026"
 PROFILE_DIR = r"C:\Users\Pro-TEAM\AppData\Local\Temp\claude\cdp-docs"
 
 FAIL = []
+
+#: Unique per run. A fixed name works once and then 409s on the folder's own
+#: unique index, which shows up as a console error rather than as the setup
+#: failure it really is.
+FOLDER = "Statements " + uuid.uuid4().hex[:6]
 
 
 def check(ok, label, extra=""):
@@ -226,7 +232,7 @@ async def main():
                     "(() => {const i=document.querySelector('.sheet input');"
                     " const set=Object.getOwnPropertyDescriptor("
                     "   window.HTMLInputElement.prototype,'value').set;"
-                    " set.call(i, 'Statements');"
+                    " set.call(i, %s);" % json.dumps(FOLDER) +
                     " i.dispatchEvent(new Event('input',{bubbles:true}));"
                     " return i.value})()", wait=False)
                 await asyncio.sleep(0.4)
@@ -243,14 +249,20 @@ async def main():
                 "document.querySelectorAll('.folder-ren').length", wait=False)
             check(ren == tiles, "every folder offers rename", (ren, tiles))
 
-            await c.eval("document.querySelector('.folder-ren').click()", wait=False)
+            await c.eval(
+                "(() => {const t=[...document.querySelectorAll('.folder-tile')]"
+                " .find(x => x.querySelector('.folder-name')"
+                "   ?.textContent.trim() === %s);"
+                " if (!t) return 'no such folder';"
+                " t.querySelector('.folder-ren').click(); return 'clicked'})()"
+                % json.dumps(FOLDER), wait=False)
             await asyncio.sleep(0.6)
             # Rename must OPEN WITH THE CURRENT NAME. An empty box is a rename
             # that quietly becomes "type the whole thing again".
             pre = await c.eval(
                 "(() => {const i=document.querySelector('.sheet input');"
                 " return i ? i.value : 'no sheet'})()", wait=False)
-            check(pre == "Statements", "rename opens with the current name", pre)
+            check(pre == FOLDER, "rename opens with the current name", pre)
             btn = await c.eval(
                 "(() => {const b=[...document.querySelectorAll('.sheet button')]"
                 "  .find(x => /rename/i.test(x.textContent));"
@@ -269,7 +281,9 @@ async def main():
             moved = await c.eval("""
             (async () => {
               const card = document.querySelector('.doc-card');
-              const tile = document.querySelector('.folder-tile');
+              const tile = [...document.querySelectorAll('.folder-tile')]
+                .find(x => x.querySelector('.folder-name')
+                  ?.textContent.trim() === __FOLDER__);
               if (!card || !tile) return 'nothing to drag';
               const dt = new DataTransfer();
               card.dispatchEvent(new DragEvent('dragstart',
@@ -285,12 +299,53 @@ async def main():
               return (lit ? 'lit' : 'not lit') + ':' +
                      document.querySelectorAll('.doc-card').length;
             })()
-            """)
+            """.replace("__FOLDER__", json.dumps(FOLDER)))
             check(str(moved).startswith("lit:"),
                   "the folder lights up while a document is over it", moved)
             # One document left the listing, because it is now inside the folder.
             check(str(moved).endswith(":" + str(before - 1)),
                   "and dropping it moves it in", (moved, before))
+
+            # ---- text / CSV preview ----------------------------------------
+            # Opens a .csv and expects a TABLE where a download card used to
+            # be. Nothing in a typecheck can tell those apart.
+            opened = await c.eval("""
+            (async () => {
+              const card = [...document.querySelectorAll('.doc-card')]
+                .find(el => /budget/i.test(el.textContent || ''));
+              if (!card) return 'no csv on screen';
+              card.querySelector('.doc-hit').click();
+              await new Promise(r => setTimeout(r, 2500));
+              const t = document.querySelector('.csvprev');
+              if (!t) return 'no table: ' +
+                (document.querySelector('.viewer-pdf') ? 'download card' : 'nothing');
+              const first = [...t.querySelectorAll('tr')[0].cells].map(c => c.textContent);
+              const rows = t.querySelectorAll('tr').length;
+              return JSON.stringify({first, rows});
+            })()
+            """)
+            ok = str(opened).startswith("{")
+            check(ok, "a CSV opens as a table, not a download card", opened)
+            if ok:
+                got = json.loads(opened)
+                check(got["first"] == ["Item", "Amount", "Note"],
+                      "the header row is what the file says", got["first"])
+                # The row with a comma inside a quoted field must be ONE row of
+                # three cells, not a torn one — proved end to end, not just at
+                # the endpoint.
+                cells = await c.eval(
+                    "(() => {const r=[...document.querySelectorAll('.csvprev tr')]"
+                    " .find(x => /Sharma/.test(x.textContent));"
+                    " return r ? [...r.cells].map(c=>c.textContent) : null})()",
+                    wait=False)
+                check(cells == ["Sharma, Priya", "2500", "quoted, comma"],
+                      "a quoted comma stays inside one cell", cells)
+
+            await c.eval(
+                "[...document.querySelectorAll('.viewer-btn')]"
+                ".find(b => b.getAttribute('aria-label') === 'Close')?.click()",
+                wait=False)
+            await asyncio.sleep(1)
 
             # ---- console ----------------------------------------------------
             errs = [e for e in c.events

@@ -49,6 +49,9 @@ export interface DocumentItem {
   is_pdf: boolean
   /** Renderable in an <img>; everything else is offered as a download. */
   is_image: boolean
+  /** Showable as text or as a table, via /preview. The server decides from a
+   *  list of extensions, so the UI does not keep a second copy of that list. */
+  is_text?: boolean
   size_bytes: number
   pages: number
   file_url: string

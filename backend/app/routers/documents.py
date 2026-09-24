@@ -170,6 +170,10 @@ def _present(d: Document) -> dict:
         # Only an image can be shown in an <img>. Everything else — spreadsheets,
         # Word files, archives — gets the download card instead of a broken picture.
         "is_image": d.ext in IMAGE_EXT,
+        # Can this be shown as text rather than offered as a download? The UI
+        # cannot work it out from the extension alone without repeating the
+        # list, and two lists drift.
+        "is_text": (d.ext or "").lower() in TEXT_EXT or (d.ext or "").lower() in CSV_EXT,
         "size_bytes": d.size_bytes,
         "pages": int(d.pages or 1),
         "file_url": f"/api/documents/{d.id}/file",
@@ -477,6 +481,82 @@ def trash_list(user: User = Depends(guard("documents", "view")), db: Session = D
             .filter(Document.user_id == user.id, Document.is_trashed == 1)
             .order_by(Document.trashed_at.desc(), Document.id.desc()).all())
     return {"items": [_present(d) for d in rows], "total": len(rows)}
+
+
+#: Extensions this can show as text. Deliberately a list, not "anything that
+#: decodes": a .bin that happens to be valid UTF-8 is not a document anybody
+#: wants rendered as a wall of characters.
+TEXT_EXT = {"txt", "md", "log", "json", "xml", "yml", "yaml", "ini", "conf"}
+CSV_EXT = {"csv", "tsv"}
+
+#: How much of a file is read for a preview.
+#:
+#: A preview is for recognising a file, not for reading it — and a household
+#: machine serving a 40 MB log into a phone browser has spent everything it
+#: has to render something nobody will scroll to the end of. Whatever is cut
+#: is REPORTED, because a preview that silently stops looks like a truncated
+#: file, and somebody would go looking for the missing half.
+PREVIEW_BYTES = 256 * 1024
+PREVIEW_ROWS = 200
+PREVIEW_COLS = 30
+
+
+@router.get("/{id}/preview")
+def preview(id: int, user: User = Depends(guard("documents", "view")),
+            db: Session = Depends(get_db)):
+    """The first part of a text or CSV file, as text or as rows.
+
+    Done here rather than in the browser so the whole file never crosses the
+    wire for a glance at the top of it, and so a CSV arrives already split —
+    the browser would otherwise need its own parser for quoting rules that
+    Python already has.
+    """
+    d = _owned(db, user.id, id)
+    ext = (d.ext or "").lower()
+    if ext not in TEXT_EXT and ext not in CSV_EXT:
+        raise HTTPException(415, "That kind of file has no text preview")
+
+    path = storage.media_path(storage.DOCUMENTS, user.id, storage.ORIGINAL, d.filename)
+    if not os.path.isfile(path):
+        raise HTTPException(410, "That file is no longer on the disk")
+
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        raw = fh.read(PREVIEW_BYTES)
+    clipped = size > len(raw)
+
+    # errors="replace" rather than a guessed encoding. A spreadsheet exported
+    # from a Windows machine is often cp1252, and a preview that 500s on one
+    # smart quote is worse than one that shows a replacement character.
+    text = raw.decode("utf-8", "replace")
+    if clipped:
+        # Drop the last line: reading a fixed number of BYTES almost always
+        # lands mid-line, and half a row shown as if it were a row is a lie
+        # about the data.
+        cut = text.rfind("\n")
+        if cut > 0:
+            text = text[:cut]
+
+    if ext in CSV_EXT:
+        import csv as _csv
+        delim = "\t" if ext == "tsv" else ","
+        rows = []
+        try:
+            for i, row in enumerate(_csv.reader(io.StringIO(text), delimiter=delim)):
+                if i >= PREVIEW_ROWS:
+                    break
+                rows.append([c[:200] for c in row[:PREVIEW_COLS]])
+        except Exception as exc:
+            # A malformed CSV is still worth showing as text — that is usually
+            # how somebody works out WHY it is malformed.
+            print(f"[preview] csv parse failed for {id}: {exc}")
+            return {"kind": "text", "text": text, "truncated": clipped,
+                    "size_bytes": size}
+        return {"kind": "csv", "rows": rows,
+                "truncated": clipped or len(rows) >= PREVIEW_ROWS,
+                "size_bytes": size}
+
+    return {"kind": "text", "text": text, "truncated": clipped, "size_bytes": size}
 
 
 @router.post("/export")

@@ -722,6 +722,59 @@ function MoveSheet({ what, onClose, onPick }: {
   )
 }
 
+/** A text or CSV file shown in place, rather than offered as a download.
+ *
+ *  The server sends the first part and says whether it cut anything, so a
+ *  40MB log does not cross the wire for a glance at the top of it. A CSV
+ *  arrives already split into rows: the browser would otherwise need its own
+ *  parser for quoting rules Python already has. */
+function TextPreview({ d }: { d: DocumentItem }) {
+  type P = { kind: 'text' | 'csv'; text?: string; rows?: string[][]
+             truncated: boolean; size_bytes: number }
+  const [p, setP] = useState<P | null>(null)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    let live = true
+    api<P>(`/api/documents/${d.id}/preview`)
+      .then((r) => { if (live) setP(r) })
+      .catch((e) => { if (live) setErr(errorMessage(e)) })
+    return () => { live = false }
+  }, [d.id])
+
+  if (err) return <div className="viewer-pdf"><div className="viewer-pdf-s">{err}</div></div>
+  if (!p) return <div className="viewer-loading"><span className="spinner" /></div>
+
+  return (
+    <div className="txtprev">
+      {p.kind === 'csv' && p.rows ? (
+        <div className="txtprev-scroll">
+          <table className="csvprev">
+            <tbody>
+              {p.rows.map((row, i) => (
+                <tr key={i} className={i === 0 ? 'head' : undefined}>
+                  {/* The first row is treated as a header for LOOKS only —
+                      nothing downstream depends on it, because plenty of
+                      exports have no header and styling the first data row
+                      bold is a much smaller wrong than dropping it. */}
+                  {row.map((cell, j) => <td key={j}>{cell}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <pre className="txtprev-scroll txtprev-pre">{p.text}</pre>
+      )}
+      {p.truncated && (
+        <div className="txtprev-more">
+          Showing the start of this file ({formatBytes(p.size_bytes)} in total).
+          Download it to see the rest.
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ---------- Viewer ---------- */
 
 function DocViewer({ d, canEdit, onClose, onFav, onDelete, onEdit, onChanged }: {
@@ -777,7 +830,9 @@ function DocViewer({ d, canEdit, onClose, onFav, onDelete, onEdit, onChanged }: 
   return (
     <div className="viewer">
       <div className="viewer-stage">
-        {!d.is_image ? (
+        {d.is_text ? (
+          <TextPreview d={d} />
+        ) : !d.is_image ? (
           <div className="viewer-pdf">
             <div className="viewer-pdf-ic">📄</div>
             <div className="viewer-pdf-t">{d.title}</div>
@@ -897,6 +952,25 @@ function VersionsSheet({ doc, onClose, onChanged }: {
     finally { setBusy(false) }
   }
 
+  /** Look at an old copy WITHOUT making it current.
+   *
+   *  The usual reason for opening this sheet is working out which version you
+   *  want — and a Restore you have to perform first, to find out, is a Restore
+   *  somebody then has to undo. */
+  async function download(v: V) {
+    setBusy(true)
+    try {
+      const blob = await apiBlob(`/api/documents/${doc.id}/versions/${v.version}/file`)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = v.orig_name || `${doc.title} (v${v.version}).${v.ext || 'bin'}`
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
   async function restore(v: number) {
     setBusy(true)
     try {
@@ -910,7 +984,7 @@ function VersionsSheet({ doc, onClose, onChanged }: {
     <Sheet title="Versions" onClose={onClose}>
       <p className="muted">
         Replacing a file keeps the old one, so nothing is lost by uploading the
-        wrong scan.
+        wrong scan. The last ten are kept.
       </p>
       <input ref={fileRef} type="file" className="file-offscreen"
         onChange={(e) => {
@@ -937,6 +1011,9 @@ function VersionsSheet({ doc, onClose, onChanged }: {
                   {v.created_at ? ` \u00b7 ${fmtDate(v.created_at)}` : ''}
                 </div>
               </div>
+              <button className="btn ghost sm" disabled={busy}
+                title="Download this version without restoring it"
+                onClick={() => download(v)}>↓</button>
               <button className="btn sm" disabled={busy}
                 onClick={() => restore(v.version)}>Restore</button>
             </div>
