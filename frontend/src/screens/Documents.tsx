@@ -33,6 +33,19 @@ const useCats = () => useContext(CatsCtx)
 /** The type filter, worded the way people look for a file rather than by
     extension — "was it .xls or .xlsx" is the question this exists to avoid.
     Keys match TYPE_GROUPS in the backend; `other` is everything else. */
+/** The orders the server already understood and nothing offered.
+ *
+ *  "Starred first" is the empty string because it is the DEFAULT, not an
+ *  option added later — naming it in the list is the only way somebody can
+ *  get back to it after picking another. */
+const SORTS = [
+  { key: '', label: 'Starred first' },
+  { key: 'name', label: 'Name' },
+  { key: 'oldest', label: 'Oldest first' },
+  { key: 'largest', label: 'Largest' },
+  { key: 'smallest', label: 'Smallest' },
+]
+
 const FILE_TYPES = [
   { key: 'pdf', label: 'PDFs', emoji: '📕' },
   { key: 'image', label: 'Images', emoji: '🖼️' },
@@ -123,6 +136,10 @@ export default function Documents() {
   const [since, setSince] = useState('')
   const [until, setUntil] = useState('')
   const [filters, setFilters] = useState(false)
+  // '' is the default order the server calls "smart": favourites first, then
+  // newest. Choosing an explicit order turns the favourites float OFF, because
+  // somebody who asked for "by name" means by name.
+  const [sort, setSort] = useState('')
 
   // Pull the (user-editable) category list from masters; keep built-ins as fallback.
   useEffect(() => {
@@ -137,6 +154,7 @@ export default function Documents() {
       const params = new URLSearchParams()
       if (cat) params.set('category', cat)
       if (q.trim()) params.set('q', q.trim())
+      if (sort) params.set('sort', sort)
       if (ftype) params.set('ftype', ftype)
       if (since) params.set('since', since)
       if (until) params.set('until', until)
@@ -163,7 +181,7 @@ export default function Documents() {
       const d = await api<DocumentsData>(`/api/documents?${params}`)
       setData(d)
     } catch { setData({ items: [], total: 0, counts: {}, trashed: 0 }) }
-  }, [cat, q, folderId, recent, ftype, since, until])
+  }, [cat, q, folderId, recent, ftype, since, until, sort])
   useEffect(() => { load() }, [load])
 
   function pickFile(f: FileList | null) {
@@ -192,7 +210,7 @@ export default function Documents() {
   // it would mean a bulk action firing on documents that are no longer on
   // screen — which is exactly the case where nobody can check what they are
   // about to do.
-  useEffect(() => { clearSel() }, [folderId, q, cat, recent, ftype, since, until])
+  useEffect(() => { clearSel() }, [folderId, q, cat, recent, ftype, since, until, sort])
 
   async function bulk(action: string, label: string) {
     const ids = [...sel]
@@ -365,11 +383,12 @@ export default function Documents() {
       <div className="doc-cats">
         <button className={`chip${filters || ftype || since || until ? ' on' : ''}`}
           onClick={() => setFilters((v) => !v)}>
-          ⚙ Filters{(ftype ? 1 : 0) + (since || until ? 1 : 0)
-            ? ` (${(ftype ? 1 : 0) + (since || until ? 1 : 0)})` : ''}
+          ⚙ Filters{(ftype ? 1 : 0) + (since || until ? 1 : 0) + (sort ? 1 : 0)
+            ? ` (${(ftype ? 1 : 0) + (since || until ? 1 : 0) + (sort ? 1 : 0)})` : ''}
         </button>
-        {(ftype || since || until) && (
-          <button className="chip" onClick={() => { setFtype(''); setSince(''); setUntil('') }}>
+        {(ftype || since || until || sort) && (
+          <button className="chip"
+            onClick={() => { setFtype(''); setSince(''); setUntil(''); setSort('') }}>
             Clear
           </button>
         )}
@@ -385,6 +404,14 @@ export default function Documents() {
             ))}
           </div>
           <div className="doc-dates">
+            <label>Sort
+              <select className="inp rule-sel" value={sort}
+                onChange={(e) => setSort(e.target.value)}>
+                {SORTS.map((o) => (
+                  <option key={o.key} value={o.key}>{o.label}</option>
+                ))}
+              </select>
+            </label>
             <label>From <input className="inp" type="date" value={since}
               onChange={(e) => setSince(e.target.value)} /></label>
             <label>To <input className="inp" type="date" value={until}

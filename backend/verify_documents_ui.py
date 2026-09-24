@@ -103,8 +103,59 @@ CLICK = """
 """
 
 
+def seed(token):
+    """Upload the fixtures this test needs, rather than hoping they are there.
+
+    It used to run against whatever the previous script had left in the
+    database, which meant it passed all afternoon and then failed with
+    "Cannot read properties of undefined" the moment another test ran first.
+    A test that depends on another test's leftovers is not a test; it is a
+    coincidence that has not broken yet.
+
+    Everything here is required by a specific check below: two PDFs so the
+    type filter can narrow to something, a fourth file so the filter narrowing
+    is visible, and the CSV with a quoted comma for the preview.
+    """
+    want = [
+        ("Rent agreement", "rent.pdf", b"%PDF-1.4\nrent\n%%EOF\n"),
+        ("Salary slip", "slip.pdf", b"%PDF-1.4\nslip\n%%EOF\n"),
+        ("Notes", "notes.txt", b"just some notes\n"),
+        ("Budget", "budget.csv",
+         b'Item,Amount,Note\nRent,18000,monthly\n'
+         b'"Sharma, Priya",2500,"quoted, comma"\n'),
+    ]
+    # ?folder=0 is the TOP LEVEL, not "everywhere". Asking without it returns
+    # the whole tree, so a fixture that an earlier run dragged into a folder
+    # counted as present while not being on the screen this test looks at —
+    # which showed up as "no csv on screen" and looked like a broken preview.
+    req = urllib.request.Request(BASE + "/api/documents?folder=0",
+                                 headers={"Authorization": "Bearer " + token})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        have = {x["title"] for x in json.load(r).get("items", [])}
+
+    for title, name, body in want:
+        if title in have:
+            continue
+        b = "----sn" + uuid.uuid4().hex
+        out = bytearray()
+        for k, v in (("title", title), ("category", "other")):
+            out += ('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n'
+                    % (b, k, v)).encode()
+        out += ('--%s\r\nContent-Disposition: form-data; name="file";'
+                ' filename="%s"\r\nContent-Type: application/octet-stream\r\n\r\n'
+                % (b, name)).encode()
+        out += body + ("\r\n--%s--\r\n" % b).encode()
+        rq = urllib.request.Request(
+            BASE + "/api/documents", data=bytes(out), method="POST",
+            headers={"Content-Type": "multipart/form-data; boundary=" + b,
+                     "Authorization": "Bearer " + token})
+        with urllib.request.urlopen(rq, timeout=120) as r:
+            r.read()
+
+
 async def main():
     token = login_token()
+    seed(token)
     proc = subprocess.Popen(
         [CHROME, "--headless=new", f"--remote-debugging-port={PORT}",
          f"--user-data-dir={PROFILE_DIR}", "--no-first-run",
@@ -142,7 +193,9 @@ async def main():
             check(here == "yes", "the Documents screen renders", (got, here))
 
             n = await c.eval("document.querySelectorAll('.doc-card').length", wait=False)
-            check(n > 0, "documents are listed", n)
+            # At least four, because the checks below index into the second
+            # card and expect the type filter to leave some out.
+            check(n >= 4, "the fixtures are on screen", n)
 
             # ---- selection -------------------------------------------------
             await c.eval("document.querySelector('.doc-pick').click()", wait=False)
@@ -224,6 +277,51 @@ async def main():
                                     wait=False)
             check(restored == before, "and Clear puts them all back",
                   (before, restored))
+
+            # Preview runs before the folder work: the drag below moves a
+            # document into a folder, and if that document is the CSV the
+            # preview check fails with "no csv on screen" — which reads as
+            # a broken preview rather than as a file that moved.
+            # ---- text / CSV preview ----------------------------------------
+            # Opens a .csv and expects a TABLE where a download card used to
+            # be. Nothing in a typecheck can tell those apart.
+            opened = await c.eval("""
+            (async () => {
+              const card = [...document.querySelectorAll('.doc-card')]
+                .find(el => /budget/i.test(el.textContent || ''));
+              if (!card) return 'no csv on screen';
+              card.querySelector('.doc-hit').click();
+              await new Promise(r => setTimeout(r, 2500));
+              const t = document.querySelector('.csvprev');
+              if (!t) return 'no table: ' +
+                (document.querySelector('.viewer-pdf') ? 'download card' : 'nothing');
+              const first = [...t.querySelectorAll('tr')[0].cells].map(c => c.textContent);
+              const rows = t.querySelectorAll('tr').length;
+              return JSON.stringify({first, rows});
+            })()
+            """)
+            ok = str(opened).startswith("{")
+            check(ok, "a CSV opens as a table, not a download card", opened)
+            if ok:
+                got = json.loads(opened)
+                check(got["first"] == ["Item", "Amount", "Note"],
+                      "the header row is what the file says", got["first"])
+                # The row with a comma inside a quoted field must be ONE row of
+                # three cells, not a torn one — proved end to end, not just at
+                # the endpoint.
+                cells = await c.eval(
+                    "(() => {const r=[...document.querySelectorAll('.csvprev tr')]"
+                    " .find(x => /Sharma/.test(x.textContent));"
+                    " return r ? [...r.cells].map(c=>c.textContent) : null})()",
+                    wait=False)
+                check(cells == ["Sharma, Priya", "2500", "quoted, comma"],
+                      "a quoted comma stays inside one cell", cells)
+
+            await c.eval(
+                "[...document.querySelectorAll('.viewer-btn')]"
+                ".find(b => b.getAttribute('aria-label') === 'Close')?.click()",
+                wait=False)
+            await asyncio.sleep(1)
 
             # ---- folders: rename, and drag a document onto one -------------
             await c.eval(
@@ -311,47 +409,6 @@ async def main():
             # One document left the listing, because it is now inside the folder.
             check(str(moved).endswith(":" + str(before - 1)),
                   "and dropping it moves it in", (moved, before))
-
-            # ---- text / CSV preview ----------------------------------------
-            # Opens a .csv and expects a TABLE where a download card used to
-            # be. Nothing in a typecheck can tell those apart.
-            opened = await c.eval("""
-            (async () => {
-              const card = [...document.querySelectorAll('.doc-card')]
-                .find(el => /budget/i.test(el.textContent || ''));
-              if (!card) return 'no csv on screen';
-              card.querySelector('.doc-hit').click();
-              await new Promise(r => setTimeout(r, 2500));
-              const t = document.querySelector('.csvprev');
-              if (!t) return 'no table: ' +
-                (document.querySelector('.viewer-pdf') ? 'download card' : 'nothing');
-              const first = [...t.querySelectorAll('tr')[0].cells].map(c => c.textContent);
-              const rows = t.querySelectorAll('tr').length;
-              return JSON.stringify({first, rows});
-            })()
-            """)
-            ok = str(opened).startswith("{")
-            check(ok, "a CSV opens as a table, not a download card", opened)
-            if ok:
-                got = json.loads(opened)
-                check(got["first"] == ["Item", "Amount", "Note"],
-                      "the header row is what the file says", got["first"])
-                # The row with a comma inside a quoted field must be ONE row of
-                # three cells, not a torn one — proved end to end, not just at
-                # the endpoint.
-                cells = await c.eval(
-                    "(() => {const r=[...document.querySelectorAll('.csvprev tr')]"
-                    " .find(x => /Sharma/.test(x.textContent));"
-                    " return r ? [...r.cells].map(c=>c.textContent) : null})()",
-                    wait=False)
-                check(cells == ["Sharma, Priya", "2500", "quoted, comma"],
-                      "a quoted comma stays inside one cell", cells)
-
-            await c.eval(
-                "[...document.querySelectorAll('.viewer-btn')]"
-                ".find(b => b.getAttribute('aria-label') === 'Close')?.click()",
-                wait=False)
-            await asyncio.sleep(1)
 
             # ---- console ----------------------------------------------------
             errs = [e for e in c.events

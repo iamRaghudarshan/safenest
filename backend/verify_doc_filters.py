@@ -88,9 +88,11 @@ FILES = [
     # The one that catches the NULL bug: an extension no group claims.
     ('Firmware', 'router.bin', b'\x00\x01\x02\x03 binary blob'),
 ]
+IDS_BY_TITLE = {}
 for title, name, body in FILES:
     st, d = upload(title, name, body, TOK)
     assert st == 200, (name, st, d)
+    IDS_BY_TITLE[title] = (d.get('item') or d)['id']
 print('  %d documents uploaded' % len(FILES))
 
 
@@ -140,6 +142,43 @@ for half in ('2026-0', '', 'yesterday', '2026-13-45'):
     check(st == 200 and len(got) == len(FILES),
           'a half-typed date %r filters nothing and does not error' % half,
           (st, len(got)))
+
+print('\n  --- sort ---')
+
+
+def order(params):
+    st, d = call('/api/documents?' + params, tok=TOK)
+    return [x['title'] for x in d.get('items', [])]
+
+
+got = order('sort=name')
+check(got == sorted(got), 'by name is actually alphabetical', got[:3])
+
+big = order('sort=largest')
+small = order('sort=smallest')
+check(big == list(reversed(small)),
+      'largest and smallest are the same list, reversed', (big[:2], small[:2]))
+
+# THE ONE WORTH PINNING. The default floats favourites to the top; an explicit
+# order must NOT, or "by name" silently means "starred, then by name" and the
+# list looks wrong to the one person who asked for it.
+call('/api/documents/bulk', {'ids': [IDS_BY_TITLE['Letter']], 'action': 'star'},
+     tok=TOK)
+st, d = call('/api/documents', tok=TOK)
+check(d['items'][0]['title'] == 'Letter',
+      'the DEFAULT order floats a starred file to the top',
+      d['items'][0]['title'])
+got = order('sort=name')
+check(got == sorted(got),
+      'but an explicit order does not — starred stays where its name puts it',
+      got[:3])
+call('/api/documents/bulk', {'ids': [IDS_BY_TITLE['Letter']], 'action': 'unstar'},
+     tok=TOK)
+
+got = order('sort=nonsense')
+check(len(got) == len(FILES),
+      'an unknown sort falls back rather than erroring', len(got))
+
 
 print('\n  --- together ---')
 st, got = titles('ftype=pdf&since=%s&until=%s' % (today, today))

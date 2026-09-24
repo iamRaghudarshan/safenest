@@ -21,6 +21,19 @@ from app import bursts, smartalbum
 FAIL = []
 
 
+class _Q:
+    """The smallest thing apply() can narrow, so the SQL can be read back.
+
+    A real Session would make this an integration test; all that is needed is
+    something that records the filters, and SQLAlchemy's own query object
+    against the mapped class does exactly that without touching a database.
+    """
+    def __new__(cls):
+        from sqlalchemy.orm import Query
+        from app.models import GalleryPhoto
+        return Query([GalleryPhoto])
+
+
 def check(name, got, want):
     ok = got == want
     print(f"  {'PASS' if ok else 'FAIL'}  {name}")
@@ -68,6 +81,20 @@ check("a nonsense month is skipped rather than crashing",
 # itself as "everything", because only "video" was ever named. An album whose
 # rule is invisible is the thing describe() exists to prevent.
 check("a photos-only rule says so", smartalbum.describe({"kind": "photo"}), "photos")
+# The matching half of the same bug, found the same way: `kind` is NULL for
+# photos and only written for videos, so a rule of {"kind": "photo"} compiled
+# to `kind == 'photo'` matched nothing. apply() now uses the gallery's own
+# test. Asserted on the SQL rather than on rows, so this stays a pure test.
+# NOTE the signature: check(name, got, want) here, compared by equality —
+# not the check(ok, label, extra) the browser harnesses use. Mixing them up
+# reports a passing assertion as a failure, which is how this very line first
+# went red.
+_sql = str(smartalbum.apply(_Q(), None, 1, {"kind": "photo"})).upper()
+# Only the two positive properties. A third probe for the absence of
+# "= :KIND" was always true, because "!= :KIND_1" contains it — a substring
+# test for an operator cannot tell = from !=.
+check("a photos rule matches NULL and excludes video",
+      ("KIND IS NULL" in _sql, "KIND !=" in _sql), (True, True))
 check("a videos-only rule still says so", smartalbum.describe({"kind": "video"}), "videos")
 
 

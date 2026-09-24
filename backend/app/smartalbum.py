@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from . import dialect
@@ -117,7 +118,18 @@ def apply(sel, db: Session, user_id: int, rule: dict):
             pass
 
     if rule.get("kind"):
-        sel = sel.filter(GalleryPhoto.kind == str(rule["kind"])[:8])
+        # The SAME test the gallery's own kind filter uses, not a fresh one.
+        # `kind` is NULL for photos and only written for videos — _present
+        # defaults it to "photo" on the way out — so `== "photo"` matches no
+        # row at all. A saved search for photos came back empty on a library
+        # full of them, and the album still said "0 photos" with a straight
+        # face.
+        k = str(rule["kind"])[:8].lower()
+        if k == "video":
+            sel = sel.filter(GalleryPhoto.kind == "video")
+        elif k == "photo":
+            sel = sel.filter(or_(GalleryPhoto.kind.is_(None),
+                                 GalleryPhoto.kind != "video"))
 
     if rule.get("place"):
         sel = sel.filter(GalleryPhoto.place == str(rule["place"])[:120])

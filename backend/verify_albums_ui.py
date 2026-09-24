@@ -104,6 +104,7 @@ def seed_a_photo(token):
     st, d = call("/api/gallery?limit=1", tok=token)
     if d.get("items"):
         return
+    print("  seeding one photo (the library was empty)")
     import io as _io
     import random
     from PIL import Image
@@ -133,6 +134,11 @@ async def main():
     st, d = call("/api/auth/login", {"email": EMAIL, "password": PASSWORD})
     token = d["token"]
     seed_a_photo(token)
+    st, lib = call("/api/gallery?limit=1", tok=token)
+    if not lib.get("items"):
+        # Without this the next failure reads as "the saved search did not
+        # run", when the truth is that there was nothing for it to match.
+        raise SystemExit("  could not seed a photo; the rest proves nothing")
 
     proc = subprocess.Popen(
         [CHROME, "--headless=new", f"--remote-debugging-port={PORT}",

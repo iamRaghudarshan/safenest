@@ -33,6 +33,18 @@ if not os.path.isfile(PY):
 COOLDOWN = 310
 
 
+#: Scripts that need something this runner does not provide, with the reason.
+#: Listed rather than deleted: a script that quietly stops being run is a
+#: script nobody notices has rotted, and "needs a mail catcher" is a different
+#: state from "failing".
+NEEDS_SETUP = {
+    "verify_features.py": "wants its own throwaway server on 8090",
+    "verify_sync.py": "takes a scratch dir and a port as arguments",
+    "verify_chunked_upload.py": "builds its own database; run it directly",
+    "verify_alerts.py": "needs an SMTP catcher on 127.0.0.1",
+}
+
+
 def is_rate_limited(out: str) -> bool:
     return "429" in out and "Too many attempts" in out
 
@@ -52,10 +64,14 @@ def main() -> int:
         return 1
 
     print(f"{len(names)} scripts\n")
-    passed, failed, waited = [], [], 0
+    passed, failed, skipped, waited = [], [], [], 0
 
     for i, n in enumerate(names, 1):
         print(f"[{i}/{len(names)}] {n:<32}", end="", flush=True)
+        if n in NEEDS_SETUP and not args:
+            print(f"SKIP  ({NEEDS_SETUP[n]})")
+            skipped.append(n)
+            continue
         for attempt in (1, 2):
             r = subprocess.run([PY, os.path.join(HERE, n)],
                                capture_output=True, text=True, timeout=900)
@@ -76,7 +92,12 @@ def main() -> int:
 
     print()
     print(f"  {len(passed)} passed, {len(failed)} failed"
+          + (f", {len(skipped)} skipped" if skipped else "")
           + (f", waited out the login limiter {waited}x" if waited else ""))
+    if skipped:
+        print("  skipped (name them explicitly to run one anyway):")
+        for n in skipped:
+            print(f"    {n:<32} {NEEDS_SETUP[n]}")
     for n, out in failed:
         print(f"\n--- {n} " + "-" * (60 - len(n)))
         tail = [ln for ln in out.strip().splitlines() if ln.strip()][-12:]
