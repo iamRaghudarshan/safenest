@@ -54,13 +54,15 @@ forgot" look identical once a row disappears.
 | §37 | Recent / Starred | a chip beside the categories; Shared does not apply |
 | §30 | Text and CSV preview | `verify_preview.py` 28 |
 
-Still absent, on purpose:
+Closed since:
 
-| # | Task | Decision |
+| # | Task | Evidence |
 |---|---|---|
-| §39 §40 | Organisation suggestions with approve/reject | Not started. The clustering half exists as Smart albums; the approve/reject workflow over *moves* does not, and a wrong suggestion that files something is much more annoying than one that offers. |
-| §41 | Automatic creations — highlight reels, collages | Skipped. Needs video composition on a household PC, and the output is the kind of thing people either love or find intrusive. Worth asking before building. |
-| §30 | Office preview (docx, xlsx, pptx) | Skipped. Needs LibreOffice — hundreds of MB onto a ~450MB build. Recommendation: don't. |
+| §39 §40 | Suggestions with approve/reject | `verify_creations.py` 26 — a dismissal is permanent, which is the property the panel lives on |
+| §41 | Automatic creations — collages and moving highlights | same file; an animated WebP, not FFmpeg |
+| §30 | Office preview (docx, xlsx, pptx) | `verify_officedoc.py` 24 — read as content, no LibreOffice, and a zip bomb refused |
+| §30 | Video and audio preview in documents | `verify_preview.py` |
+| — | Photo editing: crop, rotate, flip, adjust, filter | `verify_photoedit.py` 28, `verify_editor_ui.py` 15 |
 
 ### 3. Architecture
 | # | Task | Why | Size |
@@ -104,6 +106,13 @@ is what the indexing and pagination work is scoped to.
 Both were found by running things, not by reading them, and both had already
 passed a typecheck and a code read.
 
+- **store_photo normalised every upload to JPEG**, which is right for one
+  format on disk and fatal for an animation, because a JPEG holds one frame.
+  The first moving highlight came back as a still — a feature that silently
+  does not work. The frame count is now read before `convert()` collapses it.
+- **`smartalbum` compiled a photos rule to `kind = 'photo'`**, which matches
+  no row: the column is NULL for photos and only written for videos. The
+  gallery had already solved this three lines away.
 - **Deleting a document left its versions behind.** Files accumulated on disk
   for ever, and — the serious half — ids get reused, so the next document to
   take that id inherited a deleted document's history, restorable. It surfaced

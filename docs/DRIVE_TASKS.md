@@ -62,8 +62,8 @@ remains is section C, which was always "decide before starting".
 | Image preview | DONE | |
 | PDF preview | DONE | |
 | Text / CSV preview | DONE | read on the server: 256KB, 200 rows, and it says what it cut |
-| **Office (docx, xlsx, pptx)** | **TODO** | needs a converter; large dependency |
-| Video / audio preview | **TODO** | the gallery plays video; documents do not |
+| Office (docx, xlsx, pptx) | DONE | content, not rendering — zipfile + xml.etree, nothing installed |
+| Video / audio preview | DONE | streamed from /file by the browser's own element |
 
 ## 5. Not being built as specified
 
@@ -102,12 +102,14 @@ the thing they installed this instead of.
 11. ~~Filter by type and date~~
 12. ~~Drag and drop onto a folder~~
 
-**C — large, decide before starting.** Unchanged; none started.
-13. Office preview — needs LibreOffice or a conversion service; adds hundreds
-    of megabytes to a build that currently ships ~450 MB. Recommendation:
-    don't. The download card is a worse experience than a preview, and a much
-    better one than a 700MB install.
-14. Video and audio preview inside documents
+**C — large, decide before starting.** All resolved.
+13. ~~Office preview~~ — built, but NOT the way this line assumed. Rendering
+    needs LibreOffice; READING does not. Every modern Office file is a ZIP of
+    XML, so paragraphs, cells and slide text come out with the standard
+    library alone. It cannot show layout, images or formatting, and the screen
+    says so rather than letting a Word file look like one that lost its
+    formatting.
+14. ~~Video and audio preview inside documents~~
 15. ~~Any form of sharing~~ — decided and built as export-to-zip
 
 ---
@@ -117,8 +119,9 @@ the thing they installed this instead of.
 Tested and passing: folders (13 checks), copy/recent/versions (22), PDF
 content search (13), classification (6 plus precision and recall on 14 types
 and 5 non-documents), trash retention (shared with the gallery), bulk /
-export / retention / saved searches (31), type and date filters (20), text and
-CSV preview (28), version cascade on delete (6).
+export / retention / saved searches (31), type and date filters (20), text,
+CSV, Office and media preview (41), the Office reader on its own (24,
+including a zip bomb), version cascade on delete (6).
 
 Plus 24 in a real browser against the throwaway instance — the selection bar,
 the second tap selecting rather than opening, rename opening with the current

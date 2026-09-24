@@ -46,7 +46,15 @@ NEEDS_SETUP = {
 
 
 def is_rate_limited(out: str) -> bool:
-    return "429" in out and "Too many attempts" in out
+    """Both wordings.
+
+    The server says "Too many attempts"; urllib raises its own generic
+    "HTTP Error 429: Too Many Requests" and never shows the body. Matching
+    only the first meant a script that hit the limiter through an uncaught
+    urlopen was reported as a genuine failure — which is exactly the false
+    alarm this runner exists to prevent.
+    """
+    return "429" in out
 
 
 def main() -> int:

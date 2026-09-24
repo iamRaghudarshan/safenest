@@ -32,6 +32,12 @@ FAIL = []
 #: failure it really is.
 FOLDER = "Statements " + uuid.uuid4().hex[:6]
 
+#: A title of this test's own, not "Budget". Two OTHER scripts upload a file
+#: called Budget with different contents, so which one this test opened
+#: depended on which of them ran last — and the CSV assertions then failed
+#: against a file that was never meant to satisfy them.
+CSV_TITLE = "Preview fixture"
+
 
 def check(ok, label, extra=""):
     # This console is cp1252 and the page text is not — a rupee sign lifted
@@ -120,7 +126,7 @@ def seed(token):
         ("Rent agreement", "rent.pdf", b"%PDF-1.4\nrent\n%%EOF\n"),
         ("Salary slip", "slip.pdf", b"%PDF-1.4\nslip\n%%EOF\n"),
         ("Notes", "notes.txt", b"just some notes\n"),
-        ("Budget", "budget.csv",
+        (CSV_TITLE, "preview.csv",
          b'Item,Amount,Note\nRent,18000,monthly\n'
          b'"Sharma, Priya",2500,"quoted, comma"\n'),
     ]
@@ -288,7 +294,7 @@ async def main():
             opened = await c.eval("""
             (async () => {
               const card = [...document.querySelectorAll('.doc-card')]
-                .find(el => /budget/i.test(el.textContent || ''));
+                .find(el => (el.textContent || '').includes(TITLE));
               if (!card) return 'no csv on screen';
               card.querySelector('.doc-hit').click();
               await new Promise(r => setTimeout(r, 2500));
@@ -299,7 +305,7 @@ async def main():
               const rows = t.querySelectorAll('tr').length;
               return JSON.stringify({first, rows});
             })()
-            """)
+            """.replace("TITLE", json.dumps(CSV_TITLE)))
             ok = str(opened).startswith("{")
             check(ok, "a CSV opens as a table, not a download card", opened)
             if ok:
