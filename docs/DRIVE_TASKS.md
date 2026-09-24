@@ -5,7 +5,9 @@ endpoint exists *and* a test or a click proves it; **API only** means it works
 but nothing in the app calls it, which from a user's seat is the same as
 missing.
 
-Last audited 24 September 2026.
+Last audited 24 September 2026, after the multi-select / filters / preview
+batch. Everything in sections A and B below is now DONE and tested; what
+remains is section C, which was always "decide before starting".
 
 ---
 
@@ -18,14 +20,14 @@ Last audited 24 September 2026.
 | Breadcrumb navigation | DONE | bounded walk, so a cycle cannot hang a request |
 | Move a file | DONE | `POST /api/documents/move` |
 | Rename | DONE | |
-| Copy | API only | real byte copy; **no button** |
+| Copy | DONE | button in the viewer |
 | Delete → Trash → Restore | DONE | 30-day retention sweep |
 | Star / favourite | DONE | |
-| **Move a folder into another folder** | **TODO** | `PUT /folders/{id}` accepts `parent_id`; no UI |
-| **Rename a folder** | **TODO** | endpoint accepts `name`; no UI |
-| **Drag and drop into a folder** | **TODO** | |
-| **Multi-select files** | **TODO** | the gallery has it; documents do not |
-| **Bulk move / delete / star** | **TODO** | needs multi-select first |
+| Move a folder into another folder | DONE | via the move sheet |
+| Rename a folder | DONE | opens with the CURRENT name, not an empty box |
+| Drag and drop into a folder | DONE | moves the whole selection if the dragged file is in it |
+| Multi-select files | DONE | once anything is picked, a tap selects rather than opens |
+| Bulk move / delete / star | DONE | scoped by `user_id` in the filter, not by id alone |
 
 ## 2. Finding things
 
@@ -35,20 +37,22 @@ Last audited 24 September 2026.
 | Search inside PDFs | DONE | text layer; scanned PDFs still not covered |
 | Search inside images | DONE | OCR, where the engine is installed |
 | Search by category | DONE | the existing category chips |
-| **Recent** | **API only** | added / changed / starred returned; no screen |
-| **Filter by type, owner, date, size** | **TODO** | `sort` exists; no filter UI |
-| **Sort by name / modified / size** | **API only** | `?sort=` works; no control |
-| **Automatic classification** | **API only** | 14 types, abstains, explains; no correction UI |
+| Recent | DONE | a chip beside the categories; it cuts across them |
+| Filter by type and date | DONE | grouped by what a file IS, not by extension |
+| Filter by owner / size | Not applicable | one household, one owner; size is a sort |
+| Sort by name / modified / size | API only | `?sort=` works; still no control |
+| Automatic classification | DONE | correction sheet shows the classifier's evidence |
 
 ## 3. Versions
 
 | Drive behaviour | Status | Notes |
 |---|---|---|
 | Replace keeps the old file | DONE | tested — nothing is destroyed |
-| List versions | API only | no panel |
-| Restore a version | API only | restore is itself undoable |
-| Download a specific version | **TODO** | no endpoint serves version bytes |
-| **Version retention limit** | **TODO** | versions accumulate forever today |
+| List versions | DONE | panel in the viewer |
+| Restore a version | DONE | restore is itself undoable |
+| Download a specific version | DONE | so you can check which one you want first |
+| Version retention limit | DONE | last ten, oldest dropped, and the sheet says so |
+| Versions die with the document | DONE | they did not: ids get reused, and a new document inherited a deleted one's history |
 | Name / annotate a version | DONE | `note` on replace |
 
 ## 4. Preview
@@ -57,7 +61,7 @@ Last audited 24 September 2026.
 |---|---|---|
 | Image preview | DONE | |
 | PDF preview | DONE | |
-| Text / CSV preview | **TODO** | |
+| Text / CSV preview | DONE | read on the server: 256KB, 200 rows, and it says what it cut |
 | **Office (docx, xlsx, pptx)** | **TODO** | needs a converter; large dependency |
 | Video / audio preview | **TODO** | the gallery plays video; documents do not |
 
@@ -71,35 +75,39 @@ Last audited 24 September 2026.
 | Real-time collaboration | Requires a server everyone reaches |
 | "Shared with me" | Nothing to share from |
 
-If sharing is genuinely wanted, the honest shape is **export to a file** the
-owner sends themselves — not a hosted link. That needs a decision before it
-is built.
+Sharing was decided: **export to a file** the owner sends themselves, not a
+hosted link. Built — select files, then the ⤓ button. A link would be a door
+into somebody's paperwork that stays open as long as the link exists, which is
+the thing they installed this instead of.
 
 ---
 
 ## Ordered task list
 
-**A — makes what exists reachable** (all backend work is done; this is UI)
-1. Versions panel: list, restore, and the note
-2. Recent screen: added / changed / starred
-3. Copy, from the document menu
-4. Document type correction, with the classifier's evidence shown
-5. Sort control: name / modified / size
-6. Rename and move a folder
+**A — makes what exists reachable.** All done, except one.
+1. ~~Versions panel: list, restore, and the note~~
+2. ~~Recent screen: added / changed / starred~~
+3. ~~Copy, from the document menu~~
+4. ~~Document type correction, with the classifier's evidence shown~~
+5. Sort control: name / modified / size — **still the only A item left.**
+   `?sort=` has worked all along; nothing offers it.
+6. ~~Rename and move a folder~~
 
-**B — genuinely missing**
-7. Multi-select in documents, then bulk move / delete / star
-8. Download a specific version (endpoint + button)
-9. Version retention: cap the count or the age, and say which
-10. Text and CSV preview
-11. Filter by type and date
-12. Drag and drop onto a folder
+**B — genuinely missing.** All done.
+7. ~~Multi-select in documents, then bulk move / delete / star~~
+8. ~~Download a specific version~~
+9. ~~Version retention~~ — ten, oldest dropped
+10. ~~Text and CSV preview~~
+11. ~~Filter by type and date~~
+12. ~~Drag and drop onto a folder~~
 
-**C — large, decide before starting**
+**C — large, decide before starting.** Unchanged; none started.
 13. Office preview — needs LibreOffice or a conversion service; adds hundreds
-    of megabytes to a build that currently ships ~450 MB
+    of megabytes to a build that currently ships ~450 MB. Recommendation:
+    don't. The download card is a worse experience than a preview, and a much
+    better one than a 700MB install.
 14. Video and audio preview inside documents
-15. Any form of sharing — needs the decision above
+15. ~~Any form of sharing~~ — decided and built as export-to-zip
 
 ---
 
@@ -107,7 +115,19 @@ is built.
 
 Tested and passing: folders (13 checks), copy/recent/versions (22), PDF
 content search (13), classification (6 plus precision and recall on 14 types
-and 5 non-documents), trash retention (shared with the gallery).
+and 5 non-documents), trash retention (shared with the gallery), bulk /
+export / retention / saved searches (31), type and date filters (20), text and
+CSV preview (28), version cascade on delete (6).
+
+Plus 24 in a real browser against the throwaway instance — the selection bar,
+the second tap selecting rather than opening, rename opening with the current
+name, a folder lighting up under a drag and the drop actually moving the file,
+and a CSV arriving as a table with its quoted commas intact.
 
 Untested because they cannot be tested here: nothing in this module — every
 item above is reachable from a throwaway instance on this machine.
+
+**Running the suite:** `python verify_all.py`. Not a `for` loop — the login
+limiter allows ten attempts per five minutes, and twenty-five scripts each
+signing in walk straight into it. The runner treats a 429 as "wait", not as a
+failure, because a suite that cries wolf gets ignored.

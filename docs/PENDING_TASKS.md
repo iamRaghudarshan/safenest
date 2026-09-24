@@ -4,7 +4,7 @@ Against the 73-section brief. Status is evidence-based: **DONE** means
 implemented *and* covered by a test that runs, with the test named. Nothing is
 marked done on the strength of the code existing.
 
-Last updated 23 September 2026.
+Last updated 24 September 2026.
 
 ---
 
@@ -32,24 +32,35 @@ duplicates, §28 §34 folders, §46 trash retention, §12 §13 metadata and vide
 ### 1. Finish what is half-built
 | # | Task | Why it matters | Size |
 |---|---|---|---|
-| §26 | Wire `nlquery.parse` into `/api/gallery` | The parser works and nothing calls it | S |
+| §26 | ~~Wire `nlquery.parse` into `/api/gallery`~~ | Done — wired BEFORE the text filter, which is where the first attempt got it wrong | S |
 | §26 | Plurals ("dogs" → `dog`) and multi-person ("Alice **and** Bob") | Both known-failing today | S |
 | §24 | Re-measure `LABEL_MARGIN` on real photographs | Current 0.025 was tuned on *drawn* images | S |
-| §33 | UI for correcting a document's type | Endpoint exists, nothing calls it | M |
+| §33 | ~~UI for correcting a document's type~~ | Done — the sheet shows the classifier's evidence | M |
 | §50 | Surface reconciliation in Settings | Endpoint exists, nothing shows it | M |
 
 ### 2. Absent features
-| # | Task | Size |
+
+Most of this section closed on 24 September. What is left is listed under it
+with the reason, rather than deleted, because "we decided not to" and "we
+forgot" look identical once a row disappears.
+
+| # | Task | Evidence |
 |---|---|---|
-| §35 | File versions — keep, view, restore | M |
-| §42 | Smart albums — saved rules (person + label + date) | M |
-| §43 | Location: GPS → place names, map view, "photos in Goa" | L |
-| §11 | Burst grouping | M |
-| §10 | Near-duplicate review UI (dHash exists, no screen) | M |
-| §37 | Recent / Starred / Shared-with-me surfaces | M |
-| §39 §40 | Organisation suggestions, with approve/reject | L |
-| §41 | Automatic creations — highlight reels, collages | L |
-| §30 | Office-document preview (PDF and images only today) | M |
+| §35 | File versions — keep, view, restore, download, retention | `verify_drive.py` 22, `verify_bulk_export.py`, `verify_version_cascade.py` 6 |
+| §42 | Saved searches — a rule instead of a list | `verify_smartalbum.py` 18, `verify_albums_ui.py` 11 |
+| §43 | Location: GPS → place names, offline gazetteer | `app/places.py`, wired into `/api/gallery?near=` and `/places` |
+| §11 | Burst grouping | `verify_smartalbum.py`, `verify_bursts.py` 9 — real uploads, real hashes |
+| §10 | Near-duplicate review | `DuplicatesView` — exact and similar, with a distance slider |
+| §37 | Recent / Starred | a chip beside the categories; Shared does not apply |
+| §30 | Text and CSV preview | `verify_preview.py` 28 |
+
+Still absent, on purpose:
+
+| # | Task | Decision |
+|---|---|---|
+| §39 §40 | Organisation suggestions with approve/reject | Not started. The clustering half exists as Smart albums; the approve/reject workflow over *moves* does not, and a wrong suggestion that files something is much more annoying than one that offers. |
+| §41 | Automatic creations — highlight reels, collages | Skipped. Needs video composition on a household PC, and the output is the kind of thing people either love or find intrusive. Worth asking before building. |
+| §30 | Office preview (docx, xlsx, pptx) | Skipped. Needs LibreOffice — hundreds of MB onto a ~450MB build. Recommendation: don't. |
 
 ### 3. Architecture
 | # | Task | Why | Size |
@@ -85,6 +96,22 @@ computer — never to us."*
 
 `docs/ARCHITECTURE.md` sets the working ceiling at **1,000,000 items**, which
 is what the indexing and pagination work is scoped to.
+
+---
+
+## Two mistakes worth keeping
+
+Both were found by running things, not by reading them, and both had already
+passed a typecheck and a code read.
+
+- **Deleting a document left its versions behind.** Files accumulated on disk
+  for ever, and — the serious half — ids get reused, so the next document to
+  take that id inherited a deleted document's history, restorable. It surfaced
+  as a suite reporting "a fresh document has no versions: 10". Fixed in all
+  three delete paths; pinned by `verify_version_cascade.py`.
+- **`describe()` named only videos**, so a photos-only saved search described
+  itself as "everything" — exactly the failure that function exists to
+  prevent. Found because a browser test asserted the subtitle it drew.
 
 ---
 
