@@ -1180,6 +1180,136 @@ function TextMarkSheet({ onClose, onAdd }: {
 }
 
 
+/** Cut a video down to part of itself.
+ *
+ *  Two handles over the clip and a preview that plays only between them, so
+ *  the decision is made by watching rather than by reading two numbers. The
+ *  cut itself is lossless and happens on the server; nothing is re-encoded.
+ */
+function VideoTrimmer({ photo, onClose, onSaved }: {
+  photo: Photo; onClose: () => void; onSaved: (p: Photo) => void
+}) {
+  useOverlayBack(onClose)
+  const toast = useToast()
+  const vid = useRef<HTMLVideoElement>(null)
+  const [len, setLen] = useState((photo.duration_ms || 0) / 1000)
+  const [a, setA] = useState(0)
+  const [bEnd, setBEnd] = useState(0)
+  const [busy, setBusy] = useState(false)
+
+  // The duration the FILE reports, not the one the row stores: a clip whose
+  // duration was never read comes through as 0, and two handles over a
+  // zero-length track cannot be dragged anywhere.
+  function onMeta() {
+    const d = vid.current?.duration
+    if (d && isFinite(d) && d > 0) { setLen(d); setBEnd((x) => x || d) }
+  }
+  useEffect(() => { if (len > 0 && !bEnd) setBEnd(len) }, [len, bEnd])
+
+  // Playback is clamped to the selection, so what plays is what would be
+  // kept. Without this the preview runs past the out point and the handles
+  // stop meaning anything.
+  function onTime() {
+    const v = vid.current
+    if (!v) return
+    if (v.currentTime < a - 0.15 || v.currentTime > bEnd) {
+      v.currentTime = a
+      if (v.currentTime >= bEnd) v.pause()
+    }
+  }
+
+  async function save() {
+    setBusy(true)
+    try {
+      const r = await api<{ item: Photo; start_ms: number; snapped: boolean }>(
+        `/api/gallery/${photo.id}/trim`,
+        { method: 'POST',
+          body: { start_ms: Math.round(a * 1000), end_ms: Math.round(bEnd * 1000) } })
+      // Said out loud. The clip will begin earlier than the handle was left,
+      // and nothing about the result explains why — a cut can only start on a
+      // keyframe, and silently doing something other than what was asked is
+      // how a tool loses trust.
+      toast(r.snapped
+        ? `Trimmed — the cut moved back to ${fmtClock(r.start_ms / 1000)} `
+          + 'to land on a keyframe'
+        : 'Trimmed')
+      onSaved(r.item); onClose()
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  const pct = (t: number) => (len > 0 ? (t / len) * 100 : 0)
+  return (
+    <div className="editor">
+      <div className="editor-stage">
+        <video ref={vid} className="editor-img" src={photo.url} controls
+          playsInline preload="metadata"
+          onLoadedMetadata={onMeta} onTimeUpdate={onTime} />
+      </div>
+      <div className="editor-panel">
+        <div className="trim-track">
+          <div className="trim-keep"
+            style={{ left: `${pct(a)}%`, width: `${pct(bEnd - a)}%` }} />
+        </div>
+        <label className="editor-slider">
+          <span>Start</span>
+          <input type="range" min={0} max={Math.max(0.1, len)} step={0.05}
+            value={a}
+            onChange={(e) => {
+              const v = Math.min(Number(e.target.value), bEnd - 0.2)
+              setA(Math.max(0, v))
+              if (vid.current) vid.current.currentTime = Math.max(0, v)
+            }} />
+          <b>{fmtClock(a)}</b>
+        </label>
+        <label className="editor-slider">
+          <span>End</span>
+          <input type="range" min={0} max={Math.max(0.1, len)} step={0.05}
+            value={bEnd}
+            onChange={(e) => setBEnd(Math.max(Number(e.target.value), a + 0.2))} />
+          <b>{fmtClock(bEnd)}</b>
+        </label>
+        <p className="mk-warn">
+          Keeping {fmtClock(Math.max(0, bEnd - a))} of {fmtClock(len)}. The cut
+          is lossless, so it can only start on a keyframe — the beginning may
+          move back slightly. “Use original” restores the whole clip.
+        </p>
+        <div className="editor-actions">
+          <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          {photo.edit?.trim && (
+            <button className="btn ghost" disabled={busy}
+              onClick={async () => {
+                setBusy(true)
+                try {
+                  const r = await api<{ item: Photo }>(
+                    `/api/gallery/${photo.id}/edit/revert`,
+                    { method: 'POST', body: {} })
+                  toast('The whole clip is back')
+                  onSaved(r.item); onClose()
+                } catch (e) { toast(errorMessage(e)) }
+                finally { setBusy(false) }
+              }}>Use original</button>
+          )}
+          <button className="btn primary" onClick={save}
+            disabled={busy || bEnd - a < 0.2}>
+            {busy ? 'Trimming…' : 'Trim'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+/** m:ss, which is how anybody reads a clip's length. */
+function fmtClock(sec: number) {
+  if (!isFinite(sec) || sec < 0) sec = 0
+  const m = Math.floor(sec / 60)
+  const s = Math.floor(sec % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+
 function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFromAlbum }: {
   photo: Photo; onClose: () => void; onFav: () => void; onTrash: () => void; canEdit: boolean
   albumId?: number                    // set when viewing from inside an album
@@ -1275,9 +1405,10 @@ function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFr
         <button className="viewer-btn" onClick={onFav} aria-label="Favourite">
           {photo.is_favourite ? '★' : '☆'}
         </button>
-        {canEdit && !isVideo && (
+        {canEdit && (
           <button className="viewer-btn" onClick={() => setEditing(true)}
-            aria-label="Edit photo" title="Edit">✎</button>
+            aria-label={isVideo ? 'Trim video' : 'Edit photo'}
+            title={isVideo ? 'Trim' : 'Edit'}>{isVideo ? '✂' : '✎'}</button>
         )}
         <button className="viewer-btn" onClick={() => setDetailsOpen(true)} aria-label="Photo details" title="Details">ⓘ</button>
         <button className="viewer-btn" onClick={download} disabled={saving} aria-label="Download">
@@ -1311,7 +1442,11 @@ function Lightbox({ photo, onClose, onFav, onTrash, canEdit, albumId, onRemoveFr
 
       {tagging && <TagSheet onClose={() => setTagging(false)} onPick={addTag} />}
       {detailsOpen && <DetailsSheet info={info} onClose={() => setDetailsOpen(false)} />}
-      {editing && (
+      {editing && isVideo && (
+        <VideoTrimmer photo={shown} onClose={() => setEditing(false)}
+          onSaved={(p) => setShown({ ...p, url: `${p.url}&v=${Date.now()}` })} />
+      )}
+      {editing && !isVideo && (
         <PhotoEditor photo={shown} onClose={() => setEditing(false)}
           onSaved={(p) => {
             // The signed media URL keeps the same filename, so the browser

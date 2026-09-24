@@ -406,6 +406,8 @@ export interface PhotoEdit {
   filter?: string
   /** Drawn over everything, last. */
   markup?: PhotoMark[]
+  /** Videos only. A lossless cut, recorded so the clip can be put back. */
+  trim?: { start_ms: number; end_ms: number }
 }
 
 export interface AlbumSummary {

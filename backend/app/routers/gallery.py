@@ -1342,6 +1342,21 @@ def _pristine_bytes(photo: GalleryPhoto) -> bytes:
 
 
 def _rethumb(photo: GalleryPhoto, raw: bytes) -> None:
+    """Regenerate the thumbnail after the file underneath it changed.
+
+    A VIDEO's thumbnail is a poster frame pulled with OpenCV from the file on
+    disk, not an image decoded from bytes — handing video bytes to PIL raises,
+    and without this branch reverting a trimmed clip took the request with it.
+    """
+    if (photo.kind or "photo") == "video":
+        path = storage.media_path(storage.GALLERY, photo.user_id,
+                                  storage.ORIGINAL, photo.filename)
+        shot, _meta = _video_poster(path)
+        if shot:
+            storage.save(storage.GALLERY, photo.user_id, storage.THUMB,
+                         thumb_name(photo), shot)
+        return
+
     pil = Image.open(io.BytesIO(raw))
     upright = ImageOps.exif_transpose(pil) or pil
     thumb = upright.copy()
@@ -1350,6 +1365,70 @@ def _rethumb(photo: GalleryPhoto, raw: bytes) -> None:
     thumb.save(buf, format="JPEG", quality=80)
     storage.save(storage.GALLERY, photo.user_id, storage.THUMB,
                  photo.filename, buf.getvalue())
+
+
+@router.post("/{id}/trim")
+def trim_video(id: int, body: dict = Body(...),
+               user: User = Depends(guard("gallery", "edit")),
+               db: Session = Depends(get_db)):
+    """Cut a video down to part of itself, without re-encoding.
+
+    Reversible like a photo edit, and for the same reason: the untouched
+    original is copied aside first, so "Use original" brings the whole clip
+    back. Unlike a photo edit the result is NOT re-rendered from source each
+    time — a trim of a trim would compound, so a second trim starts from the
+    original too, and its start/end are read in the original's timeline.
+    """
+    from .. import videotrim
+    photo = _own_photo(db, user.id, id)
+    if (photo.kind or "photo") != "video":
+        raise HTTPException(415, "That is not a video")
+
+    try:
+        start = max(0, int(body.get("start_ms") or 0))
+        end = int(body.get("end_ms") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "Start and end must be whole milliseconds")
+    if end <= start:
+        raise HTTPException(422, "The end must come after the start")
+
+    raw = _pristine_bytes(photo)
+    try:
+        got = videotrim.trim(raw, start, end)
+    except videotrim.TrimError as exc:
+        raise HTTPException(422, str(exc))
+    except Exception as exc:
+        print(f"[trim] video {id} failed: {exc}")
+        raise HTTPException(500, "That video could not be trimmed")
+    if got is None:
+        # Deliberately not a 500. The clip is intact and the person can still
+        # play it; what failed is an optional operation on a container this
+        # cannot safely rewrite, and saying so is more useful than "error".
+        raise HTTPException(422,
+                            "This video's format cannot be trimmed here. "
+                            "The original is untouched.")
+
+    storage.save(storage.GALLERY, user.id, storage.ORIGINAL,
+                 photo.filename, got["data"])
+    # The old poster was taken a tenth of the way into the ORIGINAL clip,
+    # which the trim may have cut away — a thumbnail showing a moment that is
+    # no longer in the video is how somebody decides the trim went wrong.
+    _rethumb(photo, got["data"])
+    photo.edit = json.dumps({"trim": {"start_ms": got["start_ms"],
+                                      "end_ms": got["end_ms"]}})
+    photo.size_bytes = len(got["data"])
+    photo.duration_ms = got["duration_ms"]
+    photo.updated_at = ist.now()
+    db.commit()
+    audit(db, user.id, "trim", "photo", photo.id,
+          {"label": photo.caption or "",
+           "from": got["start_ms"], "to": got["end_ms"]})
+    return {"item": _present(photo), "trim": got["start_ms"],
+            "start_ms": got["start_ms"], "end_ms": got["end_ms"],
+            "duration_ms": got["duration_ms"],
+            # Said out loud, because the clip will begin earlier than asked
+            # and there is no way to tell from looking that it was deliberate.
+            "snapped": got["start_ms"] < start}
 
 
 @router.post("/{id}/edit")
@@ -1412,15 +1491,28 @@ def _revert(db: Session, photo: GalleryPhoto, raw: bytes) -> dict:
     storage.save(storage.GALLERY, photo.user_id, storage.ORIGINAL,
                  photo.filename, raw)
     _rethumb(photo, raw)
-    pil = Image.open(io.BytesIO(raw))
-    upright = ImageOps.exif_transpose(pil) or pil
     photo.edit = None
     photo.size_bytes = len(raw)
-    photo.width, photo.height = upright.width, upright.height
-    try:
-        photo.phash = _dhash(pil)
-    except Exception:
-        pass
+    if (photo.kind or "photo") == "video":
+        # A trimmed video's duration was rewritten; restoring the bytes
+        # without restoring the number leaves the grid showing the length of
+        # a clip that no longer exists.
+        try:
+            photo.duration_ms = _mov_duration_ms(raw) or photo.duration_ms
+        except Exception:
+            pass
+    else:
+        # Dimensions and the perceptual hash are read from the picture, and a
+        # video has no picture to open. Guarded rather than wrapped in a bare
+        # try: a photo whose size silently failed to update is a photo the
+        # timeline lays out in the wrong slot.
+        pil = Image.open(io.BytesIO(raw))
+        upright = ImageOps.exif_transpose(pil) or pil
+        photo.width, photo.height = upright.width, upright.height
+        try:
+            photo.phash = _dhash(pil)
+        except Exception:
+            pass
     photo.updated_at = ist.now()
     db.commit()
     # The live file is now byte-identical to the pristine one, so the spare

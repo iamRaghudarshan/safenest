@@ -2840,6 +2840,17 @@ html.on-auth .auth-bg { opacity: 0.3; }
   .folder-x, .folder-ren, .doc-move, .doc-pick { opacity: 1; }
 }
 
+/* The kept span, drawn as a bar under the video. Two numbers alone do not
+   show how much of a clip is being thrown away; a bar does it at a glance. */
+.trim-track {
+  position: relative; height: 8px; border-radius: 999px;
+  background: rgba(255, 255, 255, .14); overflow: hidden;
+}
+.trim-keep {
+  position: absolute; top: 0; bottom: 0;
+  background: #fff; border-radius: 999px;
+}
+
 /* ---- Markup --------------------------------------------------------------
    The marks sit in an SVG stretched over the image, in the same 0..1 space
    the server renders them in. preserveAspectRatio="none" is deliberate: the
