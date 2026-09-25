@@ -157,6 +157,35 @@ if plist:
     st, r = call('/api/people/%d/split' % one, {'face_ids': []}, tok=TOK)
     check(st == 422, 'an empty split is refused', str(st))
 
+print('\nFILTERING BY SEVERAL FACES')
+
+st, pl = call('/api/people', tok=TOK)
+ids = [p['id'] for p in pl.get('people', [])][:2]
+if len(ids) < 2:
+    check(True, 'SKIPPED: fewer than two people', '')
+else:
+    def count(person):
+        s, d = call('/api/gallery?limit=1&person=%s' % person, tok=TOK)
+        return s, d.get('total', -1)
+
+    s1, a = count(ids[0])
+    s2, b = count(ids[1])
+    s3, both = count('%d,%d' % (ids[0], ids[1]))
+    check(s1 == 200 and a >= 0, 'one id still works (the old shape)', str(a))
+    check(s3 == 200, 'two ids are accepted', str(s3))
+    # The property that matters. OR would return MORE the more faces were
+    # picked, which is the opposite of what choosing a second face is for.
+    # `both >= 0` matters: on a refusal `total` is absent and the default is
+    # -1, which is <= everything and passes a test that has just proved
+    # nothing. A check that cannot fail on an error is not a check.
+    check(both >= 0 and both <= min(a, b),
+          'several faces NARROW the result, never widen it',
+          '%d and %d together -> %d' % (a, b, both))
+    s4, junk = count('%d,abc,,-9999999' % ids[0])
+    check(s4 == 404 or junk == a,
+          'junk in the list is ignored or refused, never a 500', str(s4))
+
+
 print('\nDOCUMENTS — the eight that were missing')
 
 st, docs = call('/api/documents?limit=5', tok=TOK)

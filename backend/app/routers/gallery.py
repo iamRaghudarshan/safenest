@@ -91,6 +91,14 @@ def photo_path(p: GalleryPhoto, variant: str) -> str:
     return storage.media_path(storage.GALLERY, p.user_id, variant, name)
 
 
+#: How many faces may be combined in one filter.
+#:
+#: Each one is another subquery, and a photograph with eight identified people
+#: in it is rare enough that nobody is filtering for it. The cap exists so a
+#: hand-written URL cannot turn the gallery into fifty joins.
+MAX_PEOPLE_FILTER = 8
+
+
 def media_url(owner_id: int, variant: str, name: str) -> str:
     """Signed, expiring URL for one stored file. Photos are NOT served from a public
     static mount — every read goes through /media below with an owner-bound HMAC.
@@ -466,7 +474,7 @@ def _search_filter(db: Session, uid: int, term: str):
 @router.get("")
 def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: int = 0,
           bursts: int = 0,
-          smart: int = 0, kind: str = "", sort: str = "", near: str = "", person: int = 0,
+          smart: int = 0, kind: str = "", sort: str = "", near: str = "", person: str = "",
           archived: int = 0,
           label: str = "",
           user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
@@ -595,7 +603,7 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
         parsed = nlquery.parse(term, [(p_.id, p_.name) for p_ in people_rows],
                                list(vision.LABELS))
         if parsed["matched"]:
-            person = parsed["person_id"] or person
+            person = str(parsed["person_id"] or person or "")
             label = parsed["label"] or label
             if parsed["kind"] and not kind:
                 kind = parsed["kind"]
@@ -621,20 +629,30 @@ def index(offset: int = 0, limit: int = 150, fav: int = 0, q: str = "", album: i
                 PhotoLabel.user_id == user.id,
                 PhotoLabel.label == label.strip().lower()[:40])))
 
-    if person:
+    people_ids = [int(x) for x in str(person or "").split(",")
+                  if x.strip().lstrip("-").isdigit()][:MAX_PEOPLE_FILTER]
+    if people_ids:
         # Scoped to this user's own people, or an id guessed from another
         # account would name whose photos came back.
-        owned = db.query(Person.id).filter(Person.id == person,
-                                           Person.user_id == user.id).first()
-        if not owned:
+        owned = {i for (i,) in db.query(Person.id).filter(
+            Person.id.in_(people_ids), Person.user_id == user.id).all()}
+        missing = [i for i in people_ids if i not in owned]
+        if missing:
             raise HTTPException(404, "Person not found")
-        sel = sel.filter(GalleryPhoto.id.in_(
-            db.query(PhotoPerson.photo_id).filter(PhotoPerson.person_id == person)))
+
+        # ALL of them, not any of them. "Photos of Amma AND Appa" is the
+        # question people actually ask — it is how you find the few pictures
+        # with both of your parents in, out of hundreds with either. OR would
+        # return more photos the more people you picked, which is the opposite
+        # of what choosing a second face is for.
+        for pid in people_ids:
+            sel = sel.filter(GalleryPhoto.id.in_(
+                db.query(PhotoPerson.photo_id).filter(PhotoPerson.person_id == pid)))
     # Archive scoping. The timeline hides archived photos; `archived=1` is the
     # Archive view itself. A SEARCH still reaches them either way, which is the
     # whole point of archiving rather than deleting: it is out of the way, not
     # gone, and someone looking for a receipt should find it.
-    if not smart and not term and not person:
+    if not smart and not term and not people_ids:
         if archived:
             sel = sel.filter(GalleryPhoto.is_archived == 1)
         else:
