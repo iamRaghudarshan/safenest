@@ -143,6 +143,27 @@ The web is rendered and driven rather than typechecked —
 knowing: `npx tsc --noEmit -p tsconfig.json` silently checks nothing in this
 project. Use `npm run build`, which runs `tsc -b`.
 
+## Backup — closed 25 September
+
+Videos over about 28 MB could never arrive, and it took three rounds of
+guesswork to see why. The chunk size limit was chosen by
+`looks_like_video(b"", filename)`; the phone sends no filename, so the answer
+was "photo", so every video got the 30 MB photo ceiling and was refused one
+chunk later. Raising the ceiling to 16 GB had not helped, because the wrong
+ceiling was being read.
+
+What actually found it was making the server write down what it refused —
+`backend/upload_failures.log`, added after the third round of asking the owner
+to read error text off their phone. It answered on its first run, in eleven
+minutes. **Instrument before interrogating**: a failure the user can see and
+the machine cannot is a missing log, not a mystery, and an empty log is an
+answer too — it means the request never arrived.
+
+Also fixed in the same pass: videos of any size stream rather than being held
+in memory, photos are fetched back from iCloud instead of being written off as
+failures, and the backup screen shows the actual photographs going up with
+their own progress.
+
 ## Not in scope — decisions, not a backlog
 
 Sharing with named people, public links, shared albums, comments,
