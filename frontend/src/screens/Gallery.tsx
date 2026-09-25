@@ -1704,7 +1704,9 @@ function PeopleSuggestions({ query, onOpen }: {
         {hits.map((p) => (
           <button key={p.id} className="ppl-chip" onClick={() => onOpen(p)}>
             <span className="ppl-chip-face">
-              {p.cover_url ? <img src={p.cover_url} loading="lazy" alt="" /> : <span>🙂</span>}
+              {p.cover_url
+                ? <img src={p.cover_url} loading="lazy" alt="" style={faceCrop(p.box)} />
+                : <span>🙂</span>}
             </span>
             <span className="ppl-chip-name">{p.name}</span>
             <span className="ppl-chip-n">{p.count}</span>
@@ -1794,7 +1796,9 @@ function PeopleGrid({ onOpen }: { onOpen: (p: PersonSummary) => void }) {
           <button key={p.id} className="person" onClick={() => onOpen(p)}>
             <div className="person-cover">
               {/* lazy: a page of 60 covers must not fire 60 requests at once */}
-              {p.cover_url ? <img src={p.cover_url} loading="lazy" alt="" /> : <span>🙂</span>}
+              {p.cover_url
+                ? <img src={p.cover_url} loading="lazy" alt="" style={faceCrop(p.box)} />
+                : <span>🙂</span>}
             </div>
             <div className="person-name">{p.name}</div>
             <div className="person-count">{p.count} photo{p.count === 1 ? '' : 's'}</div>
@@ -2120,6 +2124,31 @@ function Suggestions({ onMade }: { onMade: () => void }) {
       ))}
     </div>
   )
+}
+
+
+/** A person's face, cropped out of the photo it was found in.
+ *
+ *  The circle used to hold the MIDDLE of a whole photograph — a shoulder on
+ *  any group shot, scenery on a landscape. The server sends where the face is
+ *  as fractions of the cover photo, and the picture is scaled up by the
+ *  inverse of that fraction and shifted so the face lands in the middle.
+ *
+ *  No box means an older server, or a face whose position was never recorded.
+ *  It then shows the whole picture, because guessing a crop is worse. */
+function faceCrop(box?: { x: number; y: number; w: number; h: number } | null)
+    : React.CSSProperties {
+  if (!box || !(box.w > 0) || !(box.h > 0)) return { objectFit: 'cover' }
+  const scale = 1 / Math.min(box.w, box.h)
+  const cx = (box.x + box.w / 2) * 100
+  const cy = (box.y + box.h / 2) * 100
+  return {
+    objectFit: 'cover',
+    // transform-origin puts the face at the pivot, so scaling grows AROUND
+    // it rather than around the middle of the picture.
+    transformOrigin: `${cx}% ${cy}%`,
+    transform: `scale(${scale.toFixed(3)})`,
+  }
 }
 
 

@@ -70,9 +70,31 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
     page = ranked[offset:offset + limit]
     cover_ids = [p.cover_id for p, _ in page if p.cover_id]
     covers = {}
+    boxes = {}
     if cover_ids:
         covers = {ph.id: ph for ph in db.query(GalleryPhoto)
                   .filter(GalleryPhoto.id.in_(cover_ids)).all()}
+        # WHERE THE FACE IS in that cover photo. Without it a client can only
+        # show the middle of the picture, which is why every person's circle
+        # was a photograph rather than a face.
+        #
+        # One query for the whole page, not one per person: a people screen
+        # with forty faces would otherwise be forty round trips.
+        want = [(p.id, p.cover_id) for p, _ in page if p.cover_id]
+        rows_f = (db.query(PhotoFace)
+                  .filter(PhotoFace.user_id == user.id,
+                          PhotoFace.person_id.in_([pid for pid, _ in want]),
+                          PhotoFace.photo_id.in_([cid for _, cid in want]))
+                  .all())
+        # Keyed by BOTH ids. Keying on person alone picks whichever face row
+        # came back first, which is often from a different photo than the
+        # cover — and the crop then lands on nothing.
+        bykey = {(f.person_id, f.photo_id): f for f in rows_f}
+        for pid, cid in want:
+            f = bykey.get((pid, cid))
+            ph = covers.get(cid)
+            if f is not None and ph is not None:
+                boxes[pid] = face_box(f.bbox, ph.width, ph.height)
 
     people = []
     for p, n in page:
@@ -83,9 +105,52 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
             # "hidden" so the show-hidden view can offer to unhide.
             "is_me": int(p.is_me or 0), "is_hidden": int(p.is_hidden or 0),
             "cover_url": media_url(photo.user_id, storage.THUMB, photo.filename) if photo else None,
+            # Fractions of the cover photo. Null when the face cannot be
+            # located, and a client that gets null should show the whole
+            # picture rather than guess at a crop.
+            "box": boxes.get(p.id),
         })
     return {"people": people, "total": len(ranked), "offset": offset, "limit": limit,
             "all_people": everyone}
+
+
+#: How much wider than the detector's rectangle a face crop is taken.
+#:
+#: A box cropped exactly to what the detector returned is a nose and two eyes.
+#: People recognise a face by its OUTLINE — hair, jaw, ears — so the crop is
+#: widened to roughly head-and-hair.
+FACE_PAD = 0.35
+
+
+def face_box(bbox: str | None, width, height) -> dict | None:
+    """A detector rectangle as FRACTIONS of the photo, padded, or None.
+
+    Fractions rather than pixels because the client is showing a thumbnail of
+    unknown size: pixels measured against the original would crop somewhere
+    else entirely once the picture was scaled down.
+
+    Used by BOTH the faces list and the people list. It lived only in the
+    faces list, which is exactly why every person's cover circle showed the
+    middle of a photograph instead of a face.
+    """
+    try:
+        x, y, w, h = (float(v) for v in (bbox or "").split(","))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    try:
+        pw, ph = float(width or 0), float(height or 0)
+    except (TypeError, ValueError):
+        return None
+    if pw <= 0 or ph <= 0 or w <= 0 or h <= 0:
+        return None
+    cx, cy = x + w / 2, y + h / 2
+    w2, h2 = w * (1 + FACE_PAD), h * (1 + FACE_PAD)
+    return {
+        "x": max(0.0, (cx - w2 / 2) / pw),
+        "y": max(0.0, (cy - h2 / 2) / ph),
+        "w": min(1.0, w2 / pw),
+        "h": min(1.0, h2 / ph),
+    }
 
 
 @router.get("/{id}/photos")
@@ -337,24 +402,7 @@ def faces(id: int, user: User = Depends(guard("gallery", "view")),
         # which lets the browser crop to the face with no second request and
         # no image processing on this side.
         box = None
-        try:
-            x, y, w, h = (float(v) for v in (f.bbox or "").split(","))
-            pw, ph = float(photo.width or 0), float(photo.height or 0)
-            if pw > 0 and ph > 0 and w > 0 and h > 0:
-                # Widened a little: a face box cropped exactly to the detector's
-                # rectangle is a nose and two eyes, and people recognise a face
-                # by its outline. 35% padding is roughly head-and-hair.
-                pad = 0.35
-                cx, cy = x + w / 2, y + h / 2
-                w2, h2 = w * (1 + pad), h * (1 + pad)
-                box = {
-                    "x": max(0.0, (cx - w2 / 2) / pw),
-                    "y": max(0.0, (cy - h2 / 2) / ph),
-                    "w": min(1.0, w2 / pw),
-                    "h": min(1.0, h2 / ph),
-                }
-        except (ValueError, TypeError, ZeroDivisionError):
-            box = None
+        box = face_box(f.bbox, photo.width, photo.height)
 
         out.append({"face_id": f.id, "photo_id": f.photo_id, "bbox": f.bbox,
                     "box": box,

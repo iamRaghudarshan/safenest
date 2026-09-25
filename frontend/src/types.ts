@@ -435,6 +435,12 @@ export interface PersonSummary {
    *  searchable. Optional so an older server simply omits it. */
   is_me?: number
   is_hidden?: number
+  /** Where the face is in `cover_url`, as fractions of that photo.
+   *
+   *  Without it a client can only show the middle of the picture, which on a
+   *  group shot is somebody's shoulder. Optional: an older server omits it,
+   *  and a face whose position was never recorded has none. */
+  box?: { x: number; y: number; w: number; h: number } | null
 }
 
 export interface MemoryGroup {
