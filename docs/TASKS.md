@@ -2,84 +2,100 @@
 
 **The owner's own reports come first.** Everything below that is derived by
 diffing what the web app calls against what the phone calls — not written from
-memory. The previous list was written from memory, scored itself, and reported
+memory. An earlier list was written from memory, scored itself, and reported
 91% while 17 features were missing.
 
 Nothing here is built or released without explicit approval, each time.
 
-Last derived **25 September 2026** — server 3.45, phone 1.65.0.
+Last derived **25 September 2026** — server 3.45, phone 1.65.0 (unreleased
+work on `main`).
 
 ---
 
-## A — reported by the owner (do first)
+## A — reported by the owner
 
-### A1. People shows whole photographs, not faces — BLOCKED
-Several circles show the same wide restaurant photo, so nobody can be told
-apart, which makes naming them impossible.
+| # | Task | Phone | Note |
+|---|---|---|---|
+| A1 | People circles show whole photos, not faces | code done | **blocked on a server restart** |
+| A2 | Name people one by one | code done | clears when A1 clears |
+| A3 | Search a person by NAME | ✅ done | matching people now head the faces strip |
+| A4 | Merge two people into one | ✅ done | Review faces → merge |
+| A5 | Split one person into two | ✅ done | pick the wrong faces, "New person" |
+| A6 | Reassign a mis-grouped face | ✅ done | "Move to…" or "Not a person" |
+| A7 | See every face filed under a person | ✅ done | the Review faces grid |
 
-*Cause:* the server sends `cover_url` and the phone crops to a `box` it does
-not receive. The code that sends it is written, committed and pushed. **The
-live server is still running old code** — `/api/gallery/labels` answers 404,
-which is the marker for the old build.
+### A1 — the one thing code cannot fix
+
+Several circles showed the same wide restaurant photo, so nobody could be told
+apart and naming them was impossible.
+
+*Cause:* the server sends `cover_url` and the phone crops to a `box` it was not
+being sent. The server code that sends it is written, committed and pushed.
+**The live server is still running old code.**
+
+*Checked against the real library on 25 September:* all 36 people have a cover
+photo whose face row carries a usable box, so the crop will work the moment the
+new code is running. The demo database could not show this — its photos had no
+width or height recorded, so the box came back null and the first verification
+run reported a failure that was in the fixture, not the product.
 
 *Blocked on:* `D:\AI PRO\finmate-react\Restart App API.bat`, run as
-administrator. It cannot be done from a tool. **No further code will fix
-this.**
+administrator. It cannot be done from a tool. **No further code will fix this.**
 
-### A2. Cannot name people person-by-person
-Naming itself works. It is unusable because of A1: every circle looks like the
-same photograph, so there is nothing to name. Clears when A1 clears.
-
-### A3. Search a person by NAME
-Typing a name already finds their photos — the text search matches a person's
-name server-side. What is missing is anything that SAYS so: no suggestion, no
-people row in the search screen. Until then it is a feature nobody can find.
-
-### A4. Correcting a wrong grouping — nothing to correct it WITH
-"Group again" is on the phone. The manual tools are not, and they are the ones
-that matter when the automatic pass is wrong:
-- merge two people into one
-- split one person into two
-- reassign a single mis-grouped face
-- see every face filed under a person
-
-All four exist on the web and on the server. This is the real answer to "faces
-are grouped wrongly", and it should have shipped with the regroup button.
+*Note for that restart:* `people.is_me`, `people.is_hidden` and
+`gallery_photos.place` are in the model and not yet in the live MySQL schema.
+Migrations for all three exist in `main.py` and run at startup, so the restart
+adds them — but a restart is required before any of those columns can be read.
 
 ---
 
-## B — documents, missing on the phone
+## B — documents on the phone — all done
 
-| # | Task | Server | Web |
-|---|---|---|---|
-| B1 | Recycle bin: see it, restore, empty | ✅ | ✅ |
-| B2 | Delete permanently | ✅ | ✅ |
-| B3 | Replace a file (keeps the old as a version) | ✅ | ✅ |
-| B4 | Correct the document type | ✅ | ✅ |
-| B5 | Star / favourite a document | ✅ | ✅ |
-| B6 | Copy a document | ✅ | ✅ |
-| B7 | Recent — added, changed, starred | ✅ | ✅ |
-| B8 | Values read out of a scan, offered to fill the form | ✅ | ✅ |
+| # | Task | Phone |
+|---|---|---|
+| B1 | Recycle bin: see it, restore, empty | ✅ `doc_trash.dart` |
+| B2 | Delete permanently | ✅ |
+| B3 | Replace a file (keeps the old as a version) | ✅ |
+| B4 | Correct the document type | ✅ |
+| B5 | Star / favourite a document | ✅ |
+| B6 | Copy a document | ✅ |
+| B7 | Recent — added, changed, starred | ✅ `doc_recent.dart` |
+| B8 | Values read out of a scan, offered to fill the form | ✅ |
 
-## C — photos, missing on the phone
+## C — photos on the phone — all done
 
-| # | Task | Server | Web |
-|---|---|---|---|
-| C1 | Tag a person in a photo, and untag | ✅ | ✅ |
-| C2 | Multi-select in the grid, and bulk favourite / trash | ✅ | ✅ |
-| C3 | Bulk archive | ✅ | ✅ |
-| C4 | Suggested albums, from clustering | ✅ | ✅ |
+| # | Task | Phone |
+|---|---|---|
+| C1 | Tag a person in a photo, and untag | ✅ details sheet |
+| C2 | Multi-select, bulk favourite / trash | ✅ now one request, not one per photo |
+| C3 | Bulk archive | ✅ beside Delete in the selection bar |
+| C4 | Suggested albums, from clustering | ✅ strip on the Albums tab |
+
+Two bugs fell out of C2. The per-photo favourite route TOGGLES, so starring a
+mixed selection un-starred the ones already starred — fifty photos of which ten
+were starred lost those ten. And every bulk action now falls back to per-photo
+calls on a 404, because a computer running an older SafeNest answers 404 and
+without the fallback bulk actions would stop working the day the phone was
+updated ahead of the computer, which is the normal order.
 
 ---
 
 ## Count
 
-- Owner-reported: **4** (one blocked on a restart that only the owner can do)
-- Derived missing on the phone: **12**
-- **Phone parity: 54 of 71 = 76%**
+- Owner-reported: **7**, of which 5 are done and 2 are blocked on the restart.
+- Derived missing on the phone: **0**.
+- **Endpoint parity: 65 of 65.** The phone now calls every gallery, people and
+  documents endpoint the web app calls.
 
-The earlier claim of 91% counted a hand-written list. This one counts the web
-app.
+## How that was checked
+
+Endpoint parity alone proves the phone MENTIONS a path, which is the same blind
+spot the 91% claim had. So each call was also sent to a running server with the
+phone's own body shape — `scratchpad/phone_wire.py`, 36 checks, all passing.
+That is what caught the routes where the phone sends `const {}` against a
+router that declares a required body.
+
+`flutter analyze` is clean and 246 tests pass.
 
 ## Not in scope — decisions, not a backlog
 
@@ -92,6 +108,6 @@ camera took it.
 
 Face precision and recall — needs real photographs. Scale beyond 10k items —
 needs infrastructure. **Anything about how the phone LOOKS or BEHAVES:** no
-Android SDK and no Xcode on this machine, so `flutter analyze` and the 239
-tests prove it compiles and the logic holds, and prove nothing about the
-screen. Every visual bug so far was found by the owner, not by CI.
+Android SDK and no Xcode on this machine, so `flutter analyze` and the tests
+prove it compiles and the logic holds, and prove nothing about the screen.
+Every visual bug so far was found by the owner, not by CI.
