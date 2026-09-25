@@ -16,15 +16,39 @@ work on `main`).
 
 | # | Task | Phone | Note |
 |---|---|---|---|
-| A1 | People circles show whole photos, not faces | code done | **blocked on a server restart** |
-| A2 | Name people one by one | code done | clears when A1 clears |
+| A1 | People circles show whole photos, not faces | ✅ done | the restart happened; see below |
+| A2 | Name people one by one | ✅ done | cleared with A1 |
 | A3 | Search a person by NAME | ✅ done | matching people now head the faces strip |
 | A4 | Merge two people into one | ✅ done | Review faces → merge |
 | A5 | Split one person into two | ✅ done | pick the wrong faces, "New person" |
 | A6 | Reassign a mis-grouped face | ✅ done | "Move to…" or "Not a person" |
 | A7 | See every face filed under a person | ✅ done | the Review faces grid |
 
-### A1 — the one thing code cannot fix
+### A1 — done, and it needed more than the restart
+
+The restart was run and the face box reached the app — and the circles were
+still unusable, which is the part worth recording. Three further faults, each
+found only by rendering the portraits and LOOKING at them:
+
+1. The crop was taken from a 360x480 thumbnail, where a face is 19-34 pixels.
+   The rectangle was right and there was nothing behind it. Faces are now cut
+   from the original, where they are 250-400.
+2. The face came from `cover_id` — the first photo somebody appeared in, which
+   says nothing about how well it shows their face. 15 of 36 people had a face
+   elsewhere 1.4x to 3.2x bigger.
+3. A third of the circles were not faces at all: temple carvings, a hand
+   across a face, an ear, a wristwatch, full profiles. Those are filtered out
+   now, and faces seen in only one photograph are hidden by default.
+
+The owner's library went from 36 entries, most of them unusable, to 17 that
+can all be named.
+
+**The lesson, for the next time this shape appears:** every measurement said
+the feature worked. The box was correct, the fractions were right, 39 of 39
+people "produced a real face crop". Rendering them to a contact sheet and
+looking took two minutes and found all three.
+
+### A1 — the original diagnosis
 
 Several circles showed the same wide restaurant photo, so nobody could be told
 apart and naming them was impossible.
@@ -100,7 +124,7 @@ building.
 
 ## Count
 
-- Owner-reported: **7**, of which 5 are done and 2 are blocked on the restart.
+- Owner-reported: **7**, all done.
 - Missing on the phone: **0**. Missing on the web: **0**.
 - **Endpoint parity: 67 of 67, both directions.**
 
