@@ -20,7 +20,7 @@ import type {
 } from '../types'
 import { appName } from '../branding'
 
-type Tab = 'all' | 'fav' | 'albums' | 'people' | 'memories' | 'archive'
+type Tab = 'all' | 'fav' | 'albums' | 'people' | 'places' | 'memories' | 'archive'
 
 // Both buttons are <label for> pointing here, so the tap opens the picker as the
 // click's own default action rather than through a scripted .click().
@@ -84,6 +84,10 @@ export default function Gallery() {
   const [albumPick, setAlbumPick] = useState<number[] | null>(null)
   const [person, setPerson] = useState<PersonSummary | null>(null) // drill-into a person
   const [album, setAlbum] = useState<AlbumSummary | null>(null)    // drill-into an album
+  // drill-into a place. Only the centre and the name are carried: the radius
+  // is the server's, and inventing one here would show a different set from
+  // the one the tile counted.
+  const [place, setPlace] = useState<{ near: string; label: string } | null>(null)
   const [trashOpen, setTrashOpen] = useState(false)
   const [dupOpen, setDupOpen] = useState(false)
   // A backup in progress across several picks — see IOS_BATCH.
@@ -337,6 +341,10 @@ export default function Gallery() {
   // album drill-down is its own screen
   if (album) return <AlbumView album={album} onBack={() => setAlbum(null)} canEdit={canEdit} />
 
+  // so is a place
+  if (place) return <PlaceView place={place} onBack={() => setPlace(null)} onOpen={setView}
+    view={view} setView={setView} toggleFav={toggleFav} trash={trash} canEdit={canEdit} />
+
   // trash is its own screen; restoring reloads the main grid
   if (trashOpen) return <TrashView onBack={() => { setTrashOpen(false); refresh() }} canEdit={canEdit} />
 
@@ -519,11 +527,12 @@ export default function Gallery() {
           pick(files, backup).catch(() => toast('Those photos could not be queued'))
         }} />
 
-      <div className="seg4 six">
-        {(['all', 'fav', 'albums', 'people', 'memories', 'archive'] as Tab[]).map((t) => (
+      <div className="seg4 seven">
+        {(['all', 'fav', 'albums', 'people', 'places', 'memories', 'archive'] as Tab[]).map((t) => (
           <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
             {t === 'all' ? 'All' : t === 'fav' ? '★' : t === 'albums' ? 'Albums'
-              : t === 'people' ? 'People' : t === 'memories' ? 'Memories' : 'Archive'}
+              : t === 'people' ? 'People' : t === 'places' ? 'Places'
+              : t === 'memories' ? 'Memories' : 'Archive'}
           </button>
         ))}
       </div>
@@ -567,6 +576,7 @@ export default function Gallery() {
 
       {tab === 'albums' ? <><Suggestions onMade={() => { refresh(); setAlbumsRev(n => n + 1) }} /><SmartAlbums onCreated={() => setAlbumsRev(n => n + 1)} /><AlbumsGrid key={albumsRev} onOpen={setAlbum} canEdit={canEdit} /></>
         : tab === 'people' ? <PeopleGrid onOpen={setPerson} />
+        : tab === 'places' ? <PlacesGrid onOpen={(near, label) => setPlace({ near, label })} />
         : tab === 'memories' ? <Memories onOpen={setView} />
         : (
           <>
@@ -1719,6 +1729,196 @@ function PeopleSuggestions({ query, onOpen }: {
 
 const PEOPLE_PAGE = 60
 
+/** Group every face again, using the current rule.
+ *
+ * WHY THIS EXISTS. Grouping happens once, as each photo is indexed, and never
+ * revisits its own decisions — so a library grouped by an older, worse rule
+ * stays that way for ever, and improving the rule does nothing for the
+ * photographs already in. This applies the current rule to everything.
+ *
+ * It asks FIRST, with the numbers. A dry run costs almost nothing, because
+ * every face's embedding is already stored and this is arithmetic rather than
+ * decoding images again — and seeing "from 36 people to 29" before agreeing is
+ * the difference between a decision and a surprise.
+ *
+ * Names survive: people who have been named are kept as anchors and only faces
+ * matching nobody named are clustered afresh. The sheet says so, because
+ * "group everything again" otherwise reads as "throw away the names I typed",
+ * which is the one piece of real work anybody does on this tab.
+ *
+ * The phone has had this since 1.64. The web had the endpoint and no way to
+ * reach it.
+ */
+function Regroup({ onDone }: { onDone: () => void }) {
+  const toast = useToast()
+  const [preview, setPreview] = useState<
+    { people_before: number; people_after: number; moved: number; faces: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function ask() {
+    setBusy(true)
+    try {
+      const r = await api<{
+        people_before: number; people_after: number; moved: number; faces: number
+      }>('/api/people/regroup', { method: 'POST', body: { dry_run: true } })
+      if (!r.faces) { toast('No faces have been found yet'); return }
+      setPreview(r)
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  async function run() {
+    setBusy(true)
+    try {
+      const r = await api<{ people_after: number }>(
+        '/api/people/regroup', { method: 'POST', body: {} })
+      setPreview(null)
+      toast(`Done \u2014 ${r.people_after} ${r.people_after === 1 ? 'person' : 'people'}`)
+      onDone()
+    } catch (e) { toast(errorMessage(e)) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <>
+      <button className="btn ghost" disabled={busy} onClick={ask}>
+        {busy && !preview ? 'Checking\u2026' : 'Group again'}
+      </button>
+      {preview && (
+        <Sheet title="Group every face again?" onClose={() => setPreview(null)}>
+          <p>
+            This would go from {preview.people_before}{' '}
+            {preview.people_before === 1 ? 'person' : 'people'} to{' '}
+            <strong>{preview.people_after}</strong>
+            {preview.moved > 0 && <>, moving {preview.moved.toLocaleString()}{' '}
+              {preview.moved === 1 ? 'face' : 'faces'}</>}.
+          </p>
+          <p className="muted">
+            Names are kept. People you have named are used as anchors, and only faces
+            that match nobody named are grouped afresh. No photo is changed or deleted.
+          </p>
+          <button className="btn primary block" disabled={busy} onClick={run}>
+            {busy ? 'Grouping\u2026' : 'Group again'}
+          </button>
+        </Sheet>
+      )}
+    </>
+  )
+}
+
+type PlaceGroup = {
+  label: string; region?: string | null; count: number
+  lat: number; lon: number; cover_url: string | null
+}
+
+/** Where this library's photos were taken.
+ *
+ * NO MAP, and that is a decision rather than a shortcut. Every map widget
+ * worth using fetches its tiles from somebody else's server, and the request
+ * for a tile IS the coordinate — so drawing this library on a map would send a
+ * record of everywhere its owner has been to a third party, in a product whose
+ * whole argument is that nothing leaves the machine. The server names the
+ * clusters from a table compiled into it (`backend/app/places.py`) and this
+ * shows covers, which answers "where are my photos from" without asking
+ * anybody.
+ *
+ * The empty state names the CAUSE. "No places" reads as a fault; it is almost
+ * always that the camera had location switched off, which is the owner's
+ * setting and not something this can fix for them.
+ *
+ * The phone has had this screen for several releases. The server had the
+ * endpoint and the web had no way to reach it.
+ */
+function PlacesGrid({ onOpen }: { onOpen: (near: string, label: string) => void }) {
+  const [items, setItems] = useState<PlaceGroup[] | null>(null)
+  const [located, setLocated] = useState(0)
+  const [failed, setFailed] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setFailed(null)
+    try {
+      const d = await api<{ items: PlaceGroup[]; located: number }>('/api/gallery/places')
+      setItems(d.items || [])
+      setLocated(d.located || 0)
+    } catch (e) { setFailed(errorMessage(e)); setItems([]) }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  if (!items) return <Spinner />
+  if (failed) return <Empty icon="📍" title="Could not load places" hint={failed} />
+  if (!items.length) {
+    return <Empty icon="📍" title="No photos with a location"
+      hint={'A photo only knows where it was taken if the camera recorded it. '
+        + 'Turn on location for your camera app and photos from then on will appear here.'} />
+  }
+
+  return (
+    <div>
+      <p className="muted" style={{ fontSize: 12, margin: '0 0 10px' }}>
+        {located.toLocaleString()} photo{located === 1 ? '' : 's'} know where they were taken
+      </p>
+      <div className="album-grid">
+        {items.map((p) => (
+          <button key={`${p.lat},${p.lon}`} className="album"
+            onClick={() => onOpen(`${p.lat},${p.lon}`, p.label)}>
+            <div className="album-cover">
+              {p.cover_url ? <img src={p.cover_url} loading="lazy" alt="" />
+                : <span>📍</span>}
+              <span className="place-pin" aria-hidden="true">📍</span>
+            </div>
+            <div className="album-name">{p.label}</div>
+            <div className="album-count">
+              {p.region ? `${p.region} \u00b7 ` : ''}{p.count} photo{p.count === 1 ? '' : 's'}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** One place's photos.
+ *
+ * `near` is passed through exactly as the tile gave it — the server's own
+ * cluster centre, with no radius of ours appended. Adding one would show a
+ * different set from the one the tile counted, and the count would then be a
+ * lie only somebody counting by hand would ever catch.
+ *
+ * Shaped like PersonView on purpose, down to taking `toggleFav` and `trash`
+ * from the parent: opening a place and opening a person are the same act with
+ * a different source, and two implementations of that would drift.
+ */
+function PlaceView({ place, onBack, onOpen, view, setView, toggleFav, trash, canEdit }: {
+  place: { near: string; label: string }; onBack: () => void
+  onOpen: (p: Photo) => void
+  view: Photo | null; setView: (p: Photo | null) => void
+  toggleFav: (p: Photo) => void; trash: (p: Photo) => void; canEdit: boolean
+}) {
+  const { items, total, more, done, loadMore, reload } =
+    usePagedPhotos(`/api/gallery?near=${encodeURIComponent(place.near)}`)
+
+  return (
+    <div className="screen">
+      <TopBar title={place.label} onBack={onBack}
+        sub={`${total.toLocaleString()} photo${total === 1 ? '' : 's'}`} />
+      {!items ? <Spinner />
+        : items.length === 0
+          ? <Empty icon="\U0001F4CD" title="Nothing here now"
+              hint="These photos may have been deleted or archived since." />
+          : (
+            <>
+              <PhotoGrid photos={items} onOpen={onOpen} />
+              <InfiniteSentinel onHit={loadMore} done={done} loading={more}
+                shown={items.length} total={total} />
+            </>
+          )}
+      {view && <Lightbox photo={view} onClose={() => setView(null)}
+        onFav={() => toggleFav(view)} onTrash={() => { trash(view); reload() }}
+        canEdit={canEdit} />}
+    </div>
+  )
+}
+
 function PeopleGrid({ onOpen }: { onOpen: (p: PersonSummary) => void }) {
   const [people, setPeople] = useState<PersonSummary[] | null>(null)
   const [total, setTotal] = useState(0)
@@ -1788,6 +1988,10 @@ function PeopleGrid({ onOpen }: { onOpen: (p: PersonSummary) => void }) {
           <button className={`chip${onlyRepeat ? '' : ' on'}`} onClick={() => setOnlyRepeat(false)}>
             Show everyone ({allPeople.toLocaleString()})
           </button>
+          {/* Only once there is more than one person to rearrange. Offered over
+              a single face it is a button that cannot change anything, and those
+              teach people to ignore the ones that can. */}
+          {allPeople > 1 && <Regroup onDone={() => load(0, onlyRepeat ? 2 : 1)} />}
         </div>
       )}
 

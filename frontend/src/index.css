@@ -3196,6 +3196,23 @@ html.on-auth .auth-bg { opacity: 0.3; }
 /* Six tabs need a little less room each than five. */
 .seg4.six button { padding-left: 6px; padding-right: 6px; font-size: 13px; }
 
+/* Seven is the most this row can hold on a narrow phone, and only because one
+   of them is a single star. The labels shrink rather than wrap: a tab bar two
+   lines deep pushes the first photo off the screen, which is the thing this
+   screen exists to show. */
+.seg4.seven button {
+  padding-left: 3px; padding-right: 3px; font-size: 12px; letter-spacing: -0.2px;
+}
+@media (max-width: 360px) { .seg4.seven button { font-size: 11px; } }
+@media (min-width: 520px) { .seg4.seven button { font-size: 13px; } }
+
+/* A place card is a photograph of somewhere, and without this it is
+   indistinguishable from an album cover. */
+.place-pin {
+  position: absolute; left: 8px; bottom: 8px; font-size: 15px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+}
+
 /* Category chips: what the indexer found in this library. */
 .cat-row {
   display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 10px;
