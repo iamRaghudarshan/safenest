@@ -2724,8 +2724,18 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str,
         pil = pil.convert("RGB") if pil.mode not in ("RGB", "L") else pil
         buf = io.BytesIO(); pil.save(buf, format="JPEG", quality=90)
         jpg = buf.getvalue()
-    except Exception:
-        raise HTTPException(400, "Unsupported image")
+    except Exception as exc:
+        # NAME WHAT IT WAS. "Unsupported image" is true and useless: it cannot
+        # tell a RAW file from a video that slipped past detection from a
+        # corrupt download, and those want three different fixes. The first
+        # bytes and the extension identify the format, and the exception says
+        # what the decoder objected to.
+        head = raw[:12].hex()
+        ext = os.path.splitext(filename or "")[1].lower() or "?"
+        raise HTTPException(
+            400,
+            "Unsupported image (%s, starts %s): %s"
+            % (ext, head, str(exc)[:80]))
 
     # Hash the metadata-free encoding: EXIF differs between a photo and its shared
     # copy, so including it would make the exact-duplicate finder miss real pairs —

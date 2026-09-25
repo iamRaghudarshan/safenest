@@ -6,7 +6,7 @@ import time
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -1061,31 +1061,48 @@ async def log_upload_failures(request: Request, call_next):
     phone gave up before sending.
     """
     resp = await call_next(request)
+    path = request.url.path
+    if resp.status_code < 400 or "/api/gallery/upload" not in path:
+        return resp
+
+    # READING THE REASON OFF A STREAMED RESPONSE.
+    #
+    # The previous attempt took `resp.body`, and there is never one here: a
+    # middleware written this way is handed a streaming response, and the
+    # payload only exists while its iterator is being consumed. So every entry
+    # said "400" and nothing else — the instrument was half-built, and a bare
+    # 400 is exactly as useless as the phone screen it was meant to replace.
+    #
+    # The body is drained here and the response rebuilt from it. That is safe
+    # for these: an error from this API is a short JSON object, never a file
+    # being streamed back. It is deliberately scoped to failures on the upload
+    # routes so no successful download is ever buffered.
+    detail = ""
     try:
-        path = request.url.path
-        if resp.status_code >= 400 and "/api/gallery/upload" in path:
-            # AND THE REASON, not just the number. The first version logged
-            # the status alone, which made "413 at 28 MB" an answer and left
-            # "400" as another round of guessing — a 400 here is "Empty file"
-            # or "Unsupported image", and those are different bugs with
-            # different fixes.
-            detail = ""
-            body = getattr(resp, "body", None)
-            if body:
-                try:
-                    detail = " " + body.decode("utf-8", "replace")[:200]
-                except Exception:
-                    detail = ""
-            with open(UPLOAD_LOG, "a", encoding="utf-8") as f:
-                f.write("%s  %-3d %s?%s%s\n" % (
-                    ist.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    resp.status_code, path, str(request.url.query)[:200],
-                    detail))
+        chunks = [chunk async for chunk in resp.body_iterator]
+        raw = b"".join(chunks)
+        detail = " " + raw.decode("utf-8", "replace")[:200]
+        rebuilt = Response(
+            content=raw,
+            status_code=resp.status_code,
+            headers={k: v for k, v in resp.headers.items()
+                     if k.lower() != "content-length"},
+            media_type=resp.media_type,
+        )
     except Exception:
-        # A diagnostic that can break the thing it is diagnosing is worse than
+        # Could not read it back. Log what is known and hand the original on
+        # — a diagnostic that breaks the thing it is diagnosing is worse than
         # no diagnostic.
+        rebuilt = resp
+
+    try:
+        with open(UPLOAD_LOG, "a", encoding="utf-8") as f:
+            f.write("%s  %-3d %s?%s%s\n" % (
+                ist.now().strftime("%Y-%m-%d %H:%M:%S"),
+                resp.status_code, path, str(request.url.query)[:200], detail))
+    except Exception:
         pass
-    return resp
+    return rebuilt
 
 
 @app.middleware("http")
