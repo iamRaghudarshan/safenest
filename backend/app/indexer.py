@@ -24,6 +24,26 @@ from .database import SessionLocal
 from .models import (Document, GalleryPhoto, Person, PhotoFace, PhotoLabel,
                      PhotoPerson, PhotoVector)
 
+#: How many of a person's best-matching faces are averaged to score them.
+#:
+#: WHY NOT JUST THE BEST ONE. The first version compared a new face against
+#: every stored face and took the single highest score. One bad embedding — a
+#: blur, a profile, a face half in shadow — sitting under somebody's name only
+#: has to beat the threshold ONCE to pull strangers in after it. That is how
+#: two people become one.
+#:
+#: A mean of the best few asks a steadier question: do several of this
+#: person's faces agree? A lone outlier can no longer carry a decision.
+FACE_TOP_K = 3
+
+#: How far ahead the winner must be before the match is trusted.
+#:
+#: When two people score almost the same, the honest answer is that this face
+#: does not clearly belong to either. Starting a new group is the recoverable
+#: mistake: merging two people is tedious to undo by hand, and a spare group
+#: is one tap to merge.
+FACE_MARGIN = 0.03
+
 # Cosine threshold for "same person". SFace's own guidance is 0.363; 0.40 leaves a
 # margin, because merging two people is far more annoying than splitting one.
 FACE_MATCH = 0.40
@@ -224,6 +244,63 @@ def invalidate_people(user_id: int | None = None) -> None:
         _known.pop(int(user_id), None)
 
 
+def person_score(vec, faces: list) -> float:
+    """How well one face matches one person: the better of two readings.
+
+    TWO READINGS, BECAUSE THE TWO FAILURES NEED OPPOSITE MEDICINE, and this is
+    the correction to a first attempt that only had one of them.
+
+    A TOP-K MEAN is stricter than the old nearest-face rule — and it can only
+    ever be stricter, because a mean is never larger than the maximum it is
+    taken over. That fixes wrong MERGES, where a single outlier under
+    somebody's name dragged strangers in. It cannot fix wrong splits, and
+    believing it did was simply an error.
+
+    A CENTROID can be LOOSER, and that is the point. Take a person
+    photographed from the left and from the right: a new photo taken
+    head-on sits between the two, resembling each only moderately, so a
+    nearest-face rule starts a new person. The mean of those two embeddings
+    points straight at the middle — exactly where the new face is — and scores
+    it higher than either stored face does. That is what fixes wrong SPLITS.
+
+    The larger of the two is used, so a person can be recognised either by
+    resembling several of their photographs or by sitting in the middle of
+    them. A face that does neither is somebody else.
+    """
+    if not faces:
+        return 0.0
+    sims = sorted((vision.cosine(vec, f) for f in faces), reverse=True)
+    top = sims[:FACE_TOP_K]
+    by_top = sum(top) / len(top)
+
+    # numpy rather than a loop over 512 dimensions: this runs for every face
+    # in every photo against every person in the library.
+    mean = np.mean(np.asarray(faces, dtype=np.float32), axis=0)
+    norm = float(np.linalg.norm(mean))
+    if norm <= 0:
+        return by_top
+    by_centre = float(vision.cosine(vec, mean / norm))
+    return by_top if by_top > by_centre else by_centre
+
+
+def _best_person(vec, known) -> tuple:
+    """Which person this face belongs to, how well, and by how much.
+
+    Returns (person_id, score, runner_up_score).
+    """
+    per: dict = {}
+    for pid, other in known:
+        per.setdefault(pid, []).append(other)
+
+    scored = [(person_score(vec, faces), pid) for pid, faces in per.items()]
+    if not scored:
+        return None, 0.0, 0.0
+    scored.sort(reverse=True)
+    best_score, best_id = scored[0]
+    runner_up = scored[1][0] if len(scored) > 1 else 0.0
+    return best_id, best_score, runner_up
+
+
 def _known_faces(db, user_id: int) -> list:
     cached = _known.get(user_id)
     if cached is not None:
@@ -288,13 +365,12 @@ def index_faces(db, photo: GalleryPhoto) -> int:
 
     for face in faces:
         vec = face["embedding"]
-        best_id, best_score = None, 0.0
-        for pid, other in known:
-            score = vision.cosine(vec, other)
-            if score > best_score:
-                best_score, best_id = score, pid
+        best_id, best_score, runner_up = _best_person(vec, known)
 
-        if best_id and best_score >= FACE_MATCH:
+        # Both tests. The score has to clear the bar AND be clearly ahead of
+        # whoever came second — see FACE_MARGIN.
+        if (best_id is not None and best_score >= FACE_MATCH
+                and best_score - runner_up >= FACE_MARGIN):
             person_id = best_id
         else:
             count = db.query(Person).filter(Person.user_id == photo.user_id).count()

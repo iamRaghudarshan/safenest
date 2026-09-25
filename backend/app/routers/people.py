@@ -1,13 +1,16 @@
 """People for the gallery — auto-clustered faces, person-wise browsing, rename/merge/delete."""
 from datetime import datetime
 
+import re
+
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import indexer, ist
+from .. import indexer, ist, vision
 from ..database import get_db
 from ..models import GalleryPhoto, Person, PhotoFace, PhotoPerson, User
+from ..helpers import audit
 from ..security import guard
 from .. import storage
 from .gallery import _present, media_url, thumb_name
@@ -410,6 +413,165 @@ def faces(id: int, user: User = Depends(guard("gallery", "view")),
                     "thumb_url": media_url(photo.user_id, storage.THUMB,
                                            thumb_name(photo))})
     return {"items": out, "total": len(out)}
+
+
+@router.post("/regroup")
+def regroup(body: dict = Body(default={}),
+            user: User = Depends(guard("gallery", "edit")),
+            db: Session = Depends(get_db)):
+    """Group every known face again, from the embeddings already stored.
+
+    WHY THIS IS NEEDED AT ALL. Grouping happens once, as each photo is
+    indexed, and it never revisits its own decisions. So a library grouped by
+    an older, worse rule stays grouped that way for ever — improving the rule
+    does nothing for the photographs already in. This applies the current rule
+    to everything.
+
+    It is FAST because it touches no images: every face's embedding is already
+    in the database, and this is arithmetic over numbers that are already
+    there. Re-indexing, by contrast, decodes every photograph again.
+
+    NAMES SURVIVE, and that is the part worth being careful about. Naming a
+    face is the one piece of real work a person does here, and an operation
+    that silently threw it away would be worse than the bad grouping it was
+    meant to fix. Named people are kept as ANCHORS: every face is offered to
+    them first, and only faces that match nobody named are clustered among
+    themselves.
+
+    `dry_run` reports what would change without changing it — this rewrites
+    every grouping in the library, and seeing the number first is the
+    difference between a decision and a surprise.
+    """
+    dry = bool(body.get("dry_run"))
+
+    faces = (db.query(PhotoFace)
+             .filter(PhotoFace.user_id == user.id,
+                     PhotoFace.embedding.isnot(None))
+             .order_by(PhotoFace.id.asc()).all())
+    if not faces:
+        return {"faces": 0, "people_before": 0, "people_after": 0,
+                "moved": 0, "dry_run": dry,
+                "note": "No faces have been found yet."}
+
+    people = db.query(Person).filter(Person.user_id == user.id).all()
+    before = len(people)
+    named = {p.id: p for p in people if not _looks_unnamed(p.name)}
+
+    vecs = {f.id: vision.unpack(f.embedding, vision.FACE_DIM) for f in faces}
+
+    # Anchors first: every named person keeps the faces that still match them.
+    groups: dict = {pid: [] for pid in named}
+    for f in faces:
+        if f.person_id in named:
+            groups[f.person_id].append(f.id)
+
+    # Then every face is placed again — including the ones already sitting
+    # under a name, because a face that was wrongly filed there should be
+    # allowed to leave.
+    assigned: dict = {}
+    order = sorted(faces, key=lambda f: (f.person_id not in named, f.id))
+    for f in order:
+        vec = vecs[f.id]
+        best_id, best_score, runner_up = _score_groups(vec, groups, vecs)
+        if (best_id is not None
+                and best_score >= indexer.FACE_MATCH
+                and best_score - runner_up >= indexer.FACE_MARGIN):
+            assigned[f.id] = best_id
+            if f.id not in groups[best_id]:
+                groups[best_id].append(f.id)
+        else:
+            # A new group, keyed by a negative number so it cannot collide
+            # with a real person id while the pass is running.
+            new_key = -(len([k for k in groups if isinstance(k, int) and k < 0]) + 1)
+            groups[new_key] = [f.id]
+            assigned[f.id] = new_key
+
+    moved = sum(1 for f in faces
+                if (assigned.get(f.id) if assigned.get(f.id, 0) > 0 else None)
+                != f.person_id)
+    after = len([k for k, v in groups.items() if v])
+
+    if dry:
+        return {"faces": len(faces), "people_before": before,
+                "people_after": after, "moved": moved, "dry_run": True}
+
+    # ---- write it -------------------------------------------------------
+    now = ist.now()
+    made = {}
+    for key, ids in groups.items():
+        if not ids:
+            continue
+        if key > 0:
+            continue                       # an existing named person
+        count = db.query(Person).filter(Person.user_id == user.id).count()
+        person = Person(user_id=user.id, name=f"Person {count + 1}",
+                        created_at=now, updated_at=now)
+        db.add(person)
+        db.flush()
+        made[key] = person.id
+
+    for f in faces:
+        key = assigned.get(f.id)
+        f.person_id = made.get(key, key) if key is not None else None
+
+    # A person left holding nothing is not a person. Named ones are kept even
+    # when empty: the name is somebody's work, and an empty group is one drag
+    # away from being useful again, where a deleted one is gone.
+    db.flush()
+    for p in people:
+        still = db.query(PhotoFace).filter(PhotoFace.person_id == p.id).count()
+        if still == 0 and _looks_unnamed(p.name):
+            db.delete(p)
+
+    # PhotoPerson is derived from PhotoFace, so it is rebuilt wholesale rather
+    # than patched — patching is where an off-by-one leaves somebody showing a
+    # photo they are not in.
+    db.query(PhotoPerson).filter(
+        PhotoPerson.person_id.in_(
+            db.query(Person.id).filter(Person.user_id == user.id))
+    ).delete(synchronize_session=False)
+    seen = set()
+    for f in faces:
+        if f.person_id and (f.photo_id, f.person_id) not in seen:
+            seen.add((f.photo_id, f.person_id))
+            db.add(PhotoPerson(photo_id=f.photo_id, person_id=f.person_id,
+                               created_at=now))
+    db.commit()
+
+    # The indexer caches every known face for matching; leaving it stale would
+    # have the next photo grouped against the arrangement this just replaced.
+    indexer.invalidate_people(user.id)
+
+    audit(db, user.id, "regroup", "person", None,
+          {"faces": len(faces), "before": before, "after": after})
+    return {"faces": len(faces), "people_before": before,
+            "people_after": after, "moved": moved, "dry_run": False}
+
+
+def _looks_unnamed(name: str | None) -> bool:
+    """A name the clustering made up, rather than one a person chose."""
+    return bool(re.match(r"^person\s*\d+$", (name or "").strip(), re.I))
+
+
+def _score_groups(vec, groups: dict, vecs: dict) -> tuple:
+    """Best group for this face, its score, and the runner-up's.
+
+    Scored the same way the indexer scores: the mean of a group's best few
+    matches, so one outlier cannot carry a decision. Both must agree, or a
+    re-group would immediately undo what the indexer does next.
+    """
+    scored = []
+    for key, ids in groups.items():
+        if not ids:
+            continue
+        sims = sorted((vision.cosine(vec, vecs[i]) for i in ids), reverse=True)
+        top = sims[:indexer.FACE_TOP_K]
+        if top:
+            scored.append((sum(top) / len(top), key))
+    if not scored:
+        return None, 0.0, 0.0
+    scored.sort(reverse=True)
+    return scored[0][1], scored[0][0], (scored[1][0] if len(scored) > 1 else 0.0)
 
 
 @router.put("/{id}")
