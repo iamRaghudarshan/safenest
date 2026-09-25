@@ -691,6 +691,13 @@ class Person(Base):
     # "setting a new one clears the old", which is a rule about intent rather
     # than a shape the database can express.
     is_me = Column(Integer, default=0)
+    # Which face is shown as this person, once it has been worked out
+    # properly. Remembered because choosing it means decoding several
+    # twelve-megapixel originals and measuring each candidate for sharpness
+    # and which way the head is turned - far too slow to redo on every load
+    # of the People page. Null means "not chosen yet", and anything that
+    # changes which faces belong to this person sets it back to null.
+    portrait_face_id = Column(Integer, nullable=True)
     created_at = Column(FlexDateTime)
     updated_at = Column(FlexDateTime)
 

@@ -276,6 +276,10 @@ def _migrate() -> None:
          "ALTER TABLE people ADD COLUMN is_hidden TINYINT NOT NULL DEFAULT 0"),
         ("people", "is_me",
          "ALTER TABLE people ADD COLUMN is_me TINYINT NOT NULL DEFAULT 0"),
+        # Null on every existing row, which is exactly right: it means "work
+        # out this person's best face the next time somebody looks".
+        ("people", "portrait_face_id",
+         "ALTER TABLE people ADD COLUMN portrait_face_id INT NULL"),
         # Archive: out of the timeline, still in the library. Every existing
         # photo is un-archived, which is what DEFAULT 0 already says.
         ("gallery_photos", "is_archived",

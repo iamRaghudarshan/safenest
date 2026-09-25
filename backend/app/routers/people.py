@@ -7,7 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import indexer, ist, vision
+from .. import indexer, ist, portraits, vision
 from ..database import get_db
 from ..models import GalleryPhoto, Person, PhotoFace, PhotoPerson, User
 from ..helpers import audit
@@ -97,7 +97,48 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
             if f.bbox and f.bbox != "document":
                 by_person.setdefault(f.person_id, []).append(f)
 
-        chosen = {pid: best_portrait(fs) for pid, fs in by_person.items()}
+        # Every photo a candidate face sits in, because the chooser opens the
+        # originals and needs their filenames. One query, not one per face.
+        cand_photos = {f.photo_id for fs in by_person.values() for f in fs}
+        covers_by_id = {}
+        if cand_photos:
+            covers_by_id = {ph.id: ph for ph in db.query(GalleryPhoto)
+                            .filter(GalleryPhoto.id.in_(cand_photos)).all()}
+            covers.update(covers_by_id)
+
+        # A face already chosen and measured properly, where there is one.
+        remembered = {}
+        for person, _ in page:
+            fid = getattr(person, "portrait_face_id", None)
+            if fid:
+                remembered[person.id] = fid
+        by_id = {f.id: f for f in rows_f}
+
+        chosen = {}
+        # Working a portrait out means decoding several twelve-megapixel
+        # originals, so only a few people are done per request. The rest get
+        # the cheap rule meanwhile and are settled on later loads — which
+        # converges within a few visits and never makes anybody wait on a
+        # page that is mostly already correct.
+        budget = PORTRAIT_BUDGET
+        for pid, fs in by_person.items():
+            keep = remembered.get(pid)
+            if keep and keep in by_id:
+                chosen[pid] = by_id[keep]
+                continue
+            if budget > 0:
+                got = portraits.choose(fs, covers_by_id, user.id,
+                                       FACE_CROP_PAD_FOR_CHOICE, vision)
+                if got is not None:
+                    budget -= 1
+                    chosen[pid] = got
+                    db.query(Person).filter(Person.id == pid).update(
+                        {Person.portrait_face_id: got.id},
+                        synchronize_session=False)
+                    continue
+            chosen[pid] = best_portrait(fs)
+        if budget < PORTRAIT_BUDGET:
+            db.commit()
         # The photo each chosen face came from, for the fallback box — it is
         # usually NOT the cover, so it has to be fetched.
         need = {f.photo_id for f in chosen.values() if f is not None}
@@ -146,6 +187,36 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
         })
     return {"people": people, "total": len(ranked), "offset": offset, "limit": limit,
             "all_people": everyone}
+
+
+def forget_portrait(db, *person_ids) -> None:
+    """Make a person's portrait be worked out again.
+
+    Called by everything that changes WHICH faces belong to somebody: merge,
+    split, reassigning one face, and regrouping the lot. Without it a person
+    keeps a portrait cut from a face that is no longer theirs — which is the
+    worst possible version of this bug, because it shows the wrong person
+    under a name somebody typed and trusts.
+    """
+    ids = [int(i) for i in person_ids if i]
+    if not ids:
+        return
+    db.query(Person).filter(Person.id.in_(ids)).update(
+        {Person.portrait_face_id: None}, synchronize_session=False)
+
+
+#: How many people may have their portrait worked out in one request.
+#:
+#: Each one decodes several twelve-megapixel originals. Doing thirty-six in a
+#: single load would make the People page take the best part of a minute, so
+#: the work is spread across visits: everyone shows something immediately, and
+#: the properly-measured face replaces it within a few loads.
+PORTRAIT_BUDGET = 6
+
+#: The padding the chooser assumes when it works out whether anybody else
+#: lands inside the crop. It must match the crop the server actually cuts, or
+#: solitude is measured against a rectangle nobody ever sees.
+FACE_CROP_PAD_FOR_CHOICE = 0.6
 
 
 #: A face has to be at least this many pixels across before it is worth
@@ -318,6 +389,9 @@ def merge(id: int, body: dict = Body(...),
     moved = (db.query(PhotoFace)
              .filter(PhotoFace.user_id == user.id, PhotoFace.person_id.in_(other_ids))
              .update({PhotoFace.person_id: id}, synchronize_session=False))
+    # The merged person has faces it did not have a moment ago, one of which
+    # may well be a better portrait than what it was showing.
+    forget_portrait(db, id)
     db.query(PhotoPerson).filter(PhotoPerson.person_id.in_(other_ids)).delete(
         synchronize_session=False)
     # A named group absorbing an unnamed one keeps its name; an unnamed one
@@ -369,6 +443,7 @@ def split(id: int, body: dict = Body(...),
     db.add(fresh); db.flush()
     for f in faces:
         f.person_id = fresh.id
+        forget_portrait(db, id, fresh.id)
     _relink(db, id)
     _relink(db, fresh.id)
     db.commit()
@@ -398,6 +473,9 @@ def assign_face(face_id: int, body: dict = Body(...),
     target = int(raw) if raw else None
     if target is not None:
         _own(db, user.id, target)
+    # Both sides change: the face leaves one person and joins another, and
+    # either might have been showing it.
+    forget_portrait(db, was, target)
     face.person_id = target
     db.flush()
     for pid in {x for x in (was, target) if x}:
@@ -598,6 +676,12 @@ def regroup(body: dict = Body(default={}),
     for f in faces:
         key = assigned.get(f.id)
         f.person_id = made.get(key, key) if key is not None else None
+
+    # Regrouping rewrites who owns which face across the whole library, so
+    # every portrait has to be worked out again. Cheaper than it sounds: the
+    # People page settles them a few at a time as it is visited.
+    db.query(Person).filter(Person.user_id == user.id).update(
+        {Person.portrait_face_id: None}, synchronize_session=False)
 
     # A person left holding nothing is not a person. Named ones are kept even
     # when empty: the name is somebody's work, and an empty group is one drag

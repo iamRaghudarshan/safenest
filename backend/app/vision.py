@@ -143,9 +143,47 @@ def detect_faces(bgr: "np.ndarray") -> list[dict]:
         out.append({
             "embedding": vec,
             "bbox": [x, y, w, h],
+            # The five points YuNet already computed and this threw away:
+            # right eye, left eye, nose, right mouth corner, left mouth
+            # corner. They are what tells a face looking at the camera from
+            # one turned half away — the nose sits midway between the eyes on
+            # one and hard against an eye on the other — and that is the
+            # difference between a portrait somebody can name and one they
+            # cannot.
+            "landmarks": [(float(row[4 + i * 2]), float(row[5 + i * 2]))
+                          for i in range(5)] if len(row) >= 14 else None,
             "score": float(row[14]) if len(row) > 14 else None,
         })
     return out
+
+
+def frontality(landmarks) -> float:
+    """How square-on a face is, from 0 (profile) to 1 (facing the camera).
+
+    Measured as how central the nose is between the eyes. On a face looking
+    at the lens the nose sits midway; as the head turns it slides towards the
+    nearer eye until, in profile, it is past it. Nothing else in the five
+    points is as reliable — mouth corners move when somebody talks or smiles,
+    and eye spacing alone cannot tell a turned head from a narrow one.
+
+    Returns 0.0 when there are no landmarks, so a caller that cannot measure
+    ranks a face last rather than treating it as perfect.
+    """
+    if not landmarks or len(landmarks) < 3:
+        return 0.0
+    (rx, ry), (lx, ly), (nx, ny) = landmarks[0], landmarks[1], landmarks[2]
+    span = abs(lx - rx)
+    if span < 1e-6:
+        return 0.0
+    # 0 when the nose is exactly between the eyes, 1 when it is at one of
+    # them. Inverted so bigger is better, and clamped because a nose can
+    # sit outside the eye span entirely on a full profile.
+    off = abs((nx - (rx + lx) / 2) / span) * 2
+    front = max(0.0, 1.0 - off)
+    # A steeply tilted head is also a poor portrait even when square-on, and
+    # the eye line is what shows it.
+    roll = abs(ly - ry) / span
+    return front * max(0.0, 1.0 - min(1.0, roll))
 
 
 def cosine(a, b) -> float:
