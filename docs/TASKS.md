@@ -80,12 +80,29 @@ updated ahead of the computer, which is the normal order.
 
 ---
 
+## D — the web, measured the other way
+
+Parity had only ever been measured in one direction. The task list above was
+derived by diffing what the web calls against what the phone calls, so "the
+phone matches the web" was true by construction and said nothing about the
+reverse. Run the other way it found two features the server has had all along
+and the web could not reach:
+
+| # | Task | Web |
+|---|---|---|
+| D1 | Places — where the photos were taken | ✅ done, a seventh tab |
+| D2 | Group again — re-cluster every face | ✅ done, on the People tab |
+
+Everything else the phone calls and the web does not is phone-only by design:
+eight backup routes (the web has no camera roll), per-photo archive (the web
+archives a selection of one through the bulk route), and thumbnail URL
+building.
+
 ## Count
 
 - Owner-reported: **7**, of which 5 are done and 2 are blocked on the restart.
-- Derived missing on the phone: **0**.
-- **Endpoint parity: 65 of 65.** The phone now calls every gallery, people and
-  documents endpoint the web app calls.
+- Missing on the phone: **0**. Missing on the web: **0**.
+- **Endpoint parity: 67 of 67, both directions.**
 
 ## How that was checked
 
@@ -96,6 +113,11 @@ That is what caught the routes where the phone sends `const {}` against a
 router that declares a required body.
 
 `flutter analyze` is clean and 246 tests pass.
+
+The web is rendered and driven rather than typechecked —
+`backend/verify_places_regroup.py`, 12 checks on a 390px viewport. Worth
+knowing: `npx tsc --noEmit -p tsconfig.json` silently checks nothing in this
+project. Use `npm run build`, which runs `tsc -b`.
 
 ## Not in scope — decisions, not a backlog
 
