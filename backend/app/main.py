@@ -1039,6 +1039,42 @@ async def storage_gate(request: Request, call_next):
     })
 
 
+#: Where refused uploads are recorded, so a backup that "keeps failing" can be
+#: diagnosed from the computer instead of from a description of the phone.
+UPLOAD_LOG = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                          "upload_failures.log")
+
+
+@app.middleware("http")
+async def log_upload_failures(request: Request, call_next):
+    """Write down every upload this server REFUSES, and why.
+
+    A backup that fails tells the owner "N photos: <reason>" on the phone, and
+    that sentence is the whole diagnosis — but it lives on a screen nobody
+    here can see, and three separate rounds of this were spent guessing at it.
+    The server knows the half it refused; it simply never wrote it down.
+
+    Only the upload routes, and only failures: this is a diagnostic, not an
+    access log, and an access log on a machine that receives twenty thousand
+    photos is its own problem. A request that never ARRIVES still cannot
+    appear here — and that absence is itself the answer, because it means the
+    phone gave up before sending.
+    """
+    resp = await call_next(request)
+    try:
+        path = request.url.path
+        if resp.status_code >= 400 and "/api/gallery/upload" in path:
+            with open(UPLOAD_LOG, "a", encoding="utf-8") as f:
+                f.write("%s  %-3d %s?%s\n" % (
+                    ist.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    resp.status_code, path, str(request.url.query)[:200]))
+    except Exception:
+        # A diagnostic that can break the thing it is diagnosing is worse than
+        # no diagnostic.
+        pass
+    return resp
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     resp = await call_next(request)
