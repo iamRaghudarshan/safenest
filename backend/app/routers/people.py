@@ -13,7 +13,7 @@ from ..models import GalleryPhoto, Person, PhotoFace, PhotoPerson, User
 from ..helpers import audit
 from ..security import guard
 from .. import storage
-from .gallery import _present, media_url, thumb_name
+from .gallery import _present, face_crop_url, media_url, thumb_name
 
 router = APIRouter(prefix="/api/people", tags=["people"])
 
@@ -74,6 +74,7 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
     cover_ids = [p.cover_id for p, _ in page if p.cover_id]
     covers = {}
     boxes = {}
+    faces_cut = {}
     if cover_ids:
         covers = {ph.id: ph for ph in db.query(GalleryPhoto)
                   .filter(GalleryPhoto.id.in_(cover_ids)).all()}
@@ -97,7 +98,24 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
             f = bykey.get((pid, cid))
             ph = covers.get(cid)
             if f is not None and ph is not None:
-                boxes[pid] = face_box(f.bbox, ph.width, ph.height)
+                # A CUT face first, and a box only when that fails.
+                #
+                # The box told the client where the face was in the cover and
+                # the client cropped to it. That was right, and it looked
+                # broken: what a client gets is a 360x480 thumbnail in which a
+                # face is 19-34 pixels, and magnified into a circle that is a
+                # coloured blur. Cut here from the original it is 250-400.
+                #
+                # Sending a box WITH a pre-cut face would crop the face again
+                # — a client cannot tell the two apart — so when the cut
+                # succeeds the box is deliberately left null and every client,
+                # including builds already installed, simply shows what it is
+                # given.
+                cut = face_crop_url(db, f)
+                if cut:
+                    faces_cut[pid] = cut
+                else:
+                    boxes[pid] = face_box(f.bbox, ph.width, ph.height)
 
     people = []
     for p, n in page:
@@ -107,7 +125,9 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
             # The UI needs both: "me" to mark the owner's own face, and
             # "hidden" so the show-hidden view can offer to unhide.
             "is_me": int(p.is_me or 0), "is_hidden": int(p.is_hidden or 0),
-            "cover_url": media_url(photo.user_id, storage.THUMB, photo.filename) if photo else None,
+            "cover_url": (faces_cut.get(p.id)
+                          or (media_url(photo.user_id, storage.THUMB, photo.filename)
+                              if photo else None)),
             # Fractions of the cover photo. Null when the face cannot be
             # located, and a client that gets null should show the whole
             # picture rather than guess at a crop.
@@ -397,21 +417,24 @@ def faces(id: int, user: User = Depends(guard("gallery", "view")),
         photo = db.query(GalleryPhoto).get(f.photo_id)
         if not photo or photo.is_trashed:
             continue
-        # The box as FRACTIONS of the image, not pixels.
+        # A face CUT from the original, and a box only when that is not
+        # possible. This screen is a wall of faces to pick the wrong ones out
+        # of, so it suffers the thumbnail problem worse than anywhere else:
+        # cropping a 19-pixel face out of a 360x480 thumb gives a grid of
+        # coloured circles that cannot be told apart, which is precisely the
+        # job the screen exists to do.
         #
-        # The stored bbox is in the ORIGINAL photo's pixels, and what the UI
-        # displays is a scaled-down thumbnail — so pixels are meaningless to
-        # it without also knowing both sizes. Fractions survive any scaling,
-        # which lets the browser crop to the face with no second request and
-        # no image processing on this side.
-        box = None
-        box = face_box(f.bbox, photo.width, photo.height)
+        # The box is left null whenever a cut succeeds, because a client
+        # cannot tell a pre-cut face from a whole photo and would crop it
+        # twice.
+        cut = face_crop_url(db, f)
+        box = None if cut else face_box(f.bbox, photo.width, photo.height)
 
         out.append({"face_id": f.id, "photo_id": f.photo_id, "bbox": f.bbox,
                     "box": box,
                     "score": float(f.score) if f.score is not None else None,
-                    "thumb_url": media_url(photo.user_id, storage.THUMB,
-                                           thumb_name(photo))})
+                    "thumb_url": cut or media_url(photo.user_id, storage.THUMB,
+                                                  thumb_name(photo))})
     return {"items": out, "total": len(out)}
 
 

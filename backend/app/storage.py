@@ -43,7 +43,20 @@ PARTIAL = "partial"
 
 ORIGINAL = "original"
 THUMB = "thumb"
-VARIANTS = (ORIGINAL, THUMB)
+
+#: One person's face, cut out of the ORIGINAL and cached.
+#:
+#: It exists because a face cannot be cropped out of a thumbnail. The thumb is
+#: 360x480, and a face in a group shot occupies 19-34 pixels of it — magnified
+#: into a circle on a phone that is a coloured blur, not a person, which is
+#: exactly what the People page showed. The rectangle was right the whole time;
+#: there were no pixels behind it. Cut from the original there are 250-400.
+#:
+#: Cached rather than cut per request: the original is 12 megapixels and
+#: decoding it to serve one 320px circle, forty circles to a screen, is the
+#: kind of thing that makes a page take four seconds.
+FACE = "face"
+VARIANTS = (ORIGINAL, THUMB, FACE)
 
 
 def is_safe_name(name: str) -> bool:

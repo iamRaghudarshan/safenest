@@ -98,6 +98,75 @@ def media_url(owner_id: int, variant: str, name: str) -> str:
     return f"/api/gallery/media/{variant}/{name}?t={sign(owner_id, f'{variant}/{name}')}"
 
 
+#: How much bigger than the detector's rectangle to cut, and how large the
+#: cached square is. The padding is what turns a bare detector box — which
+#: clips foreheads and chins — into something recognisable as a person.
+FACE_CROP_PAD = 0.6
+FACE_CROP_PX = 320
+
+
+def face_crop_url(db: Session, face) -> str | None:
+    """A signed URL for one face, cut out of the original and cached.
+
+    WHY NOT CROP ON THE CLIENT, which is what this used to do. The client is
+    handed a 360x480 thumbnail, and a face inside it is 19-34 pixels across.
+    Blown up to fill a circle that is a coloured blur — the crop was landing in
+    exactly the right place and there was nothing behind it. The same face in
+    the original is 250-400 pixels.
+
+    Returns None when it cannot be made, and every caller falls back to the
+    photo thumbnail. A missing original, an unreadable file or a face recorded
+    without a rectangle are all ordinary: this is a nicety on top of a gallery
+    that has to keep working regardless.
+    """
+    if not face or not getattr(face, "bbox", None):
+        return None
+    try:
+        x, y, w, h = (float(v) for v in face.bbox.split(","))
+    except (ValueError, AttributeError):
+        return None
+    if w <= 0 or h <= 0:
+        return None
+
+    name = f"{int(face.id)}.jpg"
+    out = storage.media_path(storage.GALLERY, face.user_id, storage.FACE, name)
+    if not os.path.isfile(out):
+        photo = db.query(GalleryPhoto).filter(GalleryPhoto.id == face.photo_id).first()
+        if not photo:
+            return None
+        src = storage.media_path(storage.GALLERY, photo.user_id,
+                                 storage.ORIGINAL, photo.filename)
+        if not os.path.isfile(src):
+            return None
+        try:
+            with Image.open(src) as im:
+                im = ImageOps.exif_transpose(im)
+                iw, ih = im.size
+                cx, cy = x + w / 2, y + h / 2
+                # A SQUARE around the centre, sized on the longer side. A
+                # rectangle the shape of the detector box would be squashed by
+                # the circular mask the clients draw it in.
+                half = max(w, h) * (1 + FACE_CROP_PAD) / 2
+                box = (max(0, int(cx - half)), max(0, int(cy - half)),
+                       min(iw, int(cx + half)), min(ih, int(cy + half)))
+                if box[2] - box[0] < 8 or box[3] - box[1] < 8:
+                    return None
+                cut = im.crop(box).convert("RGB")
+                # Never upscale past the pixels that exist — enlarging a 60px
+                # face to 320 only makes a bigger blur, and the client scales
+                # it to the circle anyway.
+                side = min(FACE_CROP_PX, max(cut.size))
+                cut = cut.resize((side, side), Image.LANCZOS)
+                buf = io.BytesIO()
+                cut.save(buf, "JPEG", quality=88)
+                storage.save(storage.GALLERY, face.user_id, storage.FACE,
+                             name, buf.getvalue())
+        except Exception as exc:
+            print(f"[faces] could not cut face {face.id}: {exc}")
+            return None
+    return media_url(face.user_id, storage.FACE, name)
+
+
 def _edit_of(p: GalleryPhoto) -> dict | None:
     """A stored edit, or None. Never raises: a row written by a newer version
     must not be able to stop the gallery listing."""
@@ -174,6 +243,22 @@ def media(variant: str, name: str, t: str = "", db: Session = Depends(get_db)):
     reusable for anyone else's photos."""
     if variant not in storage.VARIANTS or not storage.is_safe_name(name):
         raise HTTPException(404, "Not found")
+
+    # A face crop is named after the FACE row, not a photo, so the lookup
+    # below would never find it.
+    if variant == storage.FACE:
+        stem = os.path.splitext(name)[0]
+        if not stem.isdigit():
+            raise HTTPException(404, "Not found")
+        face = db.query(PhotoFace).filter(PhotoFace.id == int(stem)).first()
+        if not face or not verify(face.user_id, f"{variant}/{name}", t):
+            raise HTTPException(404, "Not found")
+        path = storage.media_path(storage.GALLERY, face.user_id, storage.FACE, name)
+        if not os.path.isfile(path):
+            raise HTTPException(404, "Not found")
+        return FileResponse(path, media_type="image/jpeg",
+                            content_disposition_type="inline",
+                            headers={"Cache-Control": "private, max-age=86400"})
 
     photo = db.query(GalleryPhoto).filter(GalleryPhoto.filename == name).first()
     if photo is None and variant == storage.THUMB:
