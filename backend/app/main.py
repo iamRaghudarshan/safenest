@@ -1064,10 +1064,23 @@ async def log_upload_failures(request: Request, call_next):
     try:
         path = request.url.path
         if resp.status_code >= 400 and "/api/gallery/upload" in path:
+            # AND THE REASON, not just the number. The first version logged
+            # the status alone, which made "413 at 28 MB" an answer and left
+            # "400" as another round of guessing — a 400 here is "Empty file"
+            # or "Unsupported image", and those are different bugs with
+            # different fixes.
+            detail = ""
+            body = getattr(resp, "body", None)
+            if body:
+                try:
+                    detail = " " + body.decode("utf-8", "replace")[:200]
+                except Exception:
+                    detail = ""
             with open(UPLOAD_LOG, "a", encoding="utf-8") as f:
-                f.write("%s  %-3d %s?%s\n" % (
+                f.write("%s  %-3d %s?%s%s\n" % (
                     ist.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    resp.status_code, path, str(request.url.query)[:200]))
+                    resp.status_code, path, str(request.url.query)[:200],
+                    detail))
     except Exception:
         # A diagnostic that can break the thing it is diagnosing is worse than
         # no diagnostic.
