@@ -52,7 +52,20 @@ MAX_BYTES = 30 * 1024 * 1024  # 30 MB per photo
 # Kept to a size the in-memory read can hold without exhausting RAM across a few
 # concurrent uploads; a truly huge 4K clip beyond this still needs a future
 # stream-to-disk path rather than a bigger buffer.
-MAX_VIDEO_BYTES = 256 * 1024 * 1024  # 256 MB per video
+MAX_VIDEO_BYTES = 256 * 1024 * 1024  # 256 MB per video, in ONE request
+
+#: The ceiling for a CHUNKED upload, which never holds the file in memory.
+#:
+#: 256 MB was the limit for everything, and it was the limit because the whole
+#: file was read into RAM to be filed. A chunked upload streams to disk, is
+#: hashed in an 8 MB window and re-muxed the same way, so the only real cost of
+#: a big clip is the space it occupies. A 4K recording of any length now goes
+#: up; what stops it is the free space on the computer, which is the honest
+#: limit and the one the owner can see.
+#:
+#: Not unlimited: a bad or hostile client could otherwise fill the disk with a
+#: single endless request, and 16 GB is far beyond any real phone recording.
+MAX_CHUNKED_BYTES = 16 * 1024 * 1024 * 1024
 
 
 def thumb_name(p: GalleryPhoto) -> str:
@@ -2012,7 +2025,11 @@ async def upload_chunk(request: Request,
         # act on this; "400 Bad Request" would leave it guessing.
         raise HTTPException(409, f"Expected offset {have}, got {offset}")
 
-    limit = MAX_VIDEO_BYTES if looks_like_video(b"", filename) else MAX_BYTES
+    # A chunked video is bounded by the disk, not by memory — see
+    # MAX_CHUNKED_BYTES. Photos keep their small limit: one that does not fit
+    # in 30 MB is not a photograph.
+    limit = (MAX_CHUNKED_BYTES if looks_like_video(b"", filename)
+             else MAX_BYTES)
     written = have
     with open(path, "ab") as f:
         async for piece in request.stream():
@@ -2034,6 +2051,16 @@ async def upload_chunk(request: Request,
     if written > total:
         os.remove(path)
         raise HTTPException(400, "More bytes arrived than were promised")
+
+    # A VIDEO is finished from the path. Reading it back to hand store_photo a
+    # bytes object is what made a clip that had uploaded perfectly fail at the
+    # last step — the file was on disk, and filing it needed as much memory
+    # again. store_video_path consumes the partial file.
+    if looks_like_video(b"", filename):
+        out = store_video_path(db, user, path, filename or "upload",
+                               duration_ms=duration_ms)
+        return {**out, "upload_id": upload_id, "received": written,
+                "complete": True}
 
     with open(path, "rb") as f:
         blob = f.read()
@@ -2309,6 +2336,214 @@ def _faststart(raw: bytes) -> bytes | None:
         return out
     except Exception:
         return None
+
+
+#: How much of a file is held in memory at once while it is copied.
+STREAM_CHUNK = 8 * 1024 * 1024
+
+
+def _copy_range(src, out, start: int, end: int) -> None:
+    """Copy [start, end) from one open file to another, a piece at a time."""
+    src.seek(start)
+    left = end - start
+    while left > 0:
+        buf = src.read(min(STREAM_CHUNK, left))
+        if not buf:
+            return
+        out.write(buf)
+        left -= len(buf)
+
+
+def hash_file(path: str) -> str:
+    """sha256 of a file, without reading it whole.
+
+    The same digest the in-memory path produces, so a clip uploaded in chunks
+    de-duplicates against one uploaded in a single request and the phone's
+    /have check recognises both.
+    """
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            buf = f.read(STREAM_CHUNK)
+            if not buf:
+                break
+            h.update(buf)
+    return h.hexdigest()
+
+
+def faststart_file(src_path: str, dst_path: str) -> bool:
+    """Write a fast-start copy of one MP4/MOV, at bounded memory.
+
+    The same re-mux as `_faststart`, which needs the whole file in memory twice
+    — fine for a phone clip, impossible for the 4K recordings this was
+    rejecting outright. Here only the moov atom is held (kilobytes); everything
+    else is copied through an 8 MB window, so a two-gigabyte video costs the
+    same memory as a two-megabyte one.
+
+    The file is memory-mapped for the atom scan alone. `_iter_atoms` only
+    slices, so it reads a mapping exactly as it reads bytes, and the operating
+    system pages in the few hundred bytes of headers it actually touches.
+
+    Returns False when the clip is already fast-start, has no moov/mdat, or
+    anything looks wrong — the caller then stores the original untouched,
+    because a clip that cannot be safely rewritten must never be corrupted.
+    """
+    import mmap
+    import os as _os
+
+    size = _os.path.getsize(src_path)
+    if size < 16:
+        return False
+    try:
+        with open(src_path, "rb") as fh:
+            mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+            try:
+                atoms = list(_iter_atoms(mm, 0, size))
+                moov = next((a for a in atoms if a[0] == b"moov"), None)
+                mdat = next((a for a in atoms if a[0] == b"mdat"), None)
+                ftyp = next((a for a in atoms if a[0] == b"ftyp"), None)
+                if not moov or not mdat or moov[1] < mdat[1]:
+                    return False
+                m_start, m_end = moov[1], moov[2]
+                moov_buf = bytearray(mm[m_start:m_end])
+            finally:
+                mm.close()
+
+            _shift_chunk_offsets(moov_buf, m_end - m_start, 0, len(moov_buf))
+            insert = ftyp[2] if ftyp else 0
+            with open(dst_path, "wb") as out:
+                # ftyp | moov | (whatever sat between ftyp and moov) | tail
+                _copy_range(fh, out, 0, insert)
+                out.write(bytes(moov_buf))
+                _copy_range(fh, out, insert, m_start)
+                _copy_range(fh, out, m_end, size)
+    except Exception as exc:
+        print(f"[gallery] faststart of a large clip failed: {exc}")
+        try:
+            _os.remove(dst_path)
+        except OSError:
+            pass
+        return False
+
+    # Same length, and moov really does come first now. A silent corruption of
+    # somebody's only copy of a video is far worse than a slow first frame.
+    try:
+        if _os.path.getsize(dst_path) != size:
+            raise ValueError("length changed")
+        with open(dst_path, "rb") as fh:
+            mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+            try:
+                got = list(_iter_atoms(mm, 0, size))
+                names = [a[0] for a in got]
+                if b"moov" not in names or b"mdat" not in names:
+                    raise ValueError("atoms missing")
+                if names.index(b"moov") > names.index(b"mdat"):
+                    raise ValueError("moov still last")
+            finally:
+                mm.close()
+    except Exception as exc:
+        print(f"[gallery] faststart produced a bad file, keeping the original: {exc}")
+        try:
+            _os.remove(dst_path)
+        except OSError:
+            pass
+        return False
+    return True
+
+
+def store_video_path(db: Session, user: User, path: str, filename: str,
+                     duration_ms: int = 0) -> dict:
+    """Store a video that is already on disk, without ever holding it in RAM.
+
+    The chunked upload streams to a partial file and then had to read the whole
+    thing back to call store_video(raw) — so a clip that had been received
+    perfectly well was rejected by the memory it took to file it. This finishes
+    the job from the path: the digest is streamed, the re-mux is streamed, and
+    when neither is possible the partial file is simply MOVED into place.
+
+    `path` is consumed: on success it has been moved or deleted.
+    """
+    import os as _os
+
+    size = _os.path.getsize(path)
+    content_hash = hash_file(path)
+    dup = (db.query(GalleryPhoto)
+           .filter(GalleryPhoto.user_id == user.id,
+                   GalleryPhoto.content_hash == content_hash)
+           .first())
+    if dup:
+        _os.remove(path)
+        if dup.is_trashed:
+            dup.is_trashed = 0
+            dup.trashed_at = None
+            dup.updated_at = ist.now()
+            db.commit()
+        return {"item": _present(dup), "faces_found": 0, "duplicate": True}
+
+    ext = (_os.path.splitext(filename or "")[1].lower() or ".mp4")[:8]
+    fname = f"{uuid.uuid4().hex}{ext}"
+    storage.ensure_dirs(storage.GALLERY, user.id)
+    dest = storage.media_path(storage.GALLERY, user.id, storage.ORIGINAL, fname)
+
+    if not faststart_file(path, dest):
+        # Already fast, or not something we can safely rewrite. Move rather
+        # than copy: same filesystem, so it costs nothing and needs no second
+        # copy of a file that may be gigabytes.
+        _os.replace(path, dest)
+    else:
+        _os.remove(path)
+
+    poster_name = f"{_os.path.splitext(fname)[0]}.jpg"
+    poster, vmeta = _video_poster(dest)
+    if poster:
+        try:
+            pil = Image.open(io.BytesIO(poster))
+            pil.thumbnail((THUMB_MAX, THUMB_MAX))
+            tbuf = io.BytesIO()
+            pil.convert("RGB").save(tbuf, format="JPEG", quality=80)
+            storage.save(storage.GALLERY, user.id, storage.THUMB, poster_name,
+                         tbuf.getvalue())
+        except Exception as exc:
+            print(f"[gallery] poster thumbnail failed: {exc}")
+
+    now = ist.now()
+    item = GalleryPhoto(
+        user_id=user.id, filename=fname,
+        caption=_os.path.splitext(filename or "")[0] or None,
+        taken_at=ist.today(), is_favorite=0, is_trashed=0, size_bytes=size,
+        content_hash=content_hash, source_hash=content_hash, phash=None,
+        orig_name=(filename or "")[-255:] or None,
+        width=vmeta.get("width"), height=vmeta.get("height"),
+        kind="video",
+        # Only the moov header is read for the duration, not the file.
+        duration_ms=(mov_duration_file(dest) or duration_ms
+                     or (vmeta.get("duration_ms") if poster else None)),
+        created_at=now, updated_at=now)
+    db.add(item); db.commit(); db.refresh(item)
+    audit(db, user.id, "upload", "video", item.id,
+          {"label": item.caption or item.orig_name or f"Video {item.id}"})
+    return {"item": _present(item), "faces_found": 0, "duplicate": False}
+
+
+def mov_duration_file(path: str) -> int | None:
+    """Duration from a container on disk, reading only its header atoms."""
+    import mmap
+    import os as _os
+    try:
+        size = _os.path.getsize(path)
+        with open(path, "rb") as fh:
+            mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+            try:
+                for typ, a_start, a_end, _body in _iter_atoms(mm, 0, size):
+                    if typ == b"moov":
+                        # The moov atom alone, which is kilobytes.
+                        return _mov_duration_ms(bytes(mm[a_start:a_end]))
+            finally:
+                mm.close()
+    except Exception:
+        return None
+    return None
 
 
 def store_video(db: Session, user: User, raw: bytes, filename: str,
