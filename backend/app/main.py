@@ -280,6 +280,8 @@ def _migrate() -> None:
         # out this person's best face the next time somebody looks".
         ("people", "portrait_face_id",
          "ALTER TABLE people ADD COLUMN portrait_face_id INT NULL"),
+        ("people", "portrait_ok",
+         "ALTER TABLE people ADD COLUMN portrait_ok TINYINT NULL"),
         # Archive: out of the timeline, still in the library. Every existing
         # photo is un-archived, which is what DEFAULT 0 already says.
         ("gallery_photos", "is_archived",

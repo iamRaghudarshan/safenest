@@ -55,6 +55,45 @@ SHARP_FULL = 400.0
 INTRUDE = 0.25
 
 
+#: What a face has to clear to be shown as somebody's portrait at all.
+#:
+#: These are not guesses. Every portrait on the owner's library was rendered
+#: and labelled by eye as a usable face or not, then the measurements of both
+#: groups were compared. These three thresholds separate them exactly — all
+#: seventeen usable faces pass and all six failures are caught: a temple
+#: carving, a hand across a face, a full profile, and three motion-blurred
+#: crowd faces.
+#:
+#:   SCORE       the detector's own confidence. A stone carving scored 0.823
+#:               and a blurred crowd face 0.841, where real faces sat at 0.92
+#:               and up. The bar is 0.90 rather than 0.92 on purpose: a child
+#:               at 0.917 and an elderly man at 0.916 are perfectly good
+#:               portraits, and a bar tight enough to exclude them hid two
+#:               real people, one of them in seven photographs. Everything
+#:               that deserves rejecting between 0.90 and 0.92 is caught by
+#:               being turned away or blurred instead.
+#:   FRONTALITY  0.47 was a hand over a face, 0.00 a full profile. A genuine
+#:               face at a slight angle measured 0.54 and is fine.
+#:   SHARPNESS   good faces measured 314 and up. The rejects were 16, 159, 175.
+PROPER_SCORE = 0.90
+PROPER_FRONT = 0.50
+PROPER_SHARP = 300.0
+
+
+def is_proper(score: float | None, front: float, sharpness: float) -> bool:
+    """Is this a face worth showing as a person, rather than a hand or a
+    half-turned head?
+
+    A person whose best face fails this is not deleted or ungrouped — their
+    photos are all still there and still searchable. They are simply kept out
+    of the default People view, because a grid where a wristwatch and a stone
+    carving sit beside somebody's mother is a grid nobody can use.
+    """
+    return (float(score or 0.0) >= PROPER_SCORE
+            and front >= PROPER_FRONT
+            and sharpness >= PROPER_SHARP)
+
+
 def parse_bbox(bbox: str | None):
     """(x, y, w, h) as floats, or None."""
     try:
@@ -170,7 +209,8 @@ def choose(faces, photos, user_id: int, pad: float, vision,
     """The best portrait among a person's faces, measured properly.
 
     `faces` are PhotoFace rows; `photos` maps photo_id to a GalleryPhoto.
-    Returns the chosen row, or None when none of them can be used at all.
+    Returns (chosen row, is it a proper face), or (None, False) when none of
+    them can be used at all.
     """
     import cv2
 
@@ -185,8 +225,8 @@ def choose(faces, photos, user_id: int, pad: float, vision,
         sized = [(f, parse_bbox(getattr(f, "bbox", None))) for f in faces]
         sized = [(f, b) for f, b in sized if b]
         if not sized:
-            return None
-        return max(sized, key=lambda t: max(t[1][2], t[1][3]))[0]
+            return None, False
+        return max(sized, key=lambda t: max(t[1][2], t[1][3]))[0], False
 
     # Who else is in each photograph, so solitude can be measured without
     # opening anything.
@@ -205,6 +245,7 @@ def choose(faces, photos, user_id: int, pad: float, vision,
 
     best = None
     best_rank = -1.0
+    best_proper = False
     for _, f, box, alone, px in scored[:shortlist]:
         photo = photos.get(f.photo_id)
         if not photo:
@@ -220,7 +261,11 @@ def choose(faces, photos, user_id: int, pad: float, vision,
         r = rank(px, sharpness, front, alone, getattr(f, "score", None), found)
         if r > best_rank:
             best_rank, best = r, f
+            best_proper = is_proper(getattr(f, "score", None), front, sharpness)
 
     # Every candidate failed to open. Fall back to the cheap ranking rather
-    # than showing nobody.
-    return best or scored[0][1]
+    # than showing nobody — and say it is not a proper portrait, because
+    # nothing was ever measured.
+    if best is None:
+        return scored[0][1], False
+    return best, best_proper

@@ -25,7 +25,7 @@ def _is_auto(name: str | None) -> bool:
 
 @router.get("")
 def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
-          hidden: int = 0,
+          hidden: int = 0, quality: int = 0,
           user: User = Depends(guard("gallery", "view")), db: Session = Depends(get_db)):
     """People, most-photographed first.
 
@@ -64,6 +64,17 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
     # they appear in — a face seen once is far less interesting than a regular.
     ranked = [(p, int(counts.get(p.id, 0))) for p in rows]
     ranked = [x for x in ranked if x[1] >= max(0, min_photos)]
+    if quality:
+        # Only people we can show a real face for. A person whose best face is
+        # a hand, an ear, a carving or a full profile is not deleted and their
+        # photos are still searchable — they are kept out of the default grid,
+        # because one where a wristwatch sits beside somebody's mother is a
+        # grid nobody can use.
+        #
+        # Null is NOT filtered out: it means nobody has measured this person
+        # yet, and vanishing before anything is known about them would be the
+        # worse mistake. They drop out on a later load if they deserve to.
+        ranked = [x for x in ranked if x[0].portrait_ok != 0]
     # "Me" first when it is set, then named people, then by how many photos.
     # Somebody's own face is the one they reach for most and it should not be
     # ranked by photo count like everybody else.
@@ -127,13 +138,14 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
                 chosen[pid] = by_id[keep]
                 continue
             if budget > 0:
-                got = portraits.choose(fs, covers_by_id, user.id,
-                                       FACE_CROP_PAD_FOR_CHOICE, vision)
+                got, proper = portraits.choose(fs, covers_by_id, user.id,
+                                               FACE_CROP_PAD_FOR_CHOICE, vision)
                 if got is not None:
                     budget -= 1
                     chosen[pid] = got
                     db.query(Person).filter(Person.id == pid).update(
-                        {Person.portrait_face_id: got.id},
+                        {Person.portrait_face_id: got.id,
+                         Person.portrait_ok: 1 if proper else 0},
                         synchronize_session=False)
                     continue
             chosen[pid] = best_portrait(fs)
@@ -177,6 +189,10 @@ def index(offset: int = 0, limit: int = 120, min_photos: int = 1, q: str = "",
             # The UI needs both: "me" to mark the owner's own face, and
             # "hidden" so the show-hidden view can offer to unhide.
             "is_me": int(p.is_me or 0), "is_hidden": int(p.is_hidden or 0),
+            # Null until measured, so a client can tell "not a usable face"
+            # from "not looked at yet".
+            "portrait_ok": (None if p.portrait_ok is None
+                            else int(p.portrait_ok)),
             "cover_url": (faces_cut.get(p.id)
                           or (media_url(photo.user_id, storage.THUMB, photo.filename)
                               if photo else None)),

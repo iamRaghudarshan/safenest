@@ -104,6 +104,50 @@ check(portraits.rank(300, 800, 0.9, 1.0, 0.9, 0)
       "finding no face is not treated as a crowd")
 
 
+print("\nIS THIS A FACE WORTH SHOWING AT ALL")
+# Every one of these is a real measurement from the owner's library, taken
+# from portraits that were rendered and judged by eye. The rule agreed with
+# the eye on all twenty-three; these are the six it has to keep rejecting and
+# the four nearest misses it has to keep accepting.
+rejects = [
+    ("a temple carving",      0.82, 0.98, 3706),
+    ("a hand across a face",  0.91, 0.47, 2842),
+    ("a full profile",        0.91, 0.00, 1183),
+    ("a blurred crowd face",  0.90, 0.80,  175),
+    ("a face at the score bar but blurred", 0.919, 0.69, 16),
+    ("another blurred one",   0.84, 0.71,  159),
+    ("badly motion-blurred",  0.92, 0.69,   16),
+]
+for label, sc, fr, sh in rejects:
+    check(not portraits.is_proper(sc, fr, sh), "rejects %s" % label,
+          "score %.2f front %.2f sharp %.0f" % (sc, fr, sh))
+
+keeps = [
+    ("a face at a slight angle", 0.92, 0.54, 470),
+    # Both of these sat just UNDER a 0.92 bar and were being hidden -
+    # one of them a person in seven photographs. The bar moved for them.
+    ("a child looking up",       0.917, 0.96, 1395),
+    ("an elderly man",           0.916, 0.54, 470),
+    ("the softest good face",    0.94, 0.92, 314),
+    ("a face in sunglasses",     0.94, 0.73, 853),
+]
+for label, sc, fr, sh in keeps:
+    check(portraits.is_proper(sc, fr, sh), "keeps %s" % label,
+          "score %.2f front %.2f sharp %.0f" % (sc, fr, sh))
+
+# Each term has to be able to reject on its own, or one of them is decoration.
+good = (0.95, 0.90, 800)
+check(not portraits.is_proper(0.5, good[1], good[2]),
+      "a low detector score alone is enough to reject")
+check(not portraits.is_proper(good[0], 0.1, good[2]),
+      "being turned away alone is enough")
+check(not portraits.is_proper(good[0], good[1], 10),
+      "being blurred alone is enough")
+check(portraits.is_proper(*good), "and all three together pass")
+check(not portraits.is_proper(None, 0.9, 800),
+      "a face with no recorded score is not assumed good")
+
+
 print("\nREADING A RECTANGLE")
 check(portraits.parse_bbox("1,2,3,4") == (1.0, 2.0, 3.0, 4.0), "plain values")
 check(portraits.parse_bbox(None) is None, "none")

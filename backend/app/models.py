@@ -698,6 +698,12 @@ class Person(Base):
     # of the People page. Null means "not chosen yet", and anything that
     # changes which faces belong to this person sets it back to null.
     portrait_face_id = Column(Integer, nullable=True)
+    # Whether that face is one worth showing - a real face looking roughly at
+    # the camera, rather than a hand, an ear, a carving or a full profile.
+    # Null means nobody has looked yet, and an unmeasured person is shown
+    # rather than hidden: disappearing before anything is known about them
+    # would be the worse mistake.
+    portrait_ok = Column(Integer, nullable=True)
     created_at = Column(FlexDateTime)
     updated_at = Column(FlexDateTime)
 
