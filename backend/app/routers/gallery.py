@@ -1744,13 +1744,58 @@ def revert_photo(id: int, user: User = Depends(guard("gallery", "edit")),
     return out
 
 
+def _attach_covers(db: Session, user_id: int, items: list) -> None:
+    """Give every suggestion a few pictures to show.
+
+    It was sending `photo_ids` and nothing else, so the panel could only ever
+    draw a generic icon beside a sentence — for a suggestion ABOUT somebody's
+    photographs, which is the one thing it should have been showing. "A moving
+    highlight from 25 September" means nothing; three faces from that afternoon
+    mean everything.
+
+    Three, not all of them: these are previews on a card, and a reel can carry
+    forty photo ids. Signed thumbnail URLs, the same ones the grid uses, so
+    nothing new has to be served or cached.
+
+    Failures are per-item and silent by design. A suggestion whose cover cannot
+    be built is still a perfectly good suggestion, and this whole panel is an
+    optional extra on a screen that must not break because of it.
+    """
+    wanted: set[int] = set()
+    for it in items:
+        for pid in (it.get("photo_ids") or [])[:3]:
+            wanted.add(int(pid))
+    if not wanted:
+        return
+    rows = (db.query(GalleryPhoto)
+            .filter(GalleryPhoto.user_id == user_id,
+                    GalleryPhoto.id.in_(list(wanted)))
+            .all())
+    by_id = {p.id: p for p in rows}
+    for it in items:
+        covers = []
+        for pid in (it.get("photo_ids") or [])[:3]:
+            photo = by_id.get(int(pid))
+            if not photo:
+                continue
+            try:
+                covers.append(media_url(photo.user_id, storage.THUMB,
+                                        thumb_name(photo)))
+            except Exception:
+                continue
+        it["covers"] = covers
+        it["count"] = len(it.get("photo_ids") or [])
+
+
 @router.get("/suggestions")
 def suggestions(user: User = Depends(guard("gallery", "view")),
                 db: Session = Depends(get_db)):
     """What the library implies. Nothing here has happened yet."""
     from .. import suggest
     try:
-        return {"items": suggest.build(db, user.id)}
+        items = suggest.build(db, user.id)
+        _attach_covers(db, user.id, items)
+        return {"items": items}
     except Exception as exc:
         # A suggestion panel that 500s takes the screen it sits on with it.
         # There is nothing here anybody is waiting for, so an empty list is
