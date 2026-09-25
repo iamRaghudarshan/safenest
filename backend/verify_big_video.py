@@ -133,6 +133,41 @@ check(g.mov_duration_file(os.path.join(tmp, "bigfast.mp4")) == 12000,
       "from the header alone, not by decoding", "12000 ms")
 check(g.mov_duration_file(junk) is None, "junk reports no duration")
 
+print("\nA VIDEO WITH NO FILENAME IS STILL A VIDEO")
+# THE BUG THIS PINS, taken from the failure log on the owner's own machine:
+#
+#   21:26:22  413 /api/gallery/upload/chunk?...&filename=&duration_ms=27000
+#             &offset=29360128
+#
+# 29360128 is 28 MB. The phone sends no filename; the limit was chosen by
+# `looks_like_video(b"", filename)`, and with no name the answer was "photo".
+# So every video got the 30 MB photo ceiling and died one chunk later. They
+# were ordinary 20-40 second clips, and not one of them could ever arrive.
+
+
+def limit_for(duration_ms, head, filename):
+    """The rule as the endpoint now applies it."""
+    is_video = bool(duration_ms) or g.looks_like_video(head, filename)
+    return g.MAX_CHUNKED_BYTES if is_video else g.MAX_BYTES
+
+
+check(limit_for(27000, b"", "") == g.MAX_CHUNKED_BYTES,
+      "a duration alone makes it a video", "no filename, no bytes yet")
+check(limit_for(27000, b"", "") > 29360128 + 4 * MB,
+      "so the chunk that used to 413 at 28 MB now fits")
+
+mp4_head = struct.pack(">I", 24) + b"ftyp" + b"isom" + b"\x00" * 12
+check(limit_for(0, mp4_head, "") == g.MAX_CHUNKED_BYTES,
+      "the magic bytes alone make it a video", "no duration, no filename")
+check(limit_for(0, b"", "clip.mp4") == g.MAX_CHUNKED_BYTES,
+      "and the filename still works when there is one")
+
+check(limit_for(0, b"\xff\xd8\xff\xe0" + b"\x00" * 20, "") == g.MAX_BYTES,
+      "a JPEG is still held to the photo limit")
+check(limit_for(0, b"", "") == g.MAX_BYTES,
+      "and something with no evidence at all stays cautious")
+
+
 print("\nTHE CEILING")
 check(g.MAX_CHUNKED_BYTES > 4 * 1024 * MB,
       "a chunked upload allows multi-gigabyte clips",

@@ -2025,11 +2025,31 @@ async def upload_chunk(request: Request,
         # act on this; "400 Bad Request" would leave it guessing.
         raise HTTPException(409, f"Expected offset {have}, got {offset}")
 
-    # A chunked video is bounded by the disk, not by memory — see
-    # MAX_CHUNKED_BYTES. Photos keep their small limit: one that does not fit
-    # in 30 MB is not a photograph.
-    limit = (MAX_CHUNKED_BYTES if looks_like_video(b"", filename)
-             else MAX_BYTES)
+    # IS THIS A VIDEO? Decided from the CONTENT and the duration, never from
+    # the filename alone.
+    #
+    # It was `looks_like_video(b"", filename)`, and the phone does not always
+    # send a filename — the failure log shows request after request with
+    # `filename=` empty. With no name the answer was "photo", so every video
+    # got the 30 MB photo limit and died at 28 MB with a 413. They were
+    # ordinary 20-40 second clips, and NONE of them could ever arrive.
+    #
+    # Three signals, cheapest first:
+    #   * duration_ms — a photograph has no duration, and the phone sends this
+    #     for every clip. It covers the first chunk, before anything is on
+    #     disk to sniff.
+    #   * the magic bytes already written — the truth, and available from the
+    #     second chunk onwards.
+    #   * the filename, still, when there is one.
+    head = b""
+    if have:
+        try:
+            with open(path, "rb") as probe:
+                head = probe.read(64)
+        except OSError:
+            head = b""
+    is_video = bool(duration_ms) or looks_like_video(head, filename)
+    limit = MAX_CHUNKED_BYTES if is_video else MAX_BYTES
     written = have
     with open(path, "ab") as f:
         async for piece in request.stream():
@@ -2056,7 +2076,14 @@ async def upload_chunk(request: Request,
     # bytes object is what made a clip that had uploaded perfectly fail at the
     # last step — the file was on disk, and filing it needed as much memory
     # again. store_video_path consumes the partial file.
-    if looks_like_video(b"", filename):
+    # The same question, answered the same way — and now from the whole
+    # finished file, which is the most reliable evidence there is.
+    try:
+        with open(path, "rb") as probe:
+            head = probe.read(64)
+    except OSError:
+        head = b""
+    if bool(duration_ms) or looks_like_video(head, filename):
         out = store_video_path(db, user, path, filename or "upload",
                                duration_ms=duration_ms)
         return {**out, "upload_id": upload_id, "received": written,
