@@ -13,7 +13,11 @@ So four things are measured, and a face has to do well at all of them:
   SHARPNESS   variance of the Laplacian. A blurred face has little.
   FRONTALITY  where the nose sits between the eyes. Square-on or turned away.
   SOLITUDE    whether anybody else lands inside the crop. A circle with two
-              people in it names neither of them.
+              people in it names neither of them. Measured twice over: from
+              the recorded rectangles, which is free, and again from what the
+              detector finds in the finished crop — because a face too small
+              or too turned to have been recorded still ruins the portrait it
+              appears in.
 
 Multiplied rather than added, because these are not interchangeable: a huge
 sharp profile is still a profile, and adding scores lets one strength hide a
@@ -111,7 +115,7 @@ def sharp_score(var: float) -> float:
 
 
 def rank(px: float, sharpness: float, front: float, alone: float,
-         score: float | None) -> float:
+         score: float | None, faces_in_crop: int = 1) -> float:
     """One number for how good a portrait a face makes.
 
     Multiplicative on purpose. A huge sharp half-profile is still a
@@ -119,15 +123,20 @@ def rank(px: float, sharpness: float, front: float, alone: float,
     looking straight at the camera — which is the exact failure being fixed.
     """
     conf = 0.6 + 0.4 * float(score if score is not None else 0.8)
-    # Frontality has a floor as well: on some faces the detector finds no
-    # landmarks at all in a tight crop, and that must rank low without being
-    # an automatic disqualification.
+    # A crop the detector finds TWO faces in has two people in the circle,
+    # whatever the rectangles said. `solitude` can only see faces that were
+    # recorded; this catches the ones that never were - a face too small or
+    # too turned to be stored still ruins the portrait it appears in.
+    crowd = 1.0 if faces_in_crop <= 1 else max(0.3, 1.0 / faces_in_crop)
+    # Frontality keeps a floor: on some faces the detector finds no landmarks
+    # at all in a tight crop, and that must rank low without being an
+    # automatic disqualification.
     return (size_score(px) * sharp_score(sharpness)
-            * max(0.15, front) * alone * conf)
+            * max(0.15, front) * alone * conf * crowd)
 
 
-def measure(bgr, box, pad: float, vision) -> tuple[float, float]:
-    """(sharpness, frontality) for one face, from the decoded image."""
+def measure(bgr, box, pad: float, vision) -> tuple[float, float, int]:
+    """(sharpness, frontality, faces found) for one face, from the pixels."""
     import cv2
 
     ih, iw = bgr.shape[:2]
@@ -135,7 +144,7 @@ def measure(bgr, box, pad: float, vision) -> tuple[float, float]:
     x0, y0 = max(0, int(x0)), max(0, int(y0))
     x1, y1 = min(iw, int(x1)), min(ih, int(y1))
     if x1 - x0 < 16 or y1 - y0 < 16:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0
     crop = bgr[y0:y1, x0:x1]
     grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     sharpness = float(cv2.Laplacian(grey, cv2.CV_64F).var())
@@ -145,12 +154,15 @@ def measure(bgr, box, pad: float, vision) -> tuple[float, float]:
     # a face it cannot find in a tight crop of itself is a poor portrait for
     # the same reasons it is hard to detect.
     front = 0.0
+    found = 0
     try:
-        for got in vision.detect_faces(crop):
-            front = max(front, vision.frontality(got.get("landmarks")))
+        got = vision.detect_faces(crop)
+        found = len(got)
+        for g in got:
+            front = max(front, vision.frontality(g.get("landmarks")))
     except Exception:
-        front = 0.0
-    return sharpness, front
+        front, found = 0.0, 0
+    return sharpness, front, found
 
 
 def choose(faces, photos, user_id: int, pad: float, vision,
@@ -204,8 +216,8 @@ def choose(faces, photos, user_id: int, pad: float, vision,
         bgr = cv2.imread(path)
         if bgr is None:
             continue
-        sharpness, front = measure(bgr, box, pad, vision)
-        r = rank(px, sharpness, front, alone, getattr(f, "score", None))
+        sharpness, front, found = measure(bgr, box, pad, vision)
+        r = rank(px, sharpness, front, alone, getattr(f, "score", None), found)
         if r > best_rank:
             best_rank, best = r, f
 

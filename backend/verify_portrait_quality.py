@@ -87,6 +87,23 @@ check(portraits.size_score(240) == portraits.size_score(4000),
 check(portraits.rank(0, 800, 0.9, 1.0, 0.9) == 0.0,
       "a face with no size scores nothing")
 
+print("\nTWO PEOPLE IN ONE CIRCLE")
+alone_ = portraits.rank(300, 800, 0.9, 1.0, 0.9, 1)
+crowded = portraits.rank(300, 800, 0.9, 1.0, 0.9, 2)
+check(crowded < alone_, "a crop with two faces in it ranks below one with one",
+      "%.3f vs %.3f" % (crowded, alone_))
+check(portraits.rank(300, 800, 0.9, 1.0, 0.9, 5)
+      < portraits.rank(300, 800, 0.9, 1.0, 0.9, 2),
+      "and a crowd ranks below a pair")
+check(portraits.rank(300, 800, 0.9, 1.0, 0.9, 9) > 0,
+      "but a crowd is never zero - somebody only ever in groups needs a face")
+# Nothing found at all is not a crowd, and must not be penalised as one: a
+# face the detector cannot re-find is already punished through frontality.
+check(portraits.rank(300, 800, 0.9, 1.0, 0.9, 0)
+      == portraits.rank(300, 800, 0.9, 1.0, 0.9, 1),
+      "finding no face is not treated as a crowd")
+
+
 print("\nREADING A RECTANGLE")
 check(portraits.parse_bbox("1,2,3,4") == (1.0, 2.0, 3.0, 4.0), "plain values")
 check(portraits.parse_bbox(None) is None, "none")
