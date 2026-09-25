@@ -29,8 +29,15 @@ REM  tree with it. The uvicorn parent survives, the task still reports Running,
 REM  the /run below is then a no-op, and this script reports success while the
 REM  OLD code is still serving every request. That failure is invisible and
 REM  costs an afternoon, so kill whatever still holds the port before starting.
+REM
+REM  ONLY python.exe, AND ONLY THAT. This machine has a SECOND thing listening
+REM  on 8080: the AI IPQC project serves PHP on ::1:8080 while this API has
+REM  0.0.0.0:8080, and Windows allows both because the addresses differ. The
+REM  unfiltered loop matched both netstat lines and killed the PHP server too,
+REM  which nothing here restarts -- so restarting SafeNest quietly took an
+REM  unrelated project down, and the only symptom was that project being off.
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:"TCP .*:8080 .*LISTENING"') do (
-    taskkill /F /PID %%P /T >nul 2>&1
+    tasklist /FI "PID eq %%P" /FI "IMAGENAME eq python.exe" 2>nul | findstr /i "python.exe" >nul && taskkill /F /PID %%P /T >nul 2>&1
 )
 timeout /t 2 /nobreak >nul
 
