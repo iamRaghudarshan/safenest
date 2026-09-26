@@ -1041,8 +1041,42 @@ async def storage_gate(request: Request, call_next):
 
 #: Where refused uploads are recorded, so a backup that "keeps failing" can be
 #: diagnosed from the computer instead of from a description of the phone.
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi.exception_handlers import http_exception_handler
+
+
 UPLOAD_LOG = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                           "upload_failures.log")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception_with_cause(request: Request,
+                                     exc: StarletteHTTPException):
+    """The default handler, plus the CAUSE written down for upload failures.
+
+    FastAPI turns a body it cannot parse into
+    `HTTPException(400, "There was an error parsing the body") from e`. The
+    message names nothing: a malformed boundary, a client that hung up
+    mid-part and a part-size limit all read identically, and they want
+    different fixes. Four of them arrived in the same second from the phone
+    and there was no way to tell which.
+
+    The original is still on `__cause__` at this point, so it is logged before
+    the response goes out. The response itself is unchanged — the cause can
+    name internals and belongs in a file on this machine, not in a reply to a
+    phone.
+    """
+    if exc.status_code >= 400 and "/api/gallery/upload" in request.url.path:
+        cause = exc.__cause__ or exc.__context__
+        if cause is not None:
+            try:
+                with open(UPLOAD_LOG, "a", encoding="utf-8") as f:
+                    f.write("%s  cause %s: %s\n" % (
+                        ist.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        type(cause).__name__, str(cause)[:300]))
+            except Exception:
+                pass
+    return await http_exception_handler(request, exc)
 
 
 @app.middleware("http")

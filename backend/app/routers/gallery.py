@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from fastapi import (APIRouter, Body, Depends, File, Form, HTTPException,
                      Request, UploadFile)
 from fastapi.responses import FileResponse, Response
-from PIL import Image, ImageOps
+from PIL import Image, ImageFile, ImageOps
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -2691,6 +2691,121 @@ def store_video(db: Session, user: User, raw: bytes, filename: str,
     return {"item": _present(item), "faces_found": 0, "duplicate": False}
 
 
+# A JPEG starts FFD8FF and ends FFD9. Used to pull the preview out of a RAW
+# file, which is a container with one or more finished JPEGs inside it.
+_SOI = bytes.fromhex("ffd8ff")   # a JPEG begins here
+_EOI = bytes.fromhex("ffd9")     # ...and ends here
+
+# TIFF, little- and big-endian. Every DNG is a TIFF, and so are the RAW files
+# most other makers ship; Pillow opens some and refuses others depending on
+# which compression and which tags the camera used.
+_TIFF = (bytes.fromhex("49492a00"), bytes.fromhex("4d4d002a"))
+
+
+def _embedded_jpeg(raw: bytes) -> bytes | None:
+    """The largest complete JPEG inside a container, or None.
+
+    Every RAW file carries at least one — that is what the camera's own screen
+    shows and what every operating system draws as the thumbnail. Pulling it
+    out turns "cannot identify image file" into a photograph, with no decoder
+    dependency at all: a DNG that Pillow will not open still has a perfectly
+    ordinary JPEG sitting inside it.
+
+    LARGEST, not first. A DNG usually holds two or three — a 160px thumbnail
+    for the file browser and a full-size preview — and the first one found is
+    reliably the small one. Storing that would look like the upload worked
+    while quietly replacing somebody's photograph with a postage stamp, which
+    is worse than refusing it.
+    """
+    best: bytes | None = None
+    at = raw.find(_SOI)
+    while at >= 0:
+        end = raw.find(_EOI, at + 3)
+        if end < 0:
+            break
+        candidate = raw[at:end + 2]
+        # Anything this small is an icon, not a preview.
+        if len(candidate) > 4096 and (best is None or len(candidate) > len(best)):
+            best = candidate
+        at = raw.find(_SOI, end + 2)
+    return best
+
+
+def _decodable(raw: bytes, filename: str) -> bytes:
+    """The bytes to hand Pillow: the original, or something recovered from it.
+
+    Three faults were found in the live refusal log, and this answers two of
+    them. The third — a genuinely unreadable file — still raises, and should.
+
+    TRUNCATED FILES. "image file is truncated (0 bytes not processed)" and
+    "Truncated File Read" mean the JPEG's data ends before its dimensions say
+    it should — a transfer cut short, a half-written file, a damaged card.
+    Pillow refuses by default and will decode what is there when asked.
+    Nine-tenths of a photograph is a photograph; refusing it means the phone
+    re-offers it on every backup for the rest of its life and the person never
+    finds out which one it was. The flag is set only for the retry, and put
+    back afterwards, because leaving it on globally would silently accept
+    truncation everywhere including where it matters.
+
+    RAW. A .dng that Pillow cannot identify is still a TIFF container with a
+    finished JPEG preview in it.
+    """
+    # The fast path: the overwhelming majority open first time.
+    try:
+        probe = Image.open(io.BytesIO(raw))
+        probe.load()
+        return raw
+    except Exception:
+        pass
+
+    ext = os.path.splitext(filename or "")[1].lower()
+    is_raw = raw[:4] in _TIFF or ext in (".dng", ".cr2", ".cr3", ".nef",
+                                         ".arw", ".raf", ".orf", ".rw2")
+    if is_raw:
+        inner = _embedded_jpeg(raw)
+        if inner:
+            return inner
+
+    # Truncated: ask Pillow to keep what it managed to read, then RE-ENCODE
+    # what came back.
+    #
+    # Returning the original bytes here would not work and the reason is worth
+    # stating, because it is the kind of mistake that tests green: the flag is
+    # global and this function puts it back, so the caller's own
+    # `Image.open(...).save(...)` would hit exactly the same refusal a moment
+    # later. What the caller needs is bytes that open normally, so the repair
+    # has to happen here and be baked in. EXIF is carried across by hand for
+    # the same reason — `save` keeps none of it unless handed it, and the date
+    # a photograph was taken is the one piece of metadata this app organises
+    # everything by.
+    was = ImageFile.LOAD_TRUNCATED_IMAGES
+    try:
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
+        probe = Image.open(io.BytesIO(raw))
+        probe.load()
+        exif = probe.info.get("exif")
+        fixed = io.BytesIO()
+        flat = probe.convert("RGB") if probe.mode not in ("RGB", "L") else probe
+        flat.save(fixed, format="JPEG", quality=92,
+                  **({"exif": exif} if exif else {}))
+        return fixed.getvalue()
+    except Exception:
+        pass
+    finally:
+        ImageFile.LOAD_TRUNCATED_IMAGES = was
+
+    # A last look for a JPEG inside anything else — a HEIC the decoder choked
+    # on, a container nothing here knows. Costs one scan of the buffer and it
+    # is the difference between keeping the photograph and losing it.
+    inner = _embedded_jpeg(raw)
+    if inner and inner != raw:
+        return inner
+
+    # Nothing worked. Hand back the original so the decode below raises the
+    # real reason rather than one invented here.
+    return raw
+
+
 def store_photo(db: Session, user: User, raw: bytes, filename: str,
                 duration_ms: int = 0) -> dict:
     """Decode, de-duplicate, store and thumbnail one photo. The whole of upload.
@@ -2711,8 +2826,14 @@ def store_photo(db: Session, user: User, raw: bytes, filename: str,
 
     # Decode (pillow-heif handles HEIC/HEIF) and normalise to RGB JPEG bytes once,
     # so the content hash is stable regardless of the original container/encoding.
+    #
+    # `_decodable` is tried first and it is not a formality: the log the
+    # phone's refusals were finally traced through named three faults here,
+    # and two of them were photographs this server could perfectly well have
+    # kept. A refusal is the worst outcome available — the phone has no way to
+    # repair the file, so it offers the same one on every backup for ever.
     try:
-        pil = Image.open(io.BytesIO(raw))
+        pil = Image.open(io.BytesIO(_decodable(raw, filename)))
         src_format = pil.format          # convert() clears it, and it decides the store below
         # Read BEFORE convert(), which collapses an animation to its first
         # frame and then reports one. A moving highlight stored through this
