@@ -2065,9 +2065,31 @@ async def upload_chunk(request: Request,
     path = _partial_path(user.id, upload_id)
     have = os.path.getsize(path) if os.path.exists(path) else 0
 
-    if offset != have:
-        # Tell it where to resume from rather than just refusing. The phone can
-        # act on this; "400 Bad Request" would leave it guessing.
+    if offset < have:
+        # THE COMPUTER HOLDS MORE THAN THE PHONE THINKS IT SENT. Rewind and
+        # take the chunk, rather than refusing it.
+        #
+        # This is the ordinary consequence of a transfer dying mid-request:
+        # the chunk was streamed straight to disk, so some of it landed, and
+        # then the connection went before a reply could say how much. The
+        # phone only ever counts bytes it was told arrived, so it retries from
+        # the last confirmed offset — and every attempt for the rest of that
+        # video's life met a 409, because the file on disk was permanently a
+        # few hundred kilobytes ahead of where the phone believed it was.
+        # One dropped packet and that video could never be backed up again.
+        #
+        # Truncating is safe and is the only correct answer: the bytes after
+        # `offset` are precisely the ones being re-sent. Keeping them and
+        # skipping ahead would splice a partial chunk into the middle of the
+        # file and produce something of exactly the right SIZE that is
+        # silently corrupt, which is the failure this endpoint's offset check
+        # exists to prevent in the first place.
+        with open(path, "r+b") as f:
+            f.truncate(offset)
+        have = offset
+    elif offset > have:
+        # A GAP. Refuse — this one really would corrupt the file, and the
+        # phone can act on the number.
         raise HTTPException(409, f"Expected offset {have}, got {offset}")
 
     # IS THIS A VIDEO? Decided from the CONTENT and the duration, never from
@@ -2139,6 +2161,64 @@ async def upload_chunk(request: Request,
     os.remove(path)
     out = store_photo(db, user, blob, filename or "upload", duration_ms=duration_ms)
     return {**out, "upload_id": upload_id, "received": written, "complete": True}
+
+
+@router.post("/backup/report")
+def backup_report(entries: list[dict] = Body(default=[]),
+                  user: User = Depends(guard("gallery", "create"))):
+    """What the PHONE could not send, written into the server's own log.
+
+    The refusal log has answered every upload question so far, and it has one
+    blind spot by construction: it can only see requests that arrive. An item
+    the phone gives up on before sending — a video still in iCloud, a file it
+    cannot open, a read that throws — produces no request, so the log stays
+    silent and silence gets read as "nothing was tried".
+
+    That is exactly where this went wrong today. Two videos would not upload,
+    the log showed nothing about any video, and the only account of it was on
+    a screen in somebody's hand. The phone knew the reason the whole time and
+    had no way to say so.
+
+    Deliberately not a database table. This is a diagnostic, it is read by a
+    person looking at one file next to the failures it sits beside, and a
+    schema for it would be a migration to maintain for something that should
+    be deletable with `del`.
+
+    Bounded hard, because it is a client writing to a file on the server: at
+    most 100 entries, each field clipped. A diagnostic that can fill a disk is
+    a way to take the server down.
+    """
+    if not isinstance(entries, list):
+        raise HTTPException(422, "Expected a list")
+
+    def clip(v, n):
+        return str(v if v is not None else "")[:n].replace("\n", " ").replace("\r", " ")
+
+    lines = []
+    for e in entries[:100]:
+        if not isinstance(e, dict):
+            continue
+        lines.append("%s  PHONE user=%s %-5s %-9s %-40s %s" % (
+            ist.now().strftime("%Y-%m-%d %H:%M:%S"),
+            user.id,
+            "video" if e.get("video") else "photo",
+            clip(e.get("bytes"), 9),
+            clip(e.get("name"), 40),
+            clip(e.get("reason"), 200)))
+
+    if lines:
+        try:
+            log = os.path.join(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))),
+                "upload_failures.log")
+            with open(log, "a", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+        except OSError:
+            # A diagnostic that breaks the thing it is diagnosing is worse
+            # than no diagnostic. The backup must not fail because a log file
+            # could not be written.
+            pass
+    return {"recorded": len(lines)}
 
 
 @router.post("/upload/abandon")

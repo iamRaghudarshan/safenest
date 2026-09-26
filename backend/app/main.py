@@ -1094,9 +1094,36 @@ async def log_upload_failures(request: Request, call_next):
     appear here — and that absence is itself the answer, because it means the
     phone gave up before sending.
     """
-    resp = await call_next(request)
+    # A TRANSFER THAT DIES LEAVES NO RESPONSE TO INSPECT.
+    #
+    # This middleware only ever looked at `resp`, so it could only see
+    # failures the server chose to return. An upload whose connection drops
+    # part-way — the phone moving off wifi, the tunnel hiccuping, the laptop
+    # sleeping — never produces a response at all, and was therefore
+    # completely invisible: the log stayed silent while a video failed over
+    # and over. "Nothing in the log" was being read as "nothing was tried",
+    # and those are very different conclusions to act on.
     path = request.url.path
-    if resp.status_code < 400 or "/api/gallery/upload" not in path:
+    watched = "/api/gallery/upload" in path
+    try:
+        resp = await call_next(request)
+    except BaseException as exc:
+        # Re-raised immediately — this observes, it does not handle. A
+        # ClientDisconnect is ordinary and must still reach the server's own
+        # handling; swallowing it here would turn a dropped upload into a
+        # phantom success.
+        if watched:
+            try:
+                with open(UPLOAD_LOG, "a", encoding="utf-8") as f:
+                    f.write("%s  DROP %s?%s  %s: %s\n" % (
+                        ist.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        path, str(request.url.query)[:200],
+                        type(exc).__name__, str(exc)[:150]))
+            except Exception:
+                pass
+        raise
+
+    if resp.status_code < 400 or not watched:
         return resp
 
     # READING THE REASON OFF A STREAMED RESPONSE.
