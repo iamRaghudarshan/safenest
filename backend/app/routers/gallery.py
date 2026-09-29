@@ -7,6 +7,7 @@ import json
 import math
 import mimetypes
 import os
+import shutil
 import tempfile
 import time
 import uuid
@@ -66,6 +67,18 @@ MAX_VIDEO_BYTES = 256 * 1024 * 1024  # 256 MB per video, in ONE request
 #: Not unlimited: a bad or hostile client could otherwise fill the disk with a
 #: single endless request, and 16 GB is far beyond any real phone recording.
 MAX_CHUNKED_BYTES = 16 * 1024 * 1024 * 1024
+
+#: What one chunk might weigh when the phone has not said the total yet.
+#: The phone sends 4 MB pieces; this is generous on purpose, because refusing
+#: an upload that would have fitted is a worse mistake than accepting one that
+#: then runs out — the second case is caught during the write.
+MAX_CHUNK_ESTIMATE = 64 * 1024 * 1024
+
+#: Kept free whatever happens. A computer with nothing left is not a computer
+#: that can finish the upload either: the finished video has to be MOVED out
+#: of the partial folder, thumbnails written beside it, and the database
+#: updated. Filling the volume to the last byte breaks all three.
+DISK_HEADROOM = 512 * 1024 * 1024
 
 
 def thumb_name(p: GalleryPhoto) -> str:
@@ -2005,6 +2018,19 @@ def upload(file: UploadFile = File(...), faces: int = 1, duration_ms: int = 0,
 
 # --------------------------------------------------------------- resumable
 
+def _drop(path: str) -> None:
+    """Remove a part file, never raising.
+
+    Called on the failure paths, where the useful thing is the message the
+    phone is about to be given. An exception here would replace a sentence
+    somebody can act on with a 500 they cannot.
+    """
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 def _partial_dir(user_id: int) -> str:
     """Where half-arrived uploads live, per owner.
 
@@ -2117,6 +2143,32 @@ async def upload_chunk(request: Request,
             head = b""
     is_video = bool(duration_ms) or looks_like_video(head, filename)
     limit = MAX_CHUNKED_BYTES if is_video else MAX_BYTES
+
+    # IS THERE ROOM? Asked before the write, not discovered during it.
+    #
+    # There is no size ceiling on a video worth speaking of — the cap is 16 GB
+    # — so what actually stops a large upload is the disk, and until now it
+    # stopped it by failing mid-write with an OSError. That surfaces on the
+    # phone as a 500 with no explanation, leaves a part file behind, and
+    # repeats on every run: the one failure that is both completely
+    # predictable and completely unexplained.
+    #
+    # `total` is only sent on the final chunk, so for everything before it the
+    # best available estimate is this chunk plus a margin. The margin is what
+    # keeps the last chunk of a long upload from being the one that fills the
+    # volume, and it leaves the computer usable rather than wedged at zero.
+    try:
+        free = shutil.disk_usage(os.path.dirname(path)).free
+    except OSError:
+        free = None
+    if free is not None:
+        wanted = (total - have) if total > 0 else MAX_CHUNK_ESTIMATE
+        if free < wanted + DISK_HEADROOM:
+            raise HTTPException(
+                507,
+                "Not enough space left on your computer for this file "
+                f"({free // (1024 * 1024)} MB free).")
+
     written = have
     with open(path, "ab") as f:
         async for piece in request.stream():
@@ -2128,7 +2180,17 @@ async def upload_chunk(request: Request,
                 os.remove(path)
                 raise HTTPException(
                     413, f"File too large (max {limit // (1024 * 1024)} MB)")
-            f.write(piece)
+            try:
+                f.write(piece)
+            except OSError as e:
+                # The disk filled anyway — another process, or an estimate that
+                # was too kind. Say so plainly instead of letting a bare OSError
+                # become a 500 the phone reports as "something went wrong".
+                f.close()
+                _drop(path)
+                raise HTTPException(
+                    507, "Your computer ran out of space while saving this "
+                         "file.") from e
 
     if total <= 0 or written < total:
         # More to come. Nothing is in the gallery yet, and that is correct: a
