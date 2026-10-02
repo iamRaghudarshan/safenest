@@ -1,6 +1,6 @@
 {
-  "version": "1.83.0",
-  "build": 183,
-  "notes": "The bottom bar now sits near the edge of the screen instead of floating well above it.",
+  "version": "1.86.0",
+  "build": 189,
+  "notes": "A picture you set as the background no longer makes the words hard to read. The phone and computer on the backup screen are redrawn, and the computer fills up as your photos arrive.",
   "filename": "app-release.apk"
 }
