@@ -32,7 +32,8 @@ router = APIRouter(prefix="/api/household", tags=["household"])
 updater = APIRouter(prefix="/api/update", tags=["update"])
 
 ALL_MODULES = ["loans", "cards", "insurance", "investments", "expenses",
-               "reminders", "todo", "habits", "vault", "gallery", "documents", "notes"]
+               "reminders", "todo", "habits", "vault", "gallery", "documents", "notes",
+               "memories"]
 
 
 def can_manage(user: User, db: Session) -> bool:

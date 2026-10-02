@@ -1254,3 +1254,67 @@ class SyncOp(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "client_uuid", name="uq_sync_user_uuid"),
     )
+
+
+class Memory(Base):
+    """LIFE MEMORY: something somebody said into their phone, kept here as well.
+
+    THIS TABLE IS A COPY, NOT THE ORIGINAL — the one place in SafeNest where the
+    phone holds the authoritative record. Every other module is created on a
+    client and immediately owned by this database; a memory is spoken, very often
+    with no signal at all, written to the phone's own SQLite, and pushed when
+    there is a connection. So nothing here may be treated as the source of
+    truth, and a row the phone has not sent is not a row that is late — it is a
+    row that exists, correctly, somewhere else.
+
+    What that means in practice: `body` is the words verbatim and is never
+    rewritten, and `client_uuid` is minted on the phone so a push whose reply
+    never arrived can be retried without making a second copy. A duplicate here
+    cannot be told apart from a second thing somebody said.
+
+    `said_at` is when it was SAID, not when it arrived. A sync after a week
+    abroad would otherwise stamp seven days of memories with the same afternoon.
+    """
+    __tablename__ = "memories"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    #: Minted on the phone, per memory. The idempotency key for the push.
+    client_uuid = Column(String(64), index=True)
+    #: The phone's own row id, kept only so a support question ("which one is
+    #: this?") can be answered against the device without guessing.
+    device_row_id = Column(Integer)
+    body = Column(Text, default="")
+    #: 1 when it was spoken rather than typed. Worth keeping: dictation gets
+    #: words wrong in ways typing does not, so it explains an odd-looking row.
+    spoken = Column(Integer, default=0)
+    said_at = Column(FlexDateTime)
+    #: Set once the photograph itself has been uploaded, by the ordinary photo
+    #: backup. Null means the words are here and the picture is still on the
+    #: phone, which is a normal and expected state, not an error.
+    photo_id = Column(Integer)
+    created_at = Column(FlexDateTime)
+    updated_at = Column(FlexDateTime)
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_uuid", name="uq_memory_user_uuid"),
+    )
+
+
+class MemoryFact(Base):
+    """A fact the person CONFIRMED about a memory on the phone.
+
+    Only what was confirmed, exactly as on the device. What the phone's reader
+    merely guessed is not stored anywhere — it is re-read from the words when it
+    is wanted, so a better reader later improves old memories instead of leaving
+    yesterday's guesses lying about as though somebody had agreed to them.
+    """
+    __tablename__ = "memory_facts"
+    id = Column(Integer, primary_key=True)
+    memory_id = Column(Integer, index=True)
+    user_id = Column(Integer, index=True)
+    #: expiry | date | amount | place | shop | person | thing
+    kind = Column(String(20), default="thing")
+    value = Column(String(500), default="")
+    #: Set only for the kinds that point at a moment. This is what the phone's
+    #: warranty warnings are built from, and the only reason to keep it here is
+    #: so a new phone can be told what is coming.
+    at = Column(FlexDateTime)
