@@ -60,13 +60,18 @@ def _user(email, name, role="admin"):
         db.commit()
     if role != "admin":
         # A non-admin needs the grant, and granting it here is also the check
-        # that the module key is the one the router guards on — a mismatch is
-        # the "shipped but unreachable" trap, a module that 403s every call.
+        # that the module key is the one the router guards on. A mismatch is the
+        # "shipped but unreachable" trap, and this module nearly shipped with
+        # one: the phone calls it `memory` and the first cut of this server
+        # called it `memories`, so every non-admin would have had the tile
+        # filtered out of the Modules screen and never seen the feature at all.
+        # The key is `memory` on both sides; the URL stays plural because it is
+        # a collection.
         have = (db.query(UserModule)
                 .filter(UserModule.user_id == u.id,
-                        UserModule.module_key == "memories").first())
+                        UserModule.module_key == "memory").first())
         if not have:
-            db.add(UserModule(user_id=u.id, module_key="memories",
+            db.add(UserModule(user_id=u.id, module_key="memory",
                               can_view=1, can_create=1, can_edit=1, can_delete=1))
             db.commit()
     return u
@@ -116,9 +121,10 @@ def U():
     return str(_uuid.uuid4())
 
 
-def memory(uuid, body, said_at, facts=(), spoken=True, row=1):
+def memory(uuid, body, said_at, facts=(), spoken=True, row=1, asset=None):
     return {"client_uuid": uuid, "device_row_id": row, "body": body,
-            "said_at": said_at, "spoken": spoken, "facts": list(facts)}
+            "said_at": said_at, "spoken": spoken, "facts": list(facts),
+            "photo_asset_id": asset}
 
 
 print("1) a memory arrives from a phone")
@@ -148,6 +154,24 @@ check("all three confirmed facts came with it", len(row["facts"]) == 3, row["fac
 check("the expiry kept its date",
       any(f["kind"] == "expiry" and "2028" in (f["at"] or "") for f in row["facts"]),
       row["facts"])
+
+print("1b) a memory with a photograph keeps which photograph it was")
+# The file travels through the ordinary photo backup; what travels with the
+# memory is the camera-roll asset id, so the computer's copy can be joined to the
+# picture once the backup has sent it. An earlier cut dropped it, which left the
+# laptop unable to show the photograph at all.
+PICTURE = U()
+st, _ = call("POST", "/api/memories", memory(
+    PICTURE, "Lalbagh, the flower show, with Appa.", "2026-09-21 08:00:00",
+    row=9, asset="content://media/external/images/media/7781"))
+check("accepted", st == 200, st)
+st, hits = call("GET", "/api/memories?q=Lalbagh")
+check("the asset id came with it",
+      hits["items"][0].get("photo_asset_id") == "content://media/external/images/media/7781",
+      hits["items"][0].get("photo_asset_id"))
+check("and no gallery row is claimed yet",
+      hits["items"][0].get("photo_id") is None, hits["items"][0].get("photo_id"))
+st, _ = call("DELETE", "/api/memories/%s" % hits["items"][0]["id"])
 
 print("2) said_at is when it was SAID, not when it arrived")
 # Otherwise a sync after a week away stamps seven days of memories with the same

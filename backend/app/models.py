@@ -1288,9 +1288,17 @@ class Memory(Base):
     #: words wrong in ways typing does not, so it explains an odd-looking row.
     spoken = Column(Integer, default=0)
     said_at = Column(FlexDateTime)
-    #: Set once the photograph itself has been uploaded, by the ordinary photo
-    #: backup. Null means the words are here and the picture is still on the
-    #: phone, which is a normal and expected state, not an error.
+    #: WHICH picture in the phone's camera roll, if one was attached — the
+    #: device's own asset id, a string, not a row here. The file itself arrives
+    #: through the ordinary photo backup, which already does chunked resumable
+    #: uploads and knows what this computer has; a second uploader for one image
+    #: at a time would be a worse version of it.
+    photo_asset_id = Column(String(120))
+    #: The gallery row, once something joins the two. NOTHING DOES YET, and that
+    #: is worth saying rather than leaving a hopeful column: the asset id above
+    #: is stored so the link exists in the data instead of having to be
+    #: reconstructed later from nothing. A memory whose words are here while its
+    #: picture is still only on the phone is a normal state, not an error.
     photo_id = Column(Integer)
     created_at = Column(FlexDateTime)
     updated_at = Column(FlexDateTime)

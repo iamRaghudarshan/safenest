@@ -87,7 +87,7 @@ def list_memories(
     q: str = "",
     limit: int = 200,
     offset: int = 0,
-    user: User = Depends(guard("memories")),
+    user: User = Depends(guard("memory")),
     db: Session = Depends(get_db),
 ):
     """Newest first, optionally matching `q` in the words or a confirmed fact.
@@ -117,7 +117,7 @@ def list_memories(
 @router.post("")
 def push_memory(
     payload: dict = Body(...),
-    user: User = Depends(guard("memories", "edit")),
+    user: User = Depends(guard("memory", "edit")),
     db: Session = Depends(get_db),
 ):
     """Take one memory from a phone.
@@ -163,6 +163,7 @@ def push_memory(
         # which would be a bug there, and a memory stamped today is better than
         # one refused.
         said_at=payload.get("said_at") or ist.now(),
+        photo_asset_id=str(payload.get("photo_asset_id") or "")[:120] or None,
         photo_id=payload.get("photo_id"),
         created_at=ist.now(),
         updated_at=ist.now(),
@@ -179,7 +180,7 @@ def push_memory(
 @router.post("/batch")
 def push_batch(
     payload: dict = Body(...),
-    user: User = Depends(guard("memories", "edit")),
+    user: User = Depends(guard("memory", "edit")),
     db: Session = Depends(get_db),
 ):
     """Several at once, each answered separately.
@@ -226,7 +227,7 @@ def push_batch(
 
 @router.get("/coming")
 def coming(
-    user: User = Depends(guard("memories")),
+    user: User = Depends(guard("memory")),
     db: Session = Depends(get_db),
 ):
     """Confirmed dates still ahead, soonest first.
@@ -257,7 +258,7 @@ def coming(
 @router.delete("/{memory_id}")
 def delete_memory(
     memory_id: int,
-    user: User = Depends(guard("memories", "delete")),
+    user: User = Depends(guard("memory", "delete")),
     db: Session = Depends(get_db),
 ):
     """Remove the server's copy.

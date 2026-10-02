@@ -440,7 +440,7 @@ def _seed_module_grants() -> None:
         # Modules added after the first release: grant them to every existing
         # non-admin user on upgrade, or their copies would show a module the gate
         # then 403s — the "shipped but unreachable" trap.
-        for module_key in ("documents", "habits", "notes", "memories"):
+        for module_key in ("documents", "habits", "notes", "memory"):
             have = {uid for (uid,) in db.query(UserModule.user_id)
                     .filter(UserModule.module_key == module_key).all()}
             for (uid,) in db.query(User.id).filter(User.role != "admin").all():
