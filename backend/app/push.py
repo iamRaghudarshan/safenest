@@ -65,16 +65,23 @@ def notify(db: Session, user_id: int, title: str, body: str,
     db.commit()
     db.refresh(row)
 
+    # The tag identifies the THING, not the kind. `finmate-reminder` for every
+    # reminder means two due at the same hour collapse into one on the phone and
+    # the first is never seen; a tag per reminder means a re-send replaces its
+    # own earlier copy and nothing else. Callers pass one; the kind is only the
+    # fallback for notifications that are genuinely one-of-a-kind, like the
+    # daily digest.
     result = send_to_user(db, user_id, {
         "title": title, "body": body, "url": url, "tag": tag or f"finmate-{kind}",
-    })
+    }, skip_local_reminders=(kind == "reminder"))
     if result.get("sent"):
         row.pushed = 1
         db.commit()
     return {"id": row.id, **result}
 
 
-def send_to_user(db: Session, user_id: int, payload: dict) -> dict:
+def send_to_user(db: Session, user_id: int, payload: dict,
+                 skip_local_reminders: bool = False) -> dict:
     """Push to every device a user has registered — browsers AND phones.
 
     Two transports, one list. A browser subscription goes out over web push
@@ -89,6 +96,19 @@ def send_to_user(db: Session, user_id: int, payload: dict) -> dict:
     subs = db.query(PushSubscription).filter(PushSubscription.user_id == user_id).all()
     web = [s for s in subs if (s.kind or "web") != "fcm"]
     phones = [s for s in subs if (s.kind or "web") == "fcm"]
+
+    # A PHONE THAT RINGS ITS OWN ALARM IS NOT SENT A REMINDER PUSH. It schedules
+    # one locally for every reminder it knows about — exact, offline, nothing to
+    # do with this machine — and pushing as well put two notifications on the
+    # screen for one event with no way to tell they were the same thing.
+    #
+    # Reminders only. The daily digest and everything else still go, because
+    # nothing on the phone produces those.
+    skipped = 0
+    if skip_local_reminders:
+        before = len(phones)
+        phones = [s for s in phones if not s.handles_reminders]
+        skipped = before - len(phones)
 
     fcm_ready = fcm.configured()
     if not settings.push_enabled and not fcm_ready:
@@ -133,4 +153,8 @@ def send_to_user(db: Session, user_id: int, payload: dict) -> dict:
 
     db.commit()
     return {"sent": sent, "failed": failed, "removed": removed,
-            "devices": len(subs), "phones": len(phones), "browsers": len(web)}
+            "devices": len(subs), "phones": len(phones), "browsers": len(web),
+            # Reported rather than silent: "0 sent" on a user with a phone looks
+            # like a fault, and this is the difference between a push that
+            # failed and one that was deliberately left to the phone's own alarm.
+            "rang_locally": skipped}

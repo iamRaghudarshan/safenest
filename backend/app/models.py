@@ -608,6 +608,19 @@ class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, index=True)
+    #: 1 when this device sets its own alarms for reminders, so it does NOT want
+    #: a push for one it is already going to ring.
+    #:
+    #: THIS IS WHAT STOPS THE DOUBLE. The phone schedules a local alarm for every
+    #: reminder it knows about — exact, offline, no server involved — and the
+    #: scheduler here also pushes at the same minute. Two channels, one event,
+    #: two notifications, and the person has no way to tell they are the same
+    #: thing. The device is the only side that knows whether it has the reminder
+    #: covered, so it is the side that says.
+    #:
+    #: Only reminders are skipped. The daily digest and everything else still go
+    #: to this device, because nothing local produces those.
+    handles_reminders = Column(Integer, default=0)
     endpoint = Column(String(500), unique=True)
     p256dh = Column(String(255))
     auth = Column(String(255))

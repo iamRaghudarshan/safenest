@@ -136,7 +136,24 @@ def send(token: str, title: str, body: str, data: dict | None = None) -> tuple[b
             "data": {k: str(v) for k, v in (data or {}).items()},
             "android": {
                 "priority": "high",
-                "notification": {"channel_id": "safenest.reminders.alarm"},
+                "notification": {
+                    "channel_id": "safenest.reminders.alarm",
+                    # A TAG, so a notification REPLACES its predecessor instead
+                    # of stacking beside it. Without one, Android gives every
+                    # push its own entry: a reminder re-sent after a failed
+                    # delivery left two in the shade, which is half of what
+                    # "reminders are coming multiple times" was.
+                    #
+                    # Per THING, not per kind. Tagging every reminder
+                    # `safenest-reminder` would have been the opposite mistake —
+                    # two different reminders due at the same hour would have
+                    # collapsed into one and the first would have vanished.
+                    "tag": str((data or {}).get("tag") or "safenest"),
+                },
+                # Dropped by the server if the device is offline and a newer
+                # message with the same key arrives first. A stale "due now" is
+                # worse than none.
+                "collapse_key": str((data or {}).get("tag") or "safenest"),
             },
             "apns": {
                 "headers": {"apns-priority": "10"},

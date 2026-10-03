@@ -149,7 +149,11 @@ def run_reminders(now: datetime | None = None) -> dict:
             # never permitted.
             if r.notify_push:
                 push.notify(db, r.user_id, r.title or "Reminder",
-                            f"Due now — {when}", "/reminders", kind="reminder")
+                            f"Due now — {when}", "/reminders", kind="reminder",
+                            # Per reminder. See push.notify: one tag for every
+                            # reminder makes two due at the same hour collapse
+                            # into one on the phone.
+                            tag=f"reminder-{r.id}")
             # And an email, if this reminder asked for one and mail is set up. The
             # `notify_email` flag was a dead control until now — stored and shown on
             # the form, acted on by nothing. Queued and best-effort, so a slow SMTP

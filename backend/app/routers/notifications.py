@@ -142,11 +142,13 @@ def register_device(body: dict = Body(...), request: Request = None,
         existing.user_id = user.id
         existing.kind = "fcm"
         existing.user_agent = str(body.get("platform") or "")[:255]
+        existing.handles_reminders = 1 if body.get("handles_reminders") else 0
         db.commit()
         return {"registered": True, "moved": True}
 
     db.add(PushSubscription(user_id=user.id, endpoint=token, kind="fcm",
                             user_agent=str(body.get("platform") or "")[:255],
+                            handles_reminders=1 if body.get("handles_reminders") else 0,
                             created_at=now))
     db.commit()
     return {"registered": True, "moved": False}
