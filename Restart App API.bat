@@ -78,9 +78,14 @@ REM An authenticated route is a better probe than a public one, because the
 REM answer distinguishes the two cases that matter without needing a token:
 REM   401 = the route is THERE and wants a sign-in  -> new code
 REM   404 = the route does not exist at all         -> old code still running
-for /f %%A in ('curl.exe -s -o nul -w "%%{http_code}" http://127.0.0.1:8080/api/gallery/suggestions') do set CODE=%%A
+REM Moved on 3 October 2026, as the comment above says to: /api/gallery/summary
+REM is now the newest route. It feeds the six counts in the phone's new Gallery
+REM header, and it is the reason this restart was wanted at all -- so a stale
+REM probe here would have confirmed "new code" while the very thing being
+REM shipped was still missing.
+for /f %%A in ('curl.exe -s -o nul -w "%%{http_code}" http://127.0.0.1:8080/api/gallery/summary') do set CODE=%%A
 if "%CODE%"=="401" (
-    echo   New code confirmed - the suggestions route is live.
+    echo   New code confirmed - the gallery summary route is live.
 ) else if "%CODE%"=="404" (
     echo   [!] Still serving the OLD build ^(got 404 - that route does not exist yet^).
 ) else (
