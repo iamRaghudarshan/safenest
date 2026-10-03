@@ -35,7 +35,7 @@ SKIP = {"audit_logs", "users"}
 # Every module, so the user isn't locked out of part of their own copy.
 ALL_MODULES = ["loans", "cards", "insurance", "investments", "expenses",
                "reminders", "todo", "habits", "vault", "gallery", "documents", "notes",
-               "memory"]
+               "memory", "track"]
 
 
 def _reencrypt(rows: list[dict], new_key: str) -> int:

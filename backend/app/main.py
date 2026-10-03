@@ -20,6 +20,7 @@ from .models import (Album, AlbumPhoto, AppHost, Branding, Broadcast, AutoImport
                      UserModule, User)
 from .routers import (activity, admin, auth, branding, autoimports, dashboard, devices, documents, habits, hosting, household, masters, briefing, cards, releases,
                       expenses, gallery, licences, loans, mail, memories, notes, notifications, people, reminders,
+                      track,
                       resources, search, mobile, storage, storefront, support, sync, system, todos, vault)
 from . import autoimport, autostart, backup, hosts, indexer, ist, licensing, mailer, scheduler, tunnelrun
 
@@ -440,7 +441,7 @@ def _seed_module_grants() -> None:
         # Modules added after the first release: grant them to every existing
         # non-admin user on upgrade, or their copies would show a module the gate
         # then 403s — the "shipped but unreachable" trap.
-        for module_key in ("documents", "habits", "notes", "memory"):
+        for module_key in ("documents", "habits", "notes", "memory", "track"):
             have = {uid for (uid,) in db.query(UserModule.user_id)
                     .filter(UserModule.module_key == module_key).all()}
             for (uid,) in db.query(User.id).filter(User.role != "admin").all():
@@ -1226,7 +1227,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, habits, notes, memories, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports, sync):
+for r in (auth, dashboard, briefing, loans, cards, resources, expenses, reminders, todos, habits, notes, memories, track, vault, gallery, people, documents, masters, notifications, system, activity, admin, licences, search, branding, hosting, household, releases, devices, autoimports, sync):
     app.include_router(r.router)
 app.include_router(licences.public)   # /api/licence/... — customer-facing, separate prefix
 app.include_router(storage.router)   # /api/storage — recovery when the records folder is unreadable

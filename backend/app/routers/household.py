@@ -33,7 +33,7 @@ updater = APIRouter(prefix="/api/update", tags=["update"])
 
 ALL_MODULES = ["loans", "cards", "insurance", "investments", "expenses",
                "reminders", "todo", "habits", "vault", "gallery", "documents", "notes",
-               "memory"]
+               "memory", "track"]
 
 
 def can_manage(user: User, db: Session) -> bool:

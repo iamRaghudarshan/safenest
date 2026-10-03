@@ -1339,3 +1339,75 @@ class MemoryFact(Base):
     #: warranty warnings are built from, and the only reason to keep it here is
     #: so a new phone can be told what is coming.
     at = Column(FlexDateTime)
+
+
+class TrackPoint(Base):
+    """TRACK ME: one position, as a phone reported it.
+
+    THE MOST SENSITIVE TABLE IN THE PRODUCT. A location history says where
+    somebody lives, where they work, who they visit and when they are out. It is
+    opt-in on the phone, off until switched on, and it never leaves this machine.
+
+    Like a memory, the PHONE holds the original. A fix is taken with the screen
+    off, often with no signal — in a basement, on a train, abroad — and if it is
+    not written to the phone's own database at that moment there is nothing to
+    write later. This is a copy, pushed when there is a connection.
+
+    ONE ROW PER FIX, never the stays and journeys worked out from them. The
+    rules for cutting a day into places and travel WILL change — the first
+    version of any such rule is wrong about somebody's commute — and storing the
+    conclusions leaves every past day stuck with the rules of the week it was
+    recorded. The fixes are the evidence.
+    """
+    __tablename__ = "track_points"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    #: Minted on the phone, per fix. The idempotency key.
+    #:
+    #: It matters more here than anywhere else: this module runs all day with
+    #: the screen off, so a retry whose reply was never seen is the ordinary
+    #: case — and a duplicated fix is not merely untidy. Two fixes a second
+    #: apart at the same spot look like a stop, and a day full of them re-cuts
+    #: into places that were never places.
+    client_uuid = Column(String(64), index=True)
+    device_row_id = Column(Integer)
+    #: When the fix was TAKEN. A week abroad pushed on landing would otherwise
+    #: collapse onto one afternoon.
+    at = Column(FlexDateTime, index=True)
+    lat = Column(Float)
+    lon = Column(Float)
+    #: Metres the phone is unsure by. Kept because the reader throws away
+    #: anything worse than 200m — a cell-tower guess can be a kilometre out, and
+    #: averaging it into a stay moves the place to one nobody has ever been.
+    accuracy = Column(Float, default=0)
+    speed = Column(Float)
+    #: Charge at the time, so "the afternoon is missing" can be answered.
+    battery = Column(Integer)
+    created_at = Column(FlexDateTime)
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_uuid", name="uq_track_user_uuid"),
+    )
+
+
+class TrackPlace(Base):
+    """Somewhere a person has NAMED — home, the office, a parent's house.
+
+    Named by the person, never looked up. A reverse-geocode would send the
+    coordinates of somebody's house to a stranger's server to be told what its
+    owner already knows, which is the one thing this module is built not to do.
+
+    Matching is by proximity, so naming "Home" once names every evening ever
+    spent there — backwards as well as forwards — which is why this is a place
+    with a radius and not a label on a row.
+    """
+    __tablename__ = "track_places"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    name = Column(String(80), default="")
+    lat = Column(Float)
+    lon = Column(Float)
+    #: How close counts as being here. Wider than a stay's own radius on
+    #: purpose: a house, its gate and the shop on the corner are one place to
+    #: anybody describing their day.
+    radius = Column(Float, default=150)
+    created_at = Column(FlexDateTime)
