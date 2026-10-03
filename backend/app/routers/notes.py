@@ -139,6 +139,18 @@ def update(id: int, body: dict = Body(...), user: User = Depends(guard("notes", 
         n.labels = json.dumps(_labels(body.get("labels")))
     if "items" in body:
         _set_items(db, n, user, body.get("items"))
+    if "pinned" in body:
+        n.pinned = 1 if body.get("pinned") else 0
+    if "archived" in body:
+        n.archived = 1 if body.get("archived") else 0
+    if "reminder_at" in body:
+        # A NOTE CAN REMIND YOU NOW. The column has been here since the first
+        # release with a comment calling it stage 2, and nothing ever set it —
+        # stored, shown on the form, acted on by nobody, which is the same
+        # shape of dead control that notify_email was. The phone schedules a
+        # local alarm from this; empty clears it.
+        raw = body.get("reminder_at")
+        n.reminder_at = raw if raw else None
     n.updated_at = ist.now(); db.commit(); db.refresh(n)
     audit(db, user.id, "update", "note", id, {"label": n.title or "(note)"})
     return {"item": _present(n, db)}
@@ -200,3 +212,115 @@ def delete(id: int, user: User = Depends(guard("notes", "delete")), db: Session 
     db.delete(n); db.commit()
     audit(db, user.id, "delete", "note", id, {"label": label or "(note)"})
     return {"deleted": id}
+
+
+@router.post("/{id}/copy")
+def copy(id: int, user: User = Depends(guard("notes", "create")),
+         db: Session = Depends(get_db)):
+    """Make a copy — Keep's own wording, and the thing a note is most often
+    wanted for: a shopping list you used last week, a packing list, a format.
+
+    The copy is NOT pinned and NOT archived however the original was. Pinning is
+    a statement about what is at the top of your list right now, and a duplicate
+    inheriting it pushes the original out of the way with something identical.
+    The reminder is left behind for the same reason: two alarms for one thing is
+    the bug this project has just finished fixing elsewhere.
+    """
+    n = db.query(Note).filter(Note.id == id, Note.user_id == user.id).first()
+    if not n:
+        raise HTTPException(404, "note not found")
+
+    now = ist.now()
+    made = Note(user_id=user.id, title=n.title, body=n.body, kind=n.kind,
+                color=n.color, labels=n.labels, pinned=0, archived=0,
+                is_trashed=0, position=0, created_at=now, updated_at=now)
+    db.add(made); db.commit(); db.refresh(made)
+
+    if n.kind == "checklist":
+        items = (db.query(NoteItem).filter(NoteItem.note_id == n.id)
+                 .order_by(NoteItem.position.asc(), NoteItem.id.asc()).all())
+        for it in items:
+            # UNTICKED. A copied shopping list with everything already ticked is
+            # of no use to anybody — the reason to copy one is to do it again.
+            db.add(NoteItem(note_id=made.id, user_id=user.id, text=it.text,
+                            checked=0, position=it.position))
+        db.commit()
+
+    audit(db, user.id, "create", "note", made.id,
+          {"label": made.title or "(note)", "copied_from": n.id})
+    return {"item": _present(made, db)}
+
+
+#: How many notes one bulk call may touch.
+#:
+#: Generous, because selecting everything in a bucket and archiving it is a real
+#: thing to do, and small enough that a hand-written request cannot ask the
+#: server to rewrite a library in one transaction.
+BULK_MAX = 200
+
+
+@router.post("/bulk")
+def bulk(body: dict = Body(...), user: User = Depends(guard("notes", "edit")),
+         db: Session = Depends(get_db)):
+    """One action over several notes.
+
+    ONE REQUEST, NOT ONE PER NOTE. Selecting eleven notes and archiving them was
+    eleven round trips from a phone, each able to fail on its own — so a flaky
+    connection left some archived and some not, with no way to tell which
+    without reading the list.
+
+    Returns how many were changed, and the ids, so the caller can offer Undo
+    against exactly those: Keep's whole multi-select is only usable because
+    every bulk action can be taken back.
+    """
+    action = str(body.get("action") or "").strip().lower()
+    ids = [int(i) for i in (body.get("ids") or [])
+           if isinstance(i, (int, float)) or str(i).lstrip("-").isdigit()]
+    ids = ids[:BULK_MAX]
+    if not ids:
+        raise HTTPException(400, "ids is required")
+
+    rows = (db.query(Note)
+            .filter(Note.id.in_(ids), Note.user_id == user.id).all())
+    if not rows:
+        return {"changed": 0, "ids": []}
+
+    now = ist.now()
+    touched = []
+    for n in rows:
+        if action == "pin":
+            n.pinned = 1 if body.get("value", True) else 0
+        elif action == "archive":
+            n.archived = 1 if body.get("value", True) else 0
+            # Archiving unpins, as Keep does: a pinned note at the top of the
+            # archive is a contradiction, and it would come back pinned.
+            if n.archived:
+                n.pinned = 0
+        elif action == "trash":
+            n.is_trashed = 1 if body.get("value", True) else 0
+            if n.is_trashed:
+                n.pinned = 0
+        elif action == "color":
+            colour = body.get("color")
+            n.color = colour if colour in COLORS else "default"
+        elif action == "label":
+            # ADDS, never replaces. Labelling eleven notes "Trip" must not strip
+            # whatever else each of them was already filed under.
+            have = _labels(n.labels)
+            for l in _labels(body.get("labels")):
+                if l not in have:
+                    have.append(l)
+            n.labels = json.dumps(have)
+        elif action == "unlabel":
+            drop = {l.lower() for l in _labels(body.get("labels"))}
+            n.labels = json.dumps(
+                [l for l in _labels(n.labels) if l.lower() not in drop])
+        else:
+            raise HTTPException(400, f"unknown action: {action}")
+        n.updated_at = now
+        touched.append(n.id)
+
+    db.commit()
+    audit(db, user.id, "update", "note", touched[0] if touched else None,
+          {"bulk": action, "count": len(touched)})
+    return {"changed": len(touched), "ids": touched}
