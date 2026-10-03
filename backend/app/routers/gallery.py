@@ -33,8 +33,8 @@ from .. import photoedit
 from .. import dialect, indexer, nlquery, places, smartalbum, storage, vision
 from ..database import get_db
 from ..helpers import audit
-from ..models import (Album, AlbumPhoto, GalleryPhoto, Person, PhotoFace,
-                      PhotoLabel, PhotoPerson, PhotoVector, User)
+from ..models import (Album, AlbumPhoto, Document, GalleryPhoto, Person,
+                      PhotoFace, PhotoLabel, PhotoPerson, PhotoVector, User)
 from ..security import guard
 from ..signing import sign, verify
 
@@ -1008,6 +1008,51 @@ def trash_list(user: User = Depends(guard("gallery", "view")), db: Session = Dep
             .filter(GalleryPhoto.user_id == user.id, GalleryPhoto.is_trashed == 1)
             .order_by(GalleryPhoto.updated_at.desc(), GalleryPhoto.id.desc()).limit(1000).all())
     return {"items": [_present(p) for p in rows]}
+
+
+@router.get("/summary")
+def summary(user: User = Depends(guard("gallery", "view")),
+            db: Session = Depends(get_db)):
+    """How many of each kind this account has, for the panel at the top of the
+    phone's gallery.
+
+    ONE REQUEST, not six. The phone draws six tiles and each wants a number; six
+    round trips on opening the gallery is six chances to be slow and six to
+    fail, and the panel would fill in raggedly as they landed.
+
+    Counts only — no rows, no URLs. It is read on every visit to the main
+    screen, so it has to stay cheap enough that nobody thinks about it.
+    """
+    photos = (db.query(func.count(GalleryPhoto.id))
+              .filter(GalleryPhoto.user_id == user.id,
+                      GalleryPhoto.is_trashed == 0,
+                      or_(GalleryPhoto.kind.is_(None),
+                          GalleryPhoto.kind != "video")).scalar() or 0)
+    videos = (db.query(func.count(GalleryPhoto.id))
+              .filter(GalleryPhoto.user_id == user.id,
+                      GalleryPhoto.is_trashed == 0,
+                      GalleryPhoto.kind == "video").scalar() or 0)
+    documents = (db.query(func.count(Document.id))
+                 .filter(Document.user_id == user.id,
+                         Document.is_trashed == 0).scalar() or 0)
+    # Named people only. The clustering finds far more faces than anybody has
+    # named, and a tile reading "312 people" when you know eleven of them reads
+    # as a fault rather than as a count of clusters.
+    people = (db.query(func.count(Person.id))
+              .filter(Person.user_id == user.id,
+                      Person.name.isnot(None),
+                      Person.name != "").scalar() or 0)
+    albums = (db.query(func.count(Album.id))
+              .filter(Album.user_id == user.id).scalar() or 0)
+    places = (db.query(func.count(func.distinct(GalleryPhoto.lat)))
+              .filter(GalleryPhoto.user_id == user.id,
+                      GalleryPhoto.is_trashed == 0,
+                      GalleryPhoto.lat.isnot(None)).scalar() or 0)
+
+    return {
+        "photos": photos, "videos": videos, "documents": documents,
+        "people": people, "albums": albums, "places": places,
+    }
 
 
 @router.get("/places")
