@@ -1,6 +1,6 @@
 {
-  "version": "1.86.0",
-  "build": 189,
-  "notes": "A picture you set as the background no longer makes the words hard to read. The phone and computer on the backup screen are redrawn, and the computer fills up as your photos arrive.",
+  "version": "1.88.0",
+  "build": 191,
+  "notes": "The Gallery shows your photographs again. A two-point mismatch in the sticky date header was stopping everything below it from being drawn.",
   "filename": "app-release.apk"
 }
