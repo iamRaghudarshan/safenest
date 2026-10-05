@@ -169,11 +169,18 @@ def check_apk(data: bytes) -> str:
     for needed in ("AndroidManifest.xml", "classes.dex"):
         if needed not in names:
             raise Stop(f"The APK has no {needed} — it is not a complete build.")
-    libs = sorted({n.split("/")[1] for n in names
-                   if n.startswith("lib/") and n.count("/") >= 2})
-    if not any(n.startswith("lib/") and n.endswith("libflutter.so") for n in names):
+    # ONLY THE ABIs THAT CAN ACTUALLY RUN, which is not the same as the folders
+    # present. A release APK carries arm64-v8a and armeabi-v7a; an x86_64 folder
+    # also appears, holding two files from a plugin and no engine at all. Listing
+    # folders made this script report "ABIs: ..., x86_64" — which reads as "it
+    # runs on an x86_64 emulator", and it does not: installing it there dies with
+    # `libflutter.so is for EM_AARCH64 instead of EM_X86_64`. A verification tool
+    # that overstates what it checked is worse than one that checks nothing.
+    runnable = sorted({n.split("/")[1] for n in names
+                       if n.startswith("lib/") and n.endswith("/libflutter.so")})
+    if not runnable:
         raise Stop("The APK carries no libflutter.so — the engine is missing.")
-    return f"{len(names)} entries, ABIs: {', '.join(libs) or 'none'}"
+    return f"{len(names)} entries, runnable on: {', '.join(runnable)}"
 
 
 def publish(version: str, build: int, notes: str, apk: bytes, filename: str) -> None:
