@@ -18,7 +18,11 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from sqlalchemy.orm import Session as DbSession
+
 from .. import bundler
+from ..database import get_db
+from ..helpers import audit
 from ..models import User
 from ..ratelimit import rate_limit
 from ..security import get_current_user
@@ -42,7 +46,8 @@ def _meta(platform: str) -> dict | None:
 
 @router.get("/latest")
 def latest(request: Request, platform: str = "android",
-           user: User = Depends(get_current_user)):
+           user: User = Depends(get_current_user),
+           db: DbSession = Depends(get_db)):
     """The newest mobile build on offer, for the app's own update check.
 
     Returns a RELATIVE download path, not an absolute URL: the phone reaches this
@@ -58,6 +63,21 @@ def latest(request: Request, platform: str = "android",
     apk = _mobile_dir() / meta["filename"]
     if not apk.is_file():
         return {"available": False}
+    # AUDITED ONLY WHEN THERE IS SOMETHING TO OFFER, which keeps this quiet —
+    # the phone asks once per launch and the "nothing new" answer is noise.
+    #
+    # It is here because the phone's updater swallows every failure by design
+    # ("an update check must never break the app it is checking"), so a build
+    # that is published, correct and never installed looks exactly like one
+    # nobody offered. With this row and the one in download() below, the three
+    # cases separate without asking anyone to read an error off a screen:
+    #   offered, never downloaded -> the prompt is not appearing, or declined
+    #   offered and downloaded    -> Android refused the install
+    #   neither                   -> the phone is not reaching this server
+    audit(db, user.id, "mobile_update_offered", "mobile", None,
+          meta={"platform": plat, "version": str(meta.get("version", "")),
+                "build": meta.get("build")},
+          request=request)
     return {"available": True, "platform": plat,
             "version": str(meta.get("version", "")),
             "notes": str(meta.get("notes", "")),
@@ -67,7 +87,8 @@ def latest(request: Request, platform: str = "android",
 
 @router.get("/download")
 def download(request: Request, platform: str = "android",
-             user: User = Depends(get_current_user)):
+             user: User = Depends(get_current_user),
+             db: DbSession = Depends(get_db)):
     """The APK file itself, for the phone to install."""
     rate_limit(request, "mobile-download", limit=12, window=600)
     plat = (platform or "android").strip().lower()
@@ -75,5 +96,12 @@ def download(request: Request, platform: str = "android",
     apk = _mobile_dir() / (meta.get("filename") if meta else "")
     if not meta or not meta.get("filename") or not apk.is_file():
         raise HTTPException(404, "No mobile build is available")
+    # The phone accepted the prompt and is fetching the file. Paired with the
+    # row in latest(), this is what distinguishes "never offered" from "offered
+    # and refused by Android at install time".
+    audit(db, user.id, "mobile_update_downloaded", "mobile", None,
+          meta={"platform": plat, "version": str(meta.get("version", "")),
+                "bytes": apk.stat().st_size},
+          request=request)
     return FileResponse(apk, filename=apk.name,
                         media_type="application/vnd.android.package-archive")
