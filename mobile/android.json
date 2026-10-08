@@ -1,6 +1,6 @@
 {
-  "version": "1.88.0",
-  "build": 191,
-  "notes": "The Gallery shows your photographs again. A two-point mismatch in the sticky date header was stopping everything below it from being drawn.",
+  "version": "1.89.0",
+  "build": 194,
+  "notes": "You can now ask for updates yourself: Profile - Check for updates. The Gallery shows your photographs again.",
   "filename": "app-release.apk"
 }
