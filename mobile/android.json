@@ -1,6 +1,6 @@
 {
-  "version": "1.89.0",
-  "build": 194,
-  "notes": "You can now ask for updates yourself: Profile - Check for updates. The Gallery shows your photographs again.",
+  "version": "1.90.0",
+  "build": 196,
+  "notes": "Photos opens first, and opens on your photographs. Documents is now Drive. Selecting works like Google Photos: a Select button, drag to extend, and back clears the selection.",
   "filename": "app-release.apk"
 }
