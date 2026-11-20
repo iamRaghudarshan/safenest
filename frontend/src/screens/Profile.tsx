@@ -373,7 +373,23 @@ function NotificationSettings({ onOpenHistory }: { onOpenHistory: () => void }) 
     )
   }
 
-  const on = s.enabled && s.devices > 0
+  // THE DAILY SUMMARY IS ON WHENEVER THE PREF IS ON. Device count decides only
+  // whether a PUSH can reach this phone; the summary still lands in the bell
+  // and, where mail is set up, in the user's inbox. scheduler.py says so
+  // outright — it deliberately stopped skipping users with no push device,
+  // "which is every iPhone here".
+  //
+  // ANDing the two was reported as "daily i am getting mail ... from where it
+  // is coming". With the pref on and no device registered, this switch read
+  // OFF and the entire panel below it — send time, which sections, the test
+  // button — was hidden, so the screen showed no sign that a daily summary
+  // existed at all while one arrived every morning. The only way to stop it
+  // was to press a switch that already looked off, which nobody would do.
+  //
+  // Keep these two separate. `on` is the state of the thing being sent;
+  // `pushReaches` is whether this particular phone will hear about it.
+  const on = !!s.enabled
+  const pushReaches = s.enabled && s.devices > 0
   // <input type="time"> only accepts 24-hour HH:MM as its value; the label people
   // read is the 12-hour one.
   const time = `${String(s.sendHour).padStart(2, '0')}:${String(s.sendMinute).padStart(2, '0')}`
@@ -385,7 +401,12 @@ function NotificationSettings({ onOpenHistory }: { onOpenHistory: () => void }) 
         ? `Sent from your own server, so it only goes out while the ${appName()} PC is on.`
         : undefined}>
       <SettingsRow icon="🔔" tint="var(--c-reminders)" label="Daily reminder"
-        sub={on ? `One summary each day at ${timeLabel} IST` : 'Get told what’s due, once a day'}
+        sub={on
+          // Say where it actually goes. "One summary each day" was true and
+          // unhelpful to somebody wondering why an email keeps arriving.
+          ? `One summary each day at ${timeLabel} IST` +
+            (pushReaches ? '' : ' — by email and in the app, no device registered')
+          : 'Get told what’s due, once a day'}
         right={
           <button className={`switch${on ? ' on' : ''}`} onClick={toggle}
             disabled={!!busy || !!blocked} role="switch" aria-checked={on} aria-label="Daily reminder">
